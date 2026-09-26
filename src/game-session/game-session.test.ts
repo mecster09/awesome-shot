@@ -284,4 +284,32 @@ describe("GameSession live quarter capture", () => {
     await expect(terminated.session.correctPlayerStatistic(terminated.game.id, 1, actionId, { playerId: terminated.players[7].id, position: "Wing Defence", statistic: "Intercept" })).rejects.toThrow("Only a live game");
     await expect(terminated.session.startNextQuarter(terminated.game.id)).rejects.toThrow("Only a live game");
   });
+
+  it("exposes a read-only report model only for terminal matches", async () => {
+    const { session, game } = await startLiveMatch();
+    await expect(() => session.terminalMatchReport(game.id)).toThrow("Only a terminal match");
+    await session.recordPlayerStatistic(game.id, { position: "Goal Attack", statistic: "Goals" });
+    await session.terminateGame(game.id);
+
+    expect(session.terminalMatchReport(game.id)).toMatchObject({
+      teamName: "Roses",
+      oppositionName: "Thunder",
+      status: "terminated",
+      score: { own: 1, opposition: 0 },
+      quarters: [{ number: 1, ownScore: 1, playerStatistics: [{ position: "Goal Attack", statistic: "Goals", count: 1 }] }]
+    });
+  });
+
+  it("reports completed and abandoned outcomes without reopening their data", async () => {
+    const completed = await startLiveMatch();
+    await completed.session.recordPlayerStatistic(completed.game.id, { position: "Goal Attack", statistic: "Goals" });
+    for (let quarter = 1; quarter <= 4; quarter += 1) { await completed.session.endQuarter(completed.game.id); if (quarter < 4) await completed.session.startNextQuarter(completed.game.id); }
+    await completed.session.finaliseGame(completed.game.id, { own: 1, opposition: 0 });
+    expect(completed.session.terminalMatchReport(completed.game.id)).toMatchObject({ status: "finalised", outcome: { kind: "completed" }, score: { own: 1, opposition: 0 } });
+    await expect(completed.session.terminateGame(completed.game.id)).rejects.toThrow("Only a live game");
+
+    const abandoned = await startLiveMatch();
+    await abandoned.session.abandonGame(abandoned.game.id, "team");
+    expect(abandoned.session.terminalMatchReport(abandoned.game.id)).toMatchObject({ status: "abandoned", outcome: { kind: "abandoned", winner: "team" } });
+  });
 });

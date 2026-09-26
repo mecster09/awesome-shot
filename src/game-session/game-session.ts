@@ -1,4 +1,4 @@
-import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, type CaptureAction, type CreateDraftInput, type Game, type GameSessionStore, type LiveQuarterCapture, type Opposition, type Player, type PlayerStatistic, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartingLineup } from "./types";
+import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, type CaptureAction, type CreateDraftInput, type Game, type GameSessionStore, type LiveQuarterCapture, type Opposition, type Player, type PlayerStatistic, type PlayerStatisticTotal, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartingLineup, type TerminalMatchReport } from "./types";
 
 const emptySetup = (): SetupData => ({ seasons: [], players: [], opposition: [], games: [] });
 
@@ -107,6 +107,32 @@ export class GameSession {
     const game = this.data.games.find((candidate) => candidate.id === id);
     if (!game) throw new Error("Match was not found.");
     return this.score(game.quarters?.flatMap((quarter) => quarter.captureActions) ?? []);
+  }
+
+  terminalMatchReport(id: string): TerminalMatchReport {
+    const game = this.data.games.find((candidate) => candidate.id === id);
+    if (!game || (game.status !== "finalised" && game.status !== "abandoned" && game.status !== "terminated") || !game.outcome) throw new Error("Only a terminal match can be reviewed.");
+    const playerName = (playerId: string) => this.data.players.find((player) => player.id === playerId)?.name ?? "Unknown player";
+    const lineup = (court: StartingLineup) => POSITIONS.map((position) => ({ position, playerId: court[position], playerName: playerName(court[position]) }));
+    const quarters = (game.quarters ?? []).map((quarter) => ({
+      number: quarter.number,
+      ownScore: this.score(quarter.captureActions).own,
+      oppositionScore: this.score(quarter.captureActions).opposition,
+      startingLineup: lineup(quarter.startingLineup),
+      courtChanges: quarter.courtChanges.map((change) => ({ sequence: change.sequence, lineup: lineup(change.lineup) })),
+      playerStatistics: this.statisticTotals(quarter.captureActions).map((statistic) => ({ ...statistic, playerName: playerName(statistic.playerId) }))
+    }));
+    return structuredClone({
+      id: game.id,
+      date: game.date,
+      teamName: this.requireSeason(game.seasonId).teamName,
+      oppositionName: this.data.opposition.find((opposition) => opposition.id === game.oppositionId)?.name ?? "Unknown opposition",
+      status: game.status,
+      outcome: game.outcome,
+      score: game.finalScore ?? this.gameScore(id),
+      quarters,
+      gamePlayerStatistics: this.statisticTotals((game.quarters ?? []).flatMap((quarter) => quarter.captureActions)).map((statistic) => ({ ...statistic, playerName: playerName(statistic.playerId) }))
+    });
   }
 
   async createDraft(input: CreateDraftInput): Promise<Game> {
@@ -241,20 +267,13 @@ export class GameSession {
 
   private capture(game: Game, quarter: Quarter): LiveQuarterCapture {
     const lineup = this.currentLineup(quarter);
-    const totals = new Map<string, { playerId: string; position: Position; statistic: PlayerStatistic; count: number }>();
-    for (const action of quarter.captureActions) {
-      if (action.kind === "opposition-goal") continue;
-      const key = `${action.playerId}:${action.position}:${action.statistic}`;
-      const existing = totals.get(key);
-      totals.set(key, existing ? { ...existing, count: existing.count + 1 } : { playerId: action.playerId, position: action.position, statistic: action.statistic, count: 1 });
-    }
     const quarterScore = this.score(quarter.captureActions);
     const gameScore = this.score(game.quarters?.flatMap((candidate) => candidate.captureActions) ?? []);
     return {
       number: quarter.number,
       lineup: structuredClone(lineup),
       courtChanges: structuredClone(quarter.courtChanges),
-      playerStatistics: [...totals.values()],
+      playerStatistics: this.statisticTotals(quarter.captureActions),
       ownScore: quarterScore.own,
       oppositionScore: quarterScore.opposition,
       ownGameScore: gameScore.own,
@@ -364,6 +383,17 @@ export class GameSession {
       if (action.kind === "opposition-goal") return { ...score, opposition: score.opposition + 1 };
       return action.statistic === "Goals" ? { ...score, own: score.own + 1 } : score;
     }, { own: 0, opposition: 0 });
+  }
+
+  private statisticTotals(actions: CaptureAction[]): PlayerStatisticTotal[] {
+    const totals = new Map<string, PlayerStatisticTotal>();
+    for (const action of actions) {
+      if (action.kind === "opposition-goal") continue;
+      const key = `${action.playerId}:${action.position}:${action.statistic}`;
+      const existing = totals.get(key);
+      totals.set(key, existing ? { ...existing, count: existing.count + 1 } : { playerId: action.playerId, position: action.position, statistic: action.statistic, count: 1 });
+    }
+    return [...totals.values()];
   }
 
   private validateStartingLineup(game: Game, lineup: StartingLineup): void {
