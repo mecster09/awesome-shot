@@ -16,11 +16,38 @@ export type Opposition = {
   archived: boolean;
 };
 
+export const POSITIONS = [
+  "Goal Keeper",
+  "Goal Defence",
+  "Wing Defence",
+  "Centre",
+  "Wing Attack",
+  "Goal Attack",
+  "Goal Shooter"
+] as const;
+
+export type Position = (typeof POSITIONS)[number];
+export type StartingLineup = Record<Position, string>;
+
+export type Game = {
+  id: string;
+  seasonId: string;
+  oppositionId: string;
+  date: string;
+  squadPlayerIds: string[];
+  startingLineup?: StartingLineup;
+  status: "draft" | "live";
+  activeQuarter?: 1;
+};
+
+export type CreateDraftInput = Pick<Game, "seasonId" | "oppositionId" | "date" | "squadPlayerIds">;
+
 export type SetupData = {
   seasons: Season[];
   players: Player[];
   opposition: Opposition[];
   selectedOppositionId?: string;
+  games: Game[];
 };
 
 export type SetupSummary = SetupData & {
