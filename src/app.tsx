@@ -1,10 +1,11 @@
 import { FormEvent, useEffect, useState } from "react";
 import { GameSession } from "./game-session/game-session";
 import { IndexedDbGameSessionStore } from "./game-session/indexed-db-game-session-store";
-import type { GameSessionStore, SetupSummary } from "./game-session/types";
+import { POSITIONS, type CreateDraftInput, type Game, type GameSessionStore, type Position, type SetupSummary, type StartingLineup } from "./game-session/types";
 import "./styles.css";
 
 type AppProps = { store?: GameSessionStore };
+type MatchView = { kind: "new" } | { kind: "game"; gameId: string };
 
 const playerLabel = (player: { name: string; nickname?: string }) =>
   player.nickname ? `${player.name} (${player.nickname})` : player.name;
@@ -16,6 +17,7 @@ export function App({ store }: AppProps) {
   const [setup, setSetup] = useState<SetupSummary>();
   const [message, setMessage] = useState("Preparing your offline workspace…");
   const [error, setError] = useState<string>();
+  const [matchView, setMatchView] = useState<MatchView>();
 
   useEffect(() => {
     void GameSession.open(gameSessionStore)
@@ -94,7 +96,34 @@ export function App({ store }: AppProps) {
 
     <section className="next-step" aria-label="Next step">
       <span className="step-number">1</span>
-      <div><strong>Foundation ready</strong><p>Match setup and live game capture are the next Natball Insights steps.</p></div>
+      <div><strong>Match setup ready</strong><p>Choose your squad and starting seven before Quarter 1.</p></div>
+    </section>
+
+    <section className="match-area" aria-labelledby="match-title">
+      <div className="section-heading"><div><p className="eyebrow">MATCH CENTRE</p><h2 id="match-title">Prepare your next game</h2></div><button onClick={() => setMatchView({ kind: "new" })}>Create match</button></div>
+      {matchView?.kind === "new" && <NewMatchForm
+        setup={setup}
+        onAddPlayer={async (input) => {
+          const player = await session.addPlayer(input);
+          refresh();
+          return player;
+        }}
+        onCreate={(input) => perform(async () => {
+          const game = await session.createDraft(input);
+          setMatchView({ kind: "game", gameId: game.id });
+        })}
+      />}
+      {session.matches().map((game) => matchView?.kind === "game" && matchView.gameId === game.id && <DraftMatchCard
+        key={game.id}
+        game={game}
+        setup={setup}
+        onSaveLineup={(lineup) => perform(() => session.setStartingLineup(game.id, lineup))}
+        onStart={(lineup) => perform(async () => { await session.setStartingLineup(game.id, lineup); await session.startQuarterOne(game.id); })}
+        onDelete={() => perform(async () => { await session.deleteDraft(game.id); setMatchView(undefined); })}
+      />)}
+      {!matchView && session.matches().length > 0 && <ul className="match-list" aria-label="Saved match drafts">
+        {session.matches().map((game) => <li key={game.id}><span><strong>{game.date}</strong> · {setup.opposition.find((opposition) => opposition.id === game.oppositionId)?.name}</span><button className="text-button" onClick={() => setMatchView({ kind: "game", gameId: game.id })}>{game.status === "draft" ? "Open draft" : "View live match"}</button></li>)}
+      </ul>}
     </section>
   </main>;
 }
@@ -149,4 +178,43 @@ function OppositionForm({ onSubmit }: { onSubmit: (name: string) => Promise<void
     <label>Opposition name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Opposition team" /></label>
     <button type="submit">Add opposition</button>
   </form>;
+}
+
+function NewMatchForm({ setup, onAddPlayer, onCreate }: { setup: SetupSummary; onAddPlayer: (input: { name: string; nickname?: string }) => Promise<{ id: string }>; onCreate: (input: CreateDraftInput) => Promise<void> }) {
+  const [seasonId, setSeasonId] = useState(setup.seasons.at(-1)?.id ?? "");
+  const [oppositionId, setOppositionId] = useState(setup.selectedOpposition?.id ?? setup.activeOpposition.at(0)?.id ?? "");
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [squadPlayerIds, setSquadPlayerIds] = useState<string[]>([]);
+  const [newPlayerName, setNewPlayerName] = useState("");
+  const [newPlayerNickname, setNewPlayerNickname] = useState("");
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    await onCreate({ seasonId, oppositionId, date, squadPlayerIds });
+  };
+  const togglePlayer = (id: string) => setSquadPlayerIds((current) => current.includes(id) ? current.filter((playerId) => playerId !== id) : [...current, id]);
+  const addPlayerToSquad = async () => {
+    const player = await onAddPlayer({ name: newPlayerName, nickname: newPlayerNickname });
+    setSquadPlayerIds((current) => [...current, player.id]);
+    setNewPlayerName("");
+    setNewPlayerNickname("");
+  };
+  return <form className="match-form" onSubmit={(event) => void submit(event)}>
+    <div className="field-grid">
+      <label>Season<select value={seasonId} onChange={(event) => setSeasonId(event.target.value)}><option value="">Select season</option>{setup.seasons.map((season) => <option key={season.id} value={season.id}>{season.name} · {season.teamName}</option>)}</select></label>
+      <label>Opposition<select value={oppositionId} onChange={(event) => setOppositionId(event.target.value)}><option value="">Select opposition</option>{setup.activeOpposition.map((opposition) => <option key={opposition.id} value={opposition.id}>{opposition.name}</option>)}</select></label>
+      <label>Match date<input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
+    </div>
+    <div className="quick-player" aria-label="Add a player to this squad"><label>New player name<input value={newPlayerName} onChange={(event) => setNewPlayerName(event.target.value)} placeholder="Player name" /></label><label>New player nickname <span className="optional">optional</span><input aria-label="New player nickname" value={newPlayerNickname} onChange={(event) => setNewPlayerNickname(event.target.value)} placeholder="Nickname" /></label><button type="button" disabled={!newPlayerName.trim() || squadPlayerIds.length === 12} onClick={() => void addPlayerToSquad()}>Add player to squad</button></div>
+    <fieldset className="squad-picker"><legend>Match squad <span>{squadPlayerIds.length}/12 selected</span></legend><div className="player-checks">{setup.players.map((player) => <label key={player.id} className="player-check"><input type="checkbox" checked={squadPlayerIds.includes(player.id)} onChange={() => togglePlayer(player.id)} disabled={!squadPlayerIds.includes(player.id) && squadPlayerIds.length === 12} />{playerLabel(player)}</label>)}</div></fieldset>
+    <button type="submit">Create draft</button>
+  </form>;
+}
+
+function DraftMatchCard({ game, setup, onSaveLineup, onStart, onDelete }: { game: Game; setup: SetupSummary; onSaveLineup: (lineup: StartingLineup) => Promise<void>; onStart: (lineup: StartingLineup) => Promise<void>; onDelete: () => Promise<void> }) {
+  const [lineup, setLineup] = useState<Partial<StartingLineup>>(game.startingLineup ?? {});
+  const squad = setup.players.filter((player) => game.squadPlayerIds.includes(player.id));
+  const updatePosition = (position: Position, playerId: string) => setLineup((current) => ({ ...current, [position]: playerId }));
+  const savedLineup = lineup as StartingLineup;
+  if (game.status === "live") return <section className="draft-card live-card"><p className="eyebrow">LIVE MATCH</p><h2>Quarter 1 is live</h2><p>Your squad is locked. Live statistics are coming next.</p></section>;
+  return <section className="draft-card" aria-labelledby="starting-seven-title"><div className="draft-heading"><div><p className="eyebrow">MATCH DRAFT</p><h2 id="starting-seven-title">Set your starting seven</h2><p>{game.date} · {setup.opposition.find((opposition) => opposition.id === game.oppositionId)?.name}</p></div><button className="text-button" onClick={() => void onDelete()}>Delete draft</button></div><div className="lineup-grid">{POSITIONS.map((position) => <label key={position}>{position}<select aria-label={position} value={lineup[position] ?? ""} onChange={(event) => updatePosition(position, event.target.value)}><option value="">Choose player</option>{squad.map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label>)}</div><div className="draft-actions"><button className="secondary-button" onClick={() => void onSaveLineup(savedLineup)}>Save starting court</button><button onClick={() => void onStart(savedLineup)}>Start Quarter 1</button></div></section>;
 }
