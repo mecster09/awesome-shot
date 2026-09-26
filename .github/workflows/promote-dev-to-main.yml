@@ -1,0 +1,39 @@
+name: Promote dev to main
+
+on:
+  push:
+    branches:
+      - dev
+    paths:
+      - .github/workflows/promote-dev-to-main.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: promote-dev-to-main
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Copy the promotion workflow from dev
+        run: |
+          git fetch origin dev
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout origin/dev -- .github/workflows/promote-dev-to-main.yml
+          if git diff --quiet -- .github/workflows/promote-dev-to-main.yml; then
+            exit 0
+          fi
+          git add .github/workflows/promote-dev-to-main.yml
+          git commit -m "chore: promote dev workflow to main"
+          git push origin HEAD:main
