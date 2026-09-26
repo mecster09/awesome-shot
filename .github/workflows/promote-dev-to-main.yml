@@ -1,0 +1,56 @@
+name: Promote dev to main
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: promote-dev-to-main
+  cancel-in-progress: false
+
+jobs:
+  validate-dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the dev branch
+        run: |
+          if [ "${{ github.ref }}" != "refs/heads/dev" ]; then
+            echo "Run this workflow from the dev branch."
+            exit 1
+          fi
+
+  promote:
+    needs: validate-dispatch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out dev with history
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Build production bundle
+        run: pnpm run build
+
+      - name: Verify main can fast-forward to dev
+        run: git merge-base --is-ancestor origin/main HEAD
+
+      - name: Promote dev to main
+        run: git push origin HEAD:main
