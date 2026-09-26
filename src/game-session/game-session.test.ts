@@ -162,6 +162,7 @@ describe("GameSession live quarter capture", () => {
 
     const capture = session.liveQuarter(game.id);
     expect(capture).toMatchObject({ ownScore: 1, oppositionScore: 1, ownGameScore: 1, oppositionGameScore: 1 });
+    expect(session.gameScore(game.id)).toEqual({ own: 1, opposition: 1 });
     expect(capture.playerStatistics).toContainEqual({ playerId: players[3].id, position: "Centre", statistic: "Successful Centre Pass Received", count: 1 });
     expect(capture.playerStatistics).toContainEqual({ playerId: players[5].id, position: "Goal Attack", statistic: "Goals", count: 1 });
     await expect(session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Goals" })).rejects.toThrow("Goals and Misses can only be recorded");
@@ -241,6 +242,7 @@ describe("GameSession live quarter capture", () => {
   it("finalises only a confirmed four-quarter score and makes the record immutable", async () => {
     const { session, game } = await startLiveMatch();
     await session.recordPlayerStatistic(game.id, { position: "Goal Attack", statistic: "Goals" });
+    const actionId = session.liveQuarter(game.id).captureActions[0].id;
     for (let quarter = 1; quarter <= 4; quarter += 1) {
       await session.endQuarter(game.id);
       if (quarter < 4) await session.startNextQuarter(game.id);
@@ -250,16 +252,36 @@ describe("GameSession live quarter capture", () => {
     expect(session.match(game.id)).toMatchObject({ status: "finalised", finalScore: { own: 1, opposition: 0 } });
     expect(session.match(game.id)?.incomplete).toBeUndefined();
     await expect(session.startNextQuarter(game.id)).rejects.toThrow("Only a live game");
+    await expect(session.recordOppositionGoal(game.id)).rejects.toThrow("no live quarter");
+    await expect(session.deleteCaptureAction(game.id, 1, actionId)).rejects.toThrow("Only a live game");
+    await expect(session.correctPlayerStatistic(game.id, 1, actionId, { playerId: session.match(game.id)!.squadPlayerIds[0], position: "Wing Defence", statistic: "Intercept" })).rejects.toThrow("Only a live game");
+    await expect(session.abandonGame(game.id, "team")).rejects.toThrow("Only a live game");
   });
 
-  it("retains incomplete data for abandoned and terminated games", async () => {
+  it("retains incomplete data and locks every mutation for abandoned games", async () => {
     const abandoned = await startLiveMatch();
+    await abandoned.session.recordPlayerStatistic(abandoned.game.id, { position: "Goal Attack", statistic: "Goals" });
+    const actionId = abandoned.session.liveQuarter(abandoned.game.id).captureActions[0].id;
+    await abandoned.session.endQuarter(abandoned.game.id);
     await abandoned.session.abandonGame(abandoned.game.id, "opposition");
-    expect(abandoned.session.match(abandoned.game.id)).toMatchObject({ status: "abandoned", incomplete: true, outcome: { kind: "abandoned", winner: "opposition" } });
+    expect(abandoned.session.match(abandoned.game.id)).toMatchObject({ status: "abandoned", incomplete: true, outcome: { kind: "abandoned", winner: "opposition" }, finalScore: { own: 1, opposition: 0 }, quarters: [{ captureActions: [{ id: actionId }] }] });
     await expect(abandoned.session.recordOppositionGoal(abandoned.game.id)).rejects.toThrow("no live quarter");
+    await expect(abandoned.session.deleteCaptureAction(abandoned.game.id, 1, actionId)).rejects.toThrow("Only a live game");
+    await expect(abandoned.session.correctPlayerStatistic(abandoned.game.id, 1, actionId, { playerId: abandoned.players[7].id, position: "Wing Defence", statistic: "Intercept" })).rejects.toThrow("Only a live game");
+    await expect(abandoned.session.endQuarter(abandoned.game.id)).rejects.toThrow("no live quarter");
+    await expect(abandoned.session.deleteDraft(abandoned.game.id)).rejects.toThrow("Only a draft");
+  });
 
+  it("retains incomplete data and locks every mutation for terminated games", async () => {
     const terminated = await startLiveMatch();
+    await terminated.session.recordPlayerStatistic(terminated.game.id, { position: "Goal Attack", statistic: "Goals" });
+    const actionId = terminated.session.liveQuarter(terminated.game.id).captureActions[0].id;
+    await terminated.session.endQuarter(terminated.game.id);
     await terminated.session.terminateGame(terminated.game.id);
-    expect(terminated.session.match(terminated.game.id)).toMatchObject({ status: "terminated", incomplete: true, outcome: { kind: "terminated" } });
+    expect(terminated.session.match(terminated.game.id)).toMatchObject({ status: "terminated", incomplete: true, outcome: { kind: "terminated" }, finalScore: { own: 1, opposition: 0 }, quarters: [{ captureActions: [{ id: actionId }] }] });
+    await expect(terminated.session.recordOppositionGoal(terminated.game.id)).rejects.toThrow("no live quarter");
+    await expect(terminated.session.deleteCaptureAction(terminated.game.id, 1, actionId)).rejects.toThrow("Only a live game");
+    await expect(terminated.session.correctPlayerStatistic(terminated.game.id, 1, actionId, { playerId: terminated.players[7].id, position: "Wing Defence", statistic: "Intercept" })).rejects.toThrow("Only a live game");
+    await expect(terminated.session.startNextQuarter(terminated.game.id)).rejects.toThrow("Only a live game");
   });
 });

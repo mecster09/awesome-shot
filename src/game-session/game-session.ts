@@ -1,4 +1,4 @@
-import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, type CaptureAction, type CreateDraftInput, type Game, type GameSessionStore, type LiveQuarterCapture, type Opposition, type Player, type PlayerStatistic, type Position, type Quarter, type Season, type SetupData, type SetupSummary, type StartingLineup } from "./types";
+import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, type CaptureAction, type CreateDraftInput, type Game, type GameSessionStore, type LiveQuarterCapture, type Opposition, type Player, type PlayerStatistic, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartingLineup } from "./types";
 
 const emptySetup = (): SetupData => ({ seasons: [], players: [], opposition: [], games: [] });
 
@@ -103,6 +103,12 @@ export class GameSession {
     return structuredClone(this.data.games);
   }
 
+  gameScore(id: string): { own: number; opposition: number } {
+    const game = this.data.games.find((candidate) => candidate.id === id);
+    if (!game) throw new Error("Match was not found.");
+    return this.score(game.quarters?.flatMap((quarter) => quarter.captureActions) ?? []);
+  }
+
   async createDraft(input: CreateDraftInput): Promise<Game> {
     this.requireSeason(input.seasonId);
     this.requireActiveOpposition(input.oppositionId);
@@ -167,20 +173,20 @@ export class GameSession {
     const previous = game.quarters?.at(-1);
     if (!previous || previous.status !== "ended") throw new Error("End the previous quarter before starting the next one.");
     if (previous.number === 4) throw new Error("All four quarters have ended.");
-    const number = (previous.number + 1) as import("./types").QuarterNumber;
+    const number = (previous.number + 1) as QuarterNumber;
     game.quarters?.push({ number, status: "live", startingLineup: structuredClone(this.currentLineup(previous)), courtChanges: [], captureActions: [] });
     game.activeQuarter = number;
     await this.persist();
   }
 
-  quarterCapture(id: string, number: import("./types").QuarterNumber): LiveQuarterCapture {
+  quarterCapture(id: string, number: QuarterNumber): LiveQuarterCapture {
     const game = this.requireLiveGame(id);
     const quarter = game.quarters?.find((candidate) => candidate.number === number);
     if (!quarter) throw new Error("Quarter was not found.");
     return this.capture(game, quarter);
   }
 
-  async deleteCaptureAction(id: string, number: import("./types").QuarterNumber, actionId: string): Promise<void> {
+  async deleteCaptureAction(id: string, number: QuarterNumber, actionId: string): Promise<void> {
     const game = this.requireLiveGame(id);
     const quarter = this.requireUnfinalisedQuarter(game, number);
     const actionIndex = quarter.captureActions.findIndex((action) => action.id === actionId);
@@ -189,7 +195,7 @@ export class GameSession {
     await this.persist();
   }
 
-  async correctPlayerStatistic(id: string, number: import("./types").QuarterNumber, actionId: string, input: { playerId: string; position: Position; statistic: PlayerStatistic }): Promise<void> {
+  async correctPlayerStatistic(id: string, number: QuarterNumber, actionId: string, input: { playerId: string; position: Position; statistic: PlayerStatistic }): Promise<void> {
     const game = this.requireLiveGame(id);
     const quarter = this.requireUnfinalisedQuarter(game, number);
     const action = quarter.captureActions.find((candidate) => candidate.id === actionId);
@@ -203,7 +209,7 @@ export class GameSession {
   async finaliseGame(id: string, confirmedScore: { own: number; opposition: number }): Promise<void> {
     const game = this.requireLiveGame(id);
     if (game.activeQuarter || game.quarters?.length !== 4 || game.quarters.some((quarter) => quarter.status !== "ended")) throw new Error("End all four quarters before finalising.");
-    const score = this.score(game.quarters.flatMap((quarter) => quarter.captureActions));
+    const score = this.gameScore(id);
     if (score.own !== confirmedScore.own || score.opposition !== confirmedScore.opposition) throw new Error("Confirm the displayed final score before finalising.");
     game.status = "finalised";
     game.outcome = { kind: "completed" };
@@ -212,20 +218,19 @@ export class GameSession {
   }
 
   async abandonGame(id: string, winner: "team" | "opposition"): Promise<void> {
-    const game = this.requireLiveGame(id);
-    game.status = "abandoned";
-    game.outcome = { kind: "abandoned", winner };
-    game.incomplete = true;
-    game.finalScore = this.score(game.quarters?.flatMap((quarter) => quarter.captureActions) ?? []);
-    await this.persist();
+    await this.endIncompleteGame(id, { kind: "abandoned", winner });
   }
 
   async terminateGame(id: string): Promise<void> {
+    await this.endIncompleteGame(id, { kind: "terminated" });
+  }
+
+  private async endIncompleteGame(id: string, outcome: Exclude<NonNullable<Game["outcome"]>, { kind: "completed" }>): Promise<void> {
     const game = this.requireLiveGame(id);
-    game.status = "terminated";
-    game.outcome = { kind: "terminated" };
+    game.status = outcome.kind;
+    game.outcome = outcome;
     game.incomplete = true;
-    game.finalScore = this.score(game.quarters?.flatMap((quarter) => quarter.captureActions) ?? []);
+    game.finalScore = this.gameScore(id);
     await this.persist();
   }
 
@@ -344,7 +349,7 @@ export class GameSession {
     return game;
   }
 
-  private requireUnfinalisedQuarter(game: Game, number: import("./types").QuarterNumber): Quarter {
+  private requireUnfinalisedQuarter(game: Game, number: QuarterNumber): Quarter {
     const quarter = game.quarters?.find((candidate) => candidate.number === number);
     if (!quarter) throw new Error("Quarter was not found.");
     return quarter;
