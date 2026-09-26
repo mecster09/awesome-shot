@@ -215,4 +215,51 @@ describe("GameSession live quarter capture", () => {
       "Goal Shooter": players[6].id
     })).rejects.toThrow("unique player");
   });
+
+  it("progresses through ended quarters using the final court as the next starting court", async () => {
+    const { session, players, game } = await startLiveMatch();
+    await session.changeCourt(game.id, { "Goal Keeper": players[0].id, "Goal Defence": players[1].id, "Wing Defence": players[2].id, Centre: players[7].id, "Wing Attack": players[4].id, "Goal Attack": players[5].id, "Goal Shooter": players[6].id });
+    await session.endQuarter(game.id);
+    await expect(session.recordOppositionGoal(game.id)).rejects.toThrow("no live quarter");
+    await session.startNextQuarter(game.id);
+    expect(session.match(game.id)).toMatchObject({ activeQuarter: 2 });
+    expect(session.liveQuarter(game.id).lineup.Centre).toBe(players[7].id);
+  });
+
+  it("corrects an ended quarter while a later quarter is live", async () => {
+    const { session, players, game } = await startLiveMatch();
+    await session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Tip" });
+    const actionId = session.liveQuarter(game.id).captureActions[0].id;
+    await session.endQuarter(game.id);
+    await session.startNextQuarter(game.id);
+    await session.correctPlayerStatistic(game.id, 1, actionId, { playerId: players[7].id, position: "Wing Defence", statistic: "Intercept" });
+    expect(session.quarterCapture(game.id, 1).playerStatistics).toContainEqual({ playerId: players[7].id, position: "Wing Defence", statistic: "Intercept", count: 1 });
+    await session.deleteCaptureAction(game.id, 1, actionId);
+    expect(session.quarterCapture(game.id, 1).playerStatistics).toEqual([]);
+  });
+
+  it("finalises only a confirmed four-quarter score and makes the record immutable", async () => {
+    const { session, game } = await startLiveMatch();
+    await session.recordPlayerStatistic(game.id, { position: "Goal Attack", statistic: "Goals" });
+    for (let quarter = 1; quarter <= 4; quarter += 1) {
+      await session.endQuarter(game.id);
+      if (quarter < 4) await session.startNextQuarter(game.id);
+    }
+    await expect(session.finaliseGame(game.id, { own: 0, opposition: 0 })).rejects.toThrow("Confirm the displayed");
+    await session.finaliseGame(game.id, { own: 1, opposition: 0 });
+    expect(session.match(game.id)).toMatchObject({ status: "finalised", finalScore: { own: 1, opposition: 0 } });
+    expect(session.match(game.id)?.incomplete).toBeUndefined();
+    await expect(session.startNextQuarter(game.id)).rejects.toThrow("Only a live game");
+  });
+
+  it("retains incomplete data for abandoned and terminated games", async () => {
+    const abandoned = await startLiveMatch();
+    await abandoned.session.abandonGame(abandoned.game.id, "opposition");
+    expect(abandoned.session.match(abandoned.game.id)).toMatchObject({ status: "abandoned", incomplete: true, outcome: { kind: "abandoned", winner: "opposition" } });
+    await expect(abandoned.session.recordOppositionGoal(abandoned.game.id)).rejects.toThrow("no live quarter");
+
+    const terminated = await startLiveMatch();
+    await terminated.session.terminateGame(terminated.game.id);
+    expect(terminated.session.match(terminated.game.id)).toMatchObject({ status: "terminated", incomplete: true, outcome: { kind: "terminated" } });
+  });
 });

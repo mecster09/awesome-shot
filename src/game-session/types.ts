@@ -46,8 +46,10 @@ export type CaptureAction =
   | { id: string; kind: "opposition-goal" };
 
 export type CourtChange = { sequence: number; lineup: StartingLineup };
+export type QuarterNumber = 1 | 2 | 3 | 4;
 export type Quarter = {
-  number: 1;
+  number: QuarterNumber;
+  status: "live" | "ended";
   startingLineup: StartingLineup;
   courtChanges: CourtChange[];
   captureActions: CaptureAction[];
@@ -55,6 +57,7 @@ export type Quarter = {
 
 export type PlayerStatisticTotal = { playerId: string; position: Position; statistic: PlayerStatistic; count: number };
 export type LiveQuarterCapture = {
+  number: QuarterNumber;
   lineup: StartingLineup;
   courtChanges: CourtChange[];
   playerStatistics: PlayerStatisticTotal[];
@@ -62,8 +65,14 @@ export type LiveQuarterCapture = {
   oppositionScore: number;
   ownGameScore: number;
   oppositionGameScore: number;
+  captureActions: CaptureAction[];
   canUndo: boolean;
 };
+
+export type GameOutcome =
+  | { kind: "completed" }
+  | { kind: "abandoned"; winner: "team" | "opposition" }
+  | { kind: "terminated" };
 
 export type Game = {
   id: string;
@@ -72,9 +81,12 @@ export type Game = {
   date: string;
   squadPlayerIds: string[];
   startingLineup?: StartingLineup;
-  status: "draft" | "live";
-  activeQuarter?: 1;
+  status: "draft" | "live" | "finalised" | "abandoned" | "terminated";
+  activeQuarter?: QuarterNumber;
   quarters?: Quarter[];
+  outcome?: GameOutcome;
+  incomplete?: boolean;
+  finalScore?: { own: number; opposition: number };
 };
 
 export type CreateDraftInput = Pick<Game, "seasonId" | "oppositionId" | "date" | "squadPlayerIds">;
