@@ -135,4 +135,25 @@ describe("Natball Insights setup", () => {
     await user.click(screen.getByRole("button", { name: "Remove action from Quarter 1" }));
     expect(screen.queryByText("Hana · Wing Defence · Intercept")).not.toBeInTheDocument();
   });
+
+  it("shows read-only review and report exports only for terminal matches", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
+    const game = await session.createDraft({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id) });
+    await session.setStartingLineup(game.id, { "Goal Keeper": players[0].id, "Goal Defence": players[1].id, "Wing Defence": players[2].id, Centre: players[3].id, "Wing Attack": players[4].id, "Goal Attack": players[5].id, "Goal Shooter": players[6].id });
+    await session.startQuarterOne(game.id);
+    await session.recordPlayerStatistic(game.id, { position: "Goal Attack", statistic: "Goals" });
+    await session.terminateGame(game.id);
+    const user = userEvent.setup();
+    render(<App store={store} />);
+
+    await user.click(await screen.findByRole("button", { name: "View match record" }));
+    expect(await screen.findByText("MATCH RECORD")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download CSV" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download PDF" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "End quarter" })).not.toBeInTheDocument();
+  });
 });

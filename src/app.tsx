@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useState } from "react";
 import { GameSession } from "./game-session/game-session";
 import { IndexedDbGameSessionStore } from "./game-session/indexed-db-game-session-store";
-import { GENERAL_STATISTICS, PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, type CaptureAction, type CreateDraftInput, type Game, type GameSessionStore, type LiveQuarterCapture, type PlayerStatistic, type Position, type QuarterNumber, type SetupSummary, type StartingLineup } from "./game-session/types";
+import { GENERAL_STATISTICS, PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, type CaptureAction, type CreateDraftInput, type Game, type GameSessionStore, type LiveQuarterCapture, type PlayerStatistic, type Position, type QuarterNumber, type SetupSummary, type StartingLineup, type TerminalMatchReport } from "./game-session/types";
+import { createMatchCsv, createMatchPdf } from "./reports";
 import "./styles.css";
 
 type AppProps = { store?: GameSessionStore };
@@ -21,6 +22,13 @@ type MatchActions = {
   finalise: (score: { own: number; opposition: number }) => Promise<void>;
   deleteHistoricalAction: (quarter: QuarterNumber, actionId: string) => Promise<void>;
   correctHistoricalAction: (quarter: QuarterNumber, actionId: string, correction: { playerId: string; position: Position; statistic: PlayerStatistic }) => Promise<void>;
+};
+
+const download = (filename: string, type: string, content: string | Uint8Array) => {
+  const href = URL.createObjectURL(new Blob([typeof content === "string" ? content : new Uint8Array(content).buffer], { type }));
+  const link = document.createElement("a");
+  link.href = href; link.download = filename; link.click();
+  URL.revokeObjectURL(href);
 };
 
 const playerLabel = (player: { name: string; nickname?: string }) =>
@@ -135,6 +143,7 @@ export function App({ store }: AppProps) {
         setup={setup}
         capture={game.status === "live" && game.activeQuarter ? session.liveQuarter(game.id) : undefined}
         score={game.status === "live" ? session.gameScore(game.id) : undefined}
+        report={game.status === "finalised" || game.status === "abandoned" || game.status === "terminated" ? session.terminalMatchReport(game.id) : undefined}
         actions={{
           saveLineup: (lineup) => perform(() => session.setStartingLineup(game.id, lineup)),
           start: (lineup) => perform(async () => { await session.setStartingLineup(game.id, lineup); await session.startQuarterOne(game.id); }),
@@ -153,7 +162,7 @@ export function App({ store }: AppProps) {
         }}
       />)}
       {!matchView && session.matches().length > 0 && <ul className="match-list" aria-label="Saved match drafts">
-        {session.matches().map((game) => <li key={game.id}><span><strong>{game.date}</strong> · {setup.opposition.find((opposition) => opposition.id === game.oppositionId)?.name}</span><button className="text-button" onClick={() => setMatchView({ kind: "game", gameId: game.id })}>{game.status === "draft" ? "Open draft" : "View live match"}</button></li>)}
+        {session.matches().map((game) => <li key={game.id}><span><strong>{game.date}</strong> · {setup.opposition.find((opposition) => opposition.id === game.oppositionId)?.name}</span><button className="text-button" onClick={() => setMatchView({ kind: "game", gameId: game.id })}>{game.status === "draft" ? "Open draft" : game.status === "live" ? "View live match" : "View match record"}</button></li>)}
       </ul>}
     </section>
   </main>;
@@ -241,15 +250,20 @@ function NewMatchForm({ setup, onAddPlayer, onCreate }: { setup: SetupSummary; o
   </form>;
 }
 
-function DraftMatchCard({ game, setup, capture, score, actions }: { game: Game; setup: SetupSummary; capture?: LiveQuarterCapture; score?: { own: number; opposition: number }; actions: MatchActions }) {
+function DraftMatchCard({ game, setup, capture, score, report, actions }: { game: Game; setup: SetupSummary; capture?: LiveQuarterCapture; score?: { own: number; opposition: number }; report?: TerminalMatchReport; actions: MatchActions }) {
   const [lineup, setLineup] = useState<Partial<StartingLineup>>(game.startingLineup ?? {});
   const squad = setup.players.filter((player) => game.squadPlayerIds.includes(player.id));
   const updatePosition = (position: Position, playerId: string) => setLineup((current) => ({ ...current, [position]: playerId }));
   const savedLineup = lineup as StartingLineup;
   if (game.status === "live" && capture) return <LiveQuarterCard game={game} setup={setup} capture={capture} actions={actions} />;
   if (game.status === "live") return <section className="draft-card live-card"><p className="eyebrow">QUARTER COMPLETE</p><h2>Quarter {game.quarters?.at(-1)?.number} has ended</h2><p>The final court will start the next quarter.</p>{game.quarters?.length === 4 ? <><p>Final score: {score?.own} — {score?.opposition}</p><button onClick={() => score && void actions.finalise(score)}>Confirm and finalise</button></> : <button onClick={() => void actions.startNextQuarter()}>Start Quarter {(game.quarters?.length ?? 0) + 1}</button>}<TerminalActions onAbandon={actions.abandon} onTerminate={actions.terminate} /></section>;
-  if (game.status !== "draft") return <section className="draft-card live-card"><p className="eyebrow">{game.status.toUpperCase()}</p><h2>{game.incomplete ? "Incomplete game retained" : "Final result locked"}</h2><p>{game.finalScore ? `Final score ${game.finalScore.own} — ${game.finalScore.opposition}` : "This game is read-only."}</p></section>;
+  if (report) return <TerminalMatchCard report={report} />;
   return <section className="draft-card" aria-labelledby="starting-seven-title"><div className="draft-heading"><div><p className="eyebrow">MATCH DRAFT</p><h2 id="starting-seven-title">Set your starting seven</h2><p>{game.date} · {setup.opposition.find((opposition) => opposition.id === game.oppositionId)?.name}</p></div><button className="text-button" onClick={() => void actions.delete()}>Delete draft</button></div><div className="lineup-grid">{POSITIONS.map((position) => <label key={position}>{position}<select aria-label={position} value={lineup[position] ?? ""} onChange={(event) => updatePosition(position, event.target.value)}><option value="">Choose player</option>{squad.map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label>)}</div><div className="draft-actions"><button className="secondary-button" onClick={() => void actions.saveLineup(savedLineup)}>Save starting court</button><button onClick={() => void actions.start(savedLineup)}>Start Quarter 1</button></div></section>;
+}
+
+function TerminalMatchCard({ report }: { report: TerminalMatchReport }) {
+  const outcome = report.outcome.kind === "abandoned" ? `Abandoned - ${report.outcome.winner === "team" ? report.teamName : report.oppositionName} won` : report.status === "finalised" ? "Finalised" : "Terminated - no winner";
+  return <section className="draft-card live-card" aria-labelledby="match-record-title"><p className="eyebrow">MATCH RECORD</p><h2 id="match-record-title">{report.teamName} {report.score.own} - {report.oppositionName} {report.score.opposition}</h2><p>{report.date} · {outcome}</p><p>This match record is read-only.</p><div className="quarter-review">{report.quarters.map((quarter) => <article key={quarter.number}><h3>Quarter {quarter.number}: {quarter.ownScore} - {quarter.oppositionScore}</h3><p>Starting court: {quarter.startingLineup.map((entry) => `${entry.position}: ${entry.playerName}`).join(", ")}</p>{quarter.courtChanges.map((change) => <p key={change.sequence}>Court change {change.sequence}: {change.lineup.map((entry) => `${entry.position}: ${entry.playerName}`).join(", ")}</p>)}<ul>{quarter.playerStatistics.map((statistic) => <li key={`${statistic.playerId}:${statistic.position}:${statistic.statistic}`}>{statistic.playerName} · {statistic.position} · {statistic.statistic}: {statistic.count}</li>)}</ul></article>)}</div><div className="draft-actions"><button onClick={() => download(`${report.id}.csv`, "text/csv", createMatchCsv(report))}>Download CSV</button><button className="secondary-button" onClick={() => download(`${report.id}.pdf`, "application/pdf", createMatchPdf(report))}>Download PDF</button></div></section>;
 }
 
 function LiveQuarterCard({ game, setup, capture, actions }: { game: Game; setup: SetupSummary; capture: LiveQuarterCapture; actions: MatchActions }) {

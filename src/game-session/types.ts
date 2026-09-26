@@ -56,6 +56,25 @@ export type Quarter = {
 };
 
 export type PlayerStatisticTotal = { playerId: string; position: Position; statistic: PlayerStatistic; count: number };
+export type ReportPlayerStatisticTotal = PlayerStatisticTotal & { playerName: string };
+export type TerminalMatchReport = {
+  id: string;
+  date: string;
+  teamName: string;
+  oppositionName: string;
+  status: "finalised" | "abandoned" | "terminated";
+  outcome: GameOutcome;
+  score: { own: number; opposition: number };
+  quarters: Array<{
+    number: QuarterNumber;
+    ownScore: number;
+    oppositionScore: number;
+    startingLineup: Array<{ position: Position; playerId: string; playerName: string }>;
+    courtChanges: Array<{ sequence: number; lineup: Array<{ position: Position; playerId: string; playerName: string }> }>;
+    playerStatistics: ReportPlayerStatisticTotal[];
+  }>;
+  gamePlayerStatistics: ReportPlayerStatisticTotal[];
+};
 export type LiveQuarterCapture = {
   number: QuarterNumber;
   lineup: StartingLineup;
