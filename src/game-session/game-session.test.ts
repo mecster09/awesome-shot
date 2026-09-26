@@ -131,3 +131,88 @@ describe("GameSession match drafts", () => {
     expect(session.match(draft.id)).toBeUndefined();
   });
 });
+
+describe("GameSession live quarter capture", () => {
+  const startLiveMatch = async () => {
+    const session = await GameSession.open(new InMemoryGameSessionStore());
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia", "Hana"].map((name) => session.addPlayer({ name })));
+    const game = await session.createDraft({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id) });
+    await session.setStartingLineup(game.id, {
+      "Goal Keeper": players[0].id,
+      "Goal Defence": players[1].id,
+      "Wing Defence": players[2].id,
+      Centre: players[3].id,
+      "Wing Attack": players[4].id,
+      "Goal Attack": players[5].id,
+      "Goal Shooter": players[6].id
+    });
+    await session.startQuarterOne(game.id);
+    return { session, players, game };
+  };
+
+  it("credits applicable statistics to the active player-position pairing and derives the score", async () => {
+    const { session, players, game } = await startLiveMatch();
+
+    await session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Successful Centre Pass Received" });
+    await session.recordPlayerStatistic(game.id, { position: "Goal Attack", statistic: "Goals" });
+    await session.recordPlayerStatistic(game.id, { position: "Goal Shooter", statistic: "Misses" });
+    await session.recordOppositionGoal(game.id);
+
+    const capture = session.liveQuarter(game.id);
+    expect(capture).toMatchObject({ ownScore: 1, oppositionScore: 1, ownGameScore: 1, oppositionGameScore: 1 });
+    expect(capture.playerStatistics).toContainEqual({ playerId: players[3].id, position: "Centre", statistic: "Successful Centre Pass Received", count: 1 });
+    expect(capture.playerStatistics).toContainEqual({ playerId: players[5].id, position: "Goal Attack", statistic: "Goals", count: 1 });
+    await expect(session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Goals" })).rejects.toThrow("Goals and Misses can only be recorded");
+    await expect(session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Misses" })).rejects.toThrow("Goals and Misses can only be recorded");
+  });
+
+  it("undos only the most recent stat or opposition-goal action", async () => {
+    const { session, game } = await startLiveMatch();
+    await session.recordPlayerStatistic(game.id, { position: "Goal Attack", statistic: "Goals" });
+    await session.recordOppositionGoal(game.id);
+
+    await session.undoLastCaptureAction(game.id);
+    expect(session.liveQuarter(game.id)).toMatchObject({ ownScore: 1, oppositionScore: 0, ownGameScore: 1, oppositionGameScore: 0 });
+
+    await session.undoLastCaptureAction(game.id);
+    expect(session.liveQuarter(game.id)).toMatchObject({ ownScore: 0, oppositionScore: 0 });
+  });
+
+  it("uses the latest valid court change for subsequent statistic attribution", async () => {
+    const { session, players, game } = await startLiveMatch();
+    await session.changeCourt(game.id, {
+      "Goal Keeper": players[0].id,
+      "Goal Defence": players[1].id,
+      "Wing Defence": players[3].id,
+      Centre: players[7].id,
+      "Wing Attack": players[4].id,
+      "Goal Attack": players[5].id,
+      "Goal Shooter": players[6].id
+    });
+    await session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Intercept" });
+
+    await session.changeCourt(game.id, {
+      "Goal Keeper": players[0].id,
+      "Goal Defence": players[1].id,
+      "Wing Defence": players[2].id,
+      Centre: players[3].id,
+      "Wing Attack": players[4].id,
+      "Goal Attack": players[5].id,
+      "Goal Shooter": players[6].id
+    });
+
+    expect(session.liveQuarter(game.id).courtChanges).toMatchObject([{ sequence: 1 }, { sequence: 2 }]);
+    expect(session.liveQuarter(game.id).playerStatistics).toContainEqual({ playerId: players[7].id, position: "Centre", statistic: "Intercept", count: 1 });
+    await expect(session.changeCourt(game.id, {
+      "Goal Keeper": players[0].id,
+      "Goal Defence": players[0].id,
+      "Wing Defence": players[3].id,
+      Centre: players[7].id,
+      "Wing Attack": players[4].id,
+      "Goal Attack": players[5].id,
+      "Goal Shooter": players[6].id
+    })).rejects.toThrow("unique player");
+  });
+});
