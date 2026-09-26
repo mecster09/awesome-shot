@@ -107,4 +107,32 @@ describe("Natball Insights setup", () => {
     await user.click(screen.getByRole("button", { name: "Undo last action" }));
     expect(await screen.findByText("Roses 1 — Thunder 0")).toBeInTheDocument();
   });
+
+  it("lets a coach correct or remove an ended quarter action while the next quarter is live", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia", "Hana"].map((name) => session.addPlayer({ name })));
+    const game = await session.createDraft({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id) });
+    await session.setStartingLineup(game.id, { "Goal Keeper": players[0].id, "Goal Defence": players[1].id, "Wing Defence": players[2].id, Centre: players[3].id, "Wing Attack": players[4].id, "Goal Attack": players[5].id, "Goal Shooter": players[6].id });
+    await session.startQuarterOne(game.id);
+    await session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Tip" });
+    await session.endQuarter(game.id);
+    await session.startNextQuarter(game.id);
+    const user = userEvent.setup();
+    render(<App store={store} />);
+
+    await user.click(await screen.findByRole("button", { name: "View live match" }));
+    expect(await screen.findByText("Quarter 1 review")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit statistic" }));
+    await user.selectOptions(screen.getByLabelText("Correction player"), players[7].id);
+    await user.selectOptions(screen.getByLabelText("Correction position"), "Wing Defence");
+    await user.selectOptions(screen.getByLabelText("Correction statistic"), "Intercept");
+    await user.click(screen.getByRole("button", { name: "Save correction" }));
+
+    expect(await screen.findByText("Hana · Wing Defence · Intercept")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Remove action from Quarter 1" }));
+    expect(screen.queryByText("Hana · Wing Defence · Intercept")).not.toBeInTheDocument();
+  });
 });

@@ -1,4 +1,4 @@
-import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, type CaptureAction, type CreateDraftInput, type Game, type GameSessionStore, type LiveQuarterCapture, type Opposition, type Player, type PlayerStatistic, type Position, type Quarter, type Season, type SetupData, type SetupSummary, type StartingLineup } from "./types";
+import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, type CaptureAction, type CreateDraftInput, type Game, type GameSessionStore, type LiveQuarterCapture, type Opposition, type Player, type PlayerStatistic, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartingLineup } from "./types";
 
 const emptySetup = (): SetupData => ({ seasons: [], players: [], opposition: [], games: [] });
 
@@ -22,7 +22,7 @@ export class GameSession {
     return new GameSession(store, {
       ...stored,
       games: (stored.games ?? []).map((game) => game.status === "live" && !game.quarters && game.startingLineup
-        ? { ...game, quarters: [{ number: 1, startingLineup: structuredClone(game.startingLineup), courtChanges: [], captureActions: [] }] }
+        ? { ...game, quarters: [{ number: 1, status: "live", startingLineup: structuredClone(game.startingLineup), courtChanges: [], captureActions: [] }] }
         : game)
     });
   }
@@ -103,6 +103,12 @@ export class GameSession {
     return structuredClone(this.data.games);
   }
 
+  gameScore(id: string): { own: number; opposition: number } {
+    const game = this.data.games.find((candidate) => candidate.id === id);
+    if (!game) throw new Error("Match was not found.");
+    return this.score(game.quarters?.flatMap((quarter) => quarter.captureActions) ?? []);
+  }
+
   async createDraft(input: CreateDraftInput): Promise<Game> {
     this.requireSeason(input.seasonId);
     this.requireActiveOpposition(input.oppositionId);
@@ -141,7 +147,7 @@ export class GameSession {
     this.validateStartingLineup(game, game.startingLineup);
     game.status = "live";
     game.activeQuarter = 1;
-    game.quarters = [{ number: 1, startingLineup: structuredClone(game.startingLineup), courtChanges: [], captureActions: [] }];
+    game.quarters = [{ number: 1, status: "live", startingLineup: structuredClone(game.startingLineup), courtChanges: [], captureActions: [] }];
     await this.persist();
   }
 
@@ -154,8 +160,86 @@ export class GameSession {
     await this.persist();
   }
 
+  async endQuarter(id: string): Promise<void> {
+    const { game, quarter } = this.requireLiveQuarter(id);
+    quarter.status = "ended";
+    game.activeQuarter = undefined;
+    await this.persist();
+  }
+
+  async startNextQuarter(id: string): Promise<void> {
+    const game = this.requireLiveGame(id);
+    if (game.activeQuarter) throw new Error("End the current quarter before starting the next one.");
+    const previous = game.quarters?.at(-1);
+    if (!previous || previous.status !== "ended") throw new Error("End the previous quarter before starting the next one.");
+    if (previous.number === 4) throw new Error("All four quarters have ended.");
+    const number = (previous.number + 1) as QuarterNumber;
+    game.quarters?.push({ number, status: "live", startingLineup: structuredClone(this.currentLineup(previous)), courtChanges: [], captureActions: [] });
+    game.activeQuarter = number;
+    await this.persist();
+  }
+
+  quarterCapture(id: string, number: QuarterNumber): LiveQuarterCapture {
+    const game = this.requireLiveGame(id);
+    const quarter = game.quarters?.find((candidate) => candidate.number === number);
+    if (!quarter) throw new Error("Quarter was not found.");
+    return this.capture(game, quarter);
+  }
+
+  async deleteCaptureAction(id: string, number: QuarterNumber, actionId: string): Promise<void> {
+    const game = this.requireLiveGame(id);
+    const quarter = this.requireUnfinalisedQuarter(game, number);
+    const actionIndex = quarter.captureActions.findIndex((action) => action.id === actionId);
+    if (actionIndex < 0) throw new Error("Capture action was not found.");
+    quarter.captureActions.splice(actionIndex, 1);
+    await this.persist();
+  }
+
+  async correctPlayerStatistic(id: string, number: QuarterNumber, actionId: string, input: { playerId: string; position: Position; statistic: PlayerStatistic }): Promise<void> {
+    const game = this.requireLiveGame(id);
+    const quarter = this.requireUnfinalisedQuarter(game, number);
+    const action = quarter.captureActions.find((candidate) => candidate.id === actionId);
+    if (!action || action.kind !== "player-statistic") throw new Error("Player statistic was not found.");
+    if (!game.squadPlayerIds.includes(input.playerId) || !PLAYER_STATISTICS.includes(input.statistic)) throw new Error("Choose a valid player statistic correction.");
+    if (SHOOTER_STATISTICS.includes(input.statistic as (typeof SHOOTER_STATISTICS)[number]) && input.position !== "Goal Attack" && input.position !== "Goal Shooter") throw new Error("Goals and Misses can only be recorded for Goal Attack or Goal Shooter.");
+    Object.assign(action, input);
+    await this.persist();
+  }
+
+  async finaliseGame(id: string, confirmedScore: { own: number; opposition: number }): Promise<void> {
+    const game = this.requireLiveGame(id);
+    if (game.activeQuarter || game.quarters?.length !== 4 || game.quarters.some((quarter) => quarter.status !== "ended")) throw new Error("End all four quarters before finalising.");
+    const score = this.gameScore(id);
+    if (score.own !== confirmedScore.own || score.opposition !== confirmedScore.opposition) throw new Error("Confirm the displayed final score before finalising.");
+    game.status = "finalised";
+    game.outcome = { kind: "completed" };
+    game.finalScore = score;
+    await this.persist();
+  }
+
+  async abandonGame(id: string, winner: "team" | "opposition"): Promise<void> {
+    await this.endIncompleteGame(id, { kind: "abandoned", winner });
+  }
+
+  async terminateGame(id: string): Promise<void> {
+    await this.endIncompleteGame(id, { kind: "terminated" });
+  }
+
+  private async endIncompleteGame(id: string, outcome: Exclude<NonNullable<Game["outcome"]>, { kind: "completed" }>): Promise<void> {
+    const game = this.requireLiveGame(id);
+    game.status = outcome.kind;
+    game.outcome = outcome;
+    game.incomplete = true;
+    game.finalScore = this.gameScore(id);
+    await this.persist();
+  }
+
   liveQuarter(id: string): LiveQuarterCapture {
     const { game, quarter } = this.requireLiveQuarter(id);
+    return this.capture(game, quarter);
+  }
+
+  private capture(game: Game, quarter: Quarter): LiveQuarterCapture {
     const lineup = this.currentLineup(quarter);
     const totals = new Map<string, { playerId: string; position: Position; statistic: PlayerStatistic; count: number }>();
     for (const action of quarter.captureActions) {
@@ -167,6 +251,7 @@ export class GameSession {
     const quarterScore = this.score(quarter.captureActions);
     const gameScore = this.score(game.quarters?.flatMap((candidate) => candidate.captureActions) ?? []);
     return {
+      number: quarter.number,
       lineup: structuredClone(lineup),
       courtChanges: structuredClone(quarter.courtChanges),
       playerStatistics: [...totals.values()],
@@ -174,6 +259,7 @@ export class GameSession {
       oppositionScore: quarterScore.opposition,
       ownGameScore: gameScore.own,
       oppositionGameScore: gameScore.opposition,
+      captureActions: structuredClone(quarter.captureActions),
       canUndo: quarter.captureActions.length > 0
     };
   }
@@ -251,10 +337,22 @@ export class GameSession {
   private requireLiveQuarter(id: string): { game: Game; quarter: NonNullable<Game["quarters"]>[number] } {
     const game = this.data.games.find((candidate) => candidate.id === id);
     const quarter = game?.quarters?.find((candidate) => candidate.number === game.activeQuarter);
-    if (!game || game.status !== "live" || !quarter) {
-      throw new Error("Quarter 1 is not live.");
+    if (!game || game.status !== "live" || !quarter || quarter.status !== "live") {
+      throw new Error("There is no live quarter.");
     }
     return { game, quarter };
+  }
+
+  private requireLiveGame(id: string): Game {
+    const game = this.data.games.find((candidate) => candidate.id === id);
+    if (!game || game.status !== "live") throw new Error("Only a live game can be changed.");
+    return game;
+  }
+
+  private requireUnfinalisedQuarter(game: Game, number: QuarterNumber): Quarter {
+    const quarter = game.quarters?.find((candidate) => candidate.number === number);
+    if (!quarter) throw new Error("Quarter was not found.");
+    return quarter;
   }
 
   private currentLineup(quarter: Quarter): StartingLineup {
