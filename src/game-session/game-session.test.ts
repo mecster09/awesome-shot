@@ -3,6 +3,26 @@ import { GameSession } from "./game-session";
 import { InMemoryGameSessionStore } from "./in-memory-game-session-store";
 
 describe("GameSession setup", () => {
+  it("round-trips complete backups, merges without duplicates, and protects replacement/import failures", async () => {
+    const source = await GameSession.open(new InMemoryGameSessionStore());
+    await source.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    await source.addPlayer({ name: "Natalie", nickname: "Nat" });
+    const backup = source.exportBackup();
+    const target = await GameSession.open(new InMemoryGameSessionStore());
+
+    await target.importBackup(backup, "merge");
+    await target.importBackup(backup, "merge");
+    expect(target.setup().seasons).toHaveLength(1);
+    expect(target.setup().players).toMatchObject([{ name: "Natalie", nickname: "Nat" }]);
+    await expect(target.importBackup(backup, "replace")).rejects.toThrow("Confirm replacement");
+    await expect(target.importBackup("not a backup", "merge")).rejects.toThrow("valid Natball Insights backup");
+    await expect(target.importBackup(JSON.stringify({ format: "natball-insights-backup", version: 1, data: { seasons: [{}], players: [], opposition: [], games: [] } }), "merge")).rejects.toThrow("incompatible");
+    expect(target.setup().seasons).toHaveLength(1);
+
+    await target.importBackup(JSON.stringify({ format: "natball-insights-backup", version: 1, data: { seasons: [], players: [], opposition: [], games: [] } }), "replace", true);
+    expect(target.setup().seasons).toEqual([]);
+  });
+
   it("persists a season, player, and active opposition for a coach", async () => {
     const store = new InMemoryGameSessionStore();
     const session = await GameSession.open(store);
@@ -311,5 +331,18 @@ describe("GameSession live quarter capture", () => {
     const abandoned = await startLiveMatch();
     await abandoned.session.abandonGame(abandoned.game.id, "team");
     expect(abandoned.session.terminalMatchReport(abandoned.game.id)).toMatchObject({ status: "abandoned", outcome: { kind: "abandoned", winner: "team" } });
+  });
+
+  it("restores terminal history and report eligibility from a complete backup", async () => {
+    const source = await startLiveMatch();
+    await source.session.recordPlayerStatistic(source.game.id, { position: "Goal Attack", statistic: "Goals" });
+    await source.session.changeCourt(source.game.id, { "Goal Keeper": source.players[0].id, "Goal Defence": source.players[1].id, "Wing Defence": source.players[2].id, Centre: source.players[7].id, "Wing Attack": source.players[4].id, "Goal Attack": source.players[5].id, "Goal Shooter": source.players[6].id });
+    await source.session.endQuarter(source.game.id);
+    await source.session.terminateGame(source.game.id);
+    const restored = await GameSession.open(new InMemoryGameSessionStore());
+
+    await restored.importBackup(source.session.exportBackup(), "merge");
+    expect(restored.match(source.game.id)).toMatchObject({ status: "terminated", incomplete: true, outcome: { kind: "terminated" }, quarters: [{ courtChanges: [{ sequence: 1 }], captureActions: [{ statistic: "Goals" }] }] });
+    expect(restored.terminalMatchReport(source.game.id)).toMatchObject({ score: { own: 1, opposition: 0 }, status: "terminated" });
   });
 });

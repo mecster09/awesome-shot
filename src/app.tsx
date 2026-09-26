@@ -118,6 +118,8 @@ export function App({ store }: AppProps) {
       </SetupCard>
     </div>
 
+    <BackupCard exportBackup={() => session.exportBackup()} onImport={(serialized, mode, confirmed) => perform(() => session.importBackup(serialized, mode, confirmed))} />
+
     <section className="next-step" aria-label="Next step">
       <span className="step-number">1</span>
       <div><strong>Match setup ready</strong><p>Choose your squad and starting seven before Quarter 1.</p></div>
@@ -264,6 +266,18 @@ function DraftMatchCard({ game, setup, capture, score, report, actions }: { game
 function TerminalMatchCard({ report }: { report: TerminalMatchReport }) {
   const outcome = report.outcome.kind === "abandoned" ? `Abandoned - ${report.outcome.winner === "team" ? report.teamName : report.oppositionName} won` : report.status === "finalised" ? "Finalised" : "Terminated - no winner";
   return <section className="draft-card live-card" aria-labelledby="match-record-title"><p className="eyebrow">MATCH RECORD</p><h2 id="match-record-title">{report.teamName} {report.score.own} - {report.oppositionName} {report.score.opposition}</h2><p>{report.date} · {outcome}</p><p>This match record is read-only.</p><div className="quarter-review">{report.quarters.map((quarter) => <article key={quarter.number}><h3>Quarter {quarter.number}: {quarter.ownScore} - {quarter.oppositionScore}</h3><p>Starting court: {quarter.startingLineup.map((entry) => `${entry.position}: ${entry.playerName}`).join(", ")}</p>{quarter.courtChanges.map((change) => <p key={change.sequence}>Court change {change.sequence}: {change.lineup.map((entry) => `${entry.position}: ${entry.playerName}`).join(", ")}</p>)}<ul>{quarter.playerStatistics.map((statistic) => <li key={`${statistic.playerId}:${statistic.position}:${statistic.statistic}`}>{statistic.playerName} · {statistic.position} · {statistic.statistic}: {statistic.count}</li>)}</ul></article>)}</div><div className="draft-actions"><button onClick={() => download(`${report.id}.csv`, "text/csv", createMatchCsv(report))}>Download CSV</button><button className="secondary-button" onClick={() => download(`${report.id}.pdf`, "application/pdf", createMatchPdf(report))}>Download PDF</button></div></section>;
+}
+
+function BackupCard({ exportBackup, onImport }: { exportBackup: () => string; onImport: (serialized: string, mode: "merge" | "replace", confirmed: boolean) => Promise<void> }) {
+  const [serialized, setSerialized] = useState("");
+  const [mode, setMode] = useState<"merge" | "replace">("merge");
+  const [confirmed, setConfirmed] = useState(false);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    await onImport(serialized, mode, confirmed);
+    setSerialized(""); setConfirmed(false);
+  };
+  return <section className="setup-card" aria-labelledby="backup-title"><div><h2 id="backup-title">Protect your data</h2><p>Download one backup for every saved season, lookup, match, statistic, court, and result.</p></div><button className="secondary-button" onClick={() => download("natball-insights-backup.json", "application/json", exportBackup())}>Download backup</button><form onSubmit={(event) => void submit(event)}><label>Backup data<textarea aria-label="Backup data" value={serialized} onChange={(event) => setSerialized(event.target.value)} placeholder="Paste a Natball Insights backup" /></label><label>Import mode<select aria-label="Import mode" value={mode} onChange={(event) => setMode(event.target.value as "merge" | "replace")}><option value="merge">Merge - keep current data</option><option value="replace">Replace all local data</option></select></label>{mode === "replace" && <label><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /> I understand this permanently replaces local data.</label>}<button type="submit">Import backup</button></form></section>;
 }
 
 function LiveQuarterCard({ game, setup, capture, actions }: { game: Game; setup: SetupSummary; capture: LiveQuarterCapture; actions: MatchActions }) {
