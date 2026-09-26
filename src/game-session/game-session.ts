@@ -1,6 +1,25 @@
 import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, type CaptureAction, type CreateDraftInput, type Game, type GameSessionStore, type LiveQuarterCapture, type Opposition, type Player, type PlayerStatistic, type PlayerStatisticTotal, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartingLineup, type TerminalMatchReport } from "./types";
 
 const emptySetup = (): SetupData => ({ seasons: [], players: [], opposition: [], games: [] });
+const backupFormat = "natball-insights-backup";
+
+const isObject = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object";
+const hasStrings = (value: unknown, keys: string[]) => isObject(value) && keys.every((key) => typeof value[key] === "string");
+const isLineup = (value: unknown) => isObject(value) && POSITIONS.every((position) => typeof value[position] === "string");
+const isQuarter = (value: unknown) => isObject(value) && [1, 2, 3, 4].includes(value.number as number) && ["live", "ended"].includes(value.status as string) && isLineup(value.startingLineup) && Array.isArray(value.courtChanges) && value.courtChanges.every((change) => isObject(change) && typeof change.sequence === "number" && isLineup(change.lineup)) && Array.isArray(value.captureActions) && value.captureActions.every((action) => isObject(action) && typeof action.id === "string" && (action.kind === "opposition-goal" || action.kind === "player-statistic" && typeof action.playerId === "string" && POSITIONS.includes(action.position as Position) && PLAYER_STATISTICS.includes(action.statistic as PlayerStatistic)));
+const isGame = (value: unknown) => hasStrings(value, ["id", "seasonId", "oppositionId", "date", "status"]) && isObject(value) && ["draft", "live", "finalised", "abandoned", "terminated"].includes(value.status as string) && Array.isArray(value.squadPlayerIds) && value.squadPlayerIds.every((id) => typeof id === "string") && (value.startingLineup === undefined || isLineup(value.startingLineup)) && (value.quarters === undefined || Array.isArray(value.quarters) && value.quarters.every(isQuarter));
+const parseBackup = (serialized: string): SetupData => {
+  let parsed: unknown;
+  try { parsed = JSON.parse(serialized); } catch { throw new Error("Choose a valid Natball Insights backup file."); }
+  if (!parsed || typeof parsed !== "object") throw new Error("Choose a valid Natball Insights backup file.");
+  const backup = parsed as { format?: unknown; version?: unknown; data?: unknown };
+  if (backup.format !== backupFormat || backup.version !== 1 || !backup.data || typeof backup.data !== "object") throw new Error("Choose a valid Natball Insights backup file.");
+  const data = backup.data as Partial<SetupData>;
+  if (!Array.isArray(data.seasons) || !data.seasons.every((season) => hasStrings(season, ["id", "name", "teamName"])) || !Array.isArray(data.players) || !data.players.every((player) => hasStrings(player, ["id", "name"]) && (player.nickname === undefined || typeof player.nickname === "string")) || !Array.isArray(data.opposition) || !data.opposition.every((opposition) => hasStrings(opposition, ["id", "name"]) && typeof opposition.archived === "boolean") || !Array.isArray(data.games) || !data.games.every(isGame) || (data.selectedOppositionId !== undefined && typeof data.selectedOppositionId !== "string")) throw new Error("This backup is incompatible with Natball Insights.");
+  const seasonIds = new Set(data.seasons.map((season) => season.id)); const playerIds = new Set(data.players.map((player) => player.id)); const oppositionIds = new Set(data.opposition.map((opposition) => opposition.id));
+  if (data.games.some((game) => !seasonIds.has(game.seasonId) || !oppositionIds.has(game.oppositionId) || game.squadPlayerIds.some((id) => !playerIds.has(id))) || data.selectedOppositionId && !oppositionIds.has(data.selectedOppositionId)) throw new Error("This backup has broken record references.");
+  return structuredClone(data as SetupData);
+};
 
 const requireText = (value: string, field: string) => {
   const trimmed = value.trim();
@@ -101,6 +120,28 @@ export class GameSession {
 
   matches(): Game[] {
     return structuredClone(this.data.games);
+  }
+
+  exportBackup(): string {
+    return JSON.stringify({ format: backupFormat, version: 1, data: this.data });
+  }
+
+  async importBackup(serialized: string, mode: "merge" | "replace", replacementConfirmed = false): Promise<void> {
+    const imported = parseBackup(serialized);
+    if (mode === "replace" && !replacementConfirmed) throw new Error("Confirm replacement before deleting local data.");
+    if (mode === "replace") {
+      this.data = imported;
+    } else {
+      const merge = <T extends { id: string }>(current: T[], incoming: T[]) => [...current, ...incoming.filter((candidate) => !current.some((existing) => existing.id === candidate.id || JSON.stringify(existing) === JSON.stringify(candidate)))];
+      this.data = {
+        seasons: merge(this.data.seasons, imported.seasons),
+        players: merge(this.data.players, imported.players),
+        opposition: merge(this.data.opposition, imported.opposition),
+        games: merge(this.data.games, imported.games),
+        selectedOppositionId: this.data.selectedOppositionId ?? imported.selectedOppositionId
+      };
+    }
+    await this.persist();
   }
 
   gameScore(id: string): { own: number; opposition: number } {

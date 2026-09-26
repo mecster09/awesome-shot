@@ -24,6 +24,9 @@ describe("Natball Insights setup", () => {
     expect(screen.getByText("2026 Winter")).toBeInTheDocument();
     expect(screen.getByText("Natalie (Nat)")).toBeInTheDocument();
     expect(screen.getByText("Thunder")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download backup" })).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Import mode"), "replace");
+    expect(screen.getByLabelText("I understand this permanently replaces local data.")).toBeInTheDocument();
   });
 
   it("creates a protected match draft and starts Quarter 1 from the setup screen", async () => {
