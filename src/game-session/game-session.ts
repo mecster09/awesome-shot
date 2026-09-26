@@ -1,4 +1,4 @@
-import { POSITIONS, type CreateDraftInput, type Game, type GameSessionStore, type Opposition, type Player, type Season, type SetupData, type SetupSummary, type StartingLineup } from "./types";
+import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, type CaptureAction, type CreateDraftInput, type Game, type GameSessionStore, type LiveQuarterCapture, type Opposition, type Player, type PlayerStatistic, type Position, type Quarter, type Season, type SetupData, type SetupSummary, type StartingLineup } from "./types";
 
 const emptySetup = (): SetupData => ({ seasons: [], players: [], opposition: [], games: [] });
 
@@ -18,7 +18,13 @@ export class GameSession {
 
   static async open(store: GameSessionStore): Promise<GameSession> {
     const stored = await store.read();
-    return new GameSession(store, stored ? { ...stored, games: stored.games ?? [] } : emptySetup());
+    if (!stored) return new GameSession(store, emptySetup());
+    return new GameSession(store, {
+      ...stored,
+      games: (stored.games ?? []).map((game) => game.status === "live" && !game.quarters && game.startingLineup
+        ? { ...game, quarters: [{ number: 1, startingLineup: structuredClone(game.startingLineup), courtChanges: [], captureActions: [] }] }
+        : game)
+    });
   }
 
   setup(): SetupSummary {
@@ -135,6 +141,7 @@ export class GameSession {
     this.validateStartingLineup(game, game.startingLineup);
     game.status = "live";
     game.activeQuarter = 1;
+    game.quarters = [{ number: 1, startingLineup: structuredClone(game.startingLineup), courtChanges: [], captureActions: [] }];
     await this.persist();
   }
 
@@ -144,6 +151,64 @@ export class GameSession {
       throw new Error("Only a draft can be deleted.");
     }
     this.data.games = this.data.games.filter((candidate) => candidate.id !== id);
+    await this.persist();
+  }
+
+  liveQuarter(id: string): LiveQuarterCapture {
+    const { game, quarter } = this.requireLiveQuarter(id);
+    const lineup = this.currentLineup(quarter);
+    const totals = new Map<string, { playerId: string; position: Position; statistic: PlayerStatistic; count: number }>();
+    for (const action of quarter.captureActions) {
+      if (action.kind === "opposition-goal") continue;
+      const key = `${action.playerId}:${action.position}:${action.statistic}`;
+      const existing = totals.get(key);
+      totals.set(key, existing ? { ...existing, count: existing.count + 1 } : { playerId: action.playerId, position: action.position, statistic: action.statistic, count: 1 });
+    }
+    const quarterScore = this.score(quarter.captureActions);
+    const gameScore = this.score(game.quarters?.flatMap((candidate) => candidate.captureActions) ?? []);
+    return {
+      lineup: structuredClone(lineup),
+      courtChanges: structuredClone(quarter.courtChanges),
+      playerStatistics: [...totals.values()],
+      ownScore: quarterScore.own,
+      oppositionScore: quarterScore.opposition,
+      ownGameScore: gameScore.own,
+      oppositionGameScore: gameScore.opposition,
+      canUndo: quarter.captureActions.length > 0
+    };
+  }
+
+  async recordPlayerStatistic(id: string, input: { position: Position; statistic: PlayerStatistic }): Promise<void> {
+    const { quarter } = this.requireLiveQuarter(id);
+    if (!PLAYER_STATISTICS.includes(input.statistic)) {
+      throw new Error("Choose a supported player statistic.");
+    }
+    if (SHOOTER_STATISTICS.includes(input.statistic as (typeof SHOOTER_STATISTICS)[number]) && input.position !== "Goal Attack" && input.position !== "Goal Shooter") {
+      throw new Error("Goals and Misses can only be recorded for Goal Attack or Goal Shooter.");
+    }
+    const lineup = this.currentLineup(quarter);
+    quarter.captureActions.push({ id: crypto.randomUUID(), kind: "player-statistic", playerId: lineup[input.position], position: input.position, statistic: input.statistic });
+    await this.persist();
+  }
+
+  async recordOppositionGoal(id: string): Promise<void> {
+    const { quarter } = this.requireLiveQuarter(id);
+    quarter.captureActions.push({ id: crypto.randomUUID(), kind: "opposition-goal" });
+    await this.persist();
+  }
+
+  async undoLastCaptureAction(id: string): Promise<void> {
+    const { quarter } = this.requireLiveQuarter(id);
+    if (!quarter.captureActions.pop()) {
+      throw new Error("There is no capture action to undo.");
+    }
+    await this.persist();
+  }
+
+  async changeCourt(id: string, lineup: StartingLineup): Promise<void> {
+    const { game, quarter } = this.requireLiveQuarter(id);
+    this.validateStartingLineup(game, lineup);
+    quarter.courtChanges.push({ sequence: quarter.courtChanges.length + 1, lineup: structuredClone(lineup) });
     await this.persist();
   }
 
@@ -181,6 +246,26 @@ export class GameSession {
     if (!game) throw new Error("Match draft was not found.");
     if (game.status !== "draft") throw new Error(liveMessage);
     return game;
+  }
+
+  private requireLiveQuarter(id: string): { game: Game; quarter: NonNullable<Game["quarters"]>[number] } {
+    const game = this.data.games.find((candidate) => candidate.id === id);
+    const quarter = game?.quarters?.find((candidate) => candidate.number === game.activeQuarter);
+    if (!game || game.status !== "live" || !quarter) {
+      throw new Error("Quarter 1 is not live.");
+    }
+    return { game, quarter };
+  }
+
+  private currentLineup(quarter: Quarter): StartingLineup {
+    return quarter.courtChanges.at(-1)?.lineup ?? quarter.startingLineup;
+  }
+
+  private score(actions: CaptureAction[]): { own: number; opposition: number } {
+    return actions.reduce((score, action) => {
+      if (action.kind === "opposition-goal") return { ...score, opposition: score.opposition + 1 };
+      return action.statistic === "Goals" ? { ...score, own: score.own + 1 } : score;
+    }, { own: 0, opposition: 0 });
   }
 
   private validateStartingLineup(game: Game, lineup: StartingLineup): void {
