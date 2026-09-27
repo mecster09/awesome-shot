@@ -1,4 +1,4 @@
-import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, type CaptureAction, type CreateDraftInput, type Game, type GameSessionStore, type LiveQuarterCapture, type Opposition, type Player, type PlayerStatistic, type PlayerStatisticTotal, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartingLineup, type Team, type TerminalMatchReport } from "./types";
+import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, type CaptureAction, type Game, type GameSessionStore, type LiveQuarterCapture, type Opposition, type Player, type PlayerStatistic, type PlayerStatisticTotal, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartMatchInput, type StartingLineup, type Team, type TerminalMatchReport } from "./types";
 
 const emptySetup = (): SetupData => ({ teams: [], seasons: [], players: [], opposition: [], games: [] });
 const backupFormat = "natball-insights-backup";
@@ -31,7 +31,7 @@ const requireText = (value: string, field: string) => {
   }
   return trimmed;
 };
-const teamKey = (name: string) => name.trim().toLocaleLowerCase();
+const nameKey = (name: string) => name.trim().toLocaleLowerCase();
 const isTerminalMatch = (game: Game) => ["finalised", "abandoned", "terminated"].includes(game.status);
 
 const migrateSetup = (stored: SetupData): SetupData => {
@@ -41,11 +41,11 @@ const migrateSetup = (stored: SetupData): SetupData => {
   const canonicalTeamIds = new Map<string, string>();
   for (const storedTeam of legacy.teams ?? []) {
     const name = requireText(storedTeam.name, "Team name");
-    let team = teamsByName.get(teamKey(name));
+    let team = teamsByName.get(nameKey(name));
     if (!team) {
       team = { id: storedTeam.id, name };
       teams.push(team);
-      teamsByName.set(teamKey(name), team);
+      teamsByName.set(nameKey(name), team);
     }
     canonicalTeamIds.set(storedTeam.id, team.id);
   }
@@ -55,11 +55,11 @@ const migrateSetup = (stored: SetupData): SetupData => {
     let teamId = season.teamId ? canonicalTeamIds.get(season.teamId) ?? season.teamId : undefined;
     if (!teamId) {
       const name = requireText(season.teamName ?? "", "Team name");
-      let team = teamsByName.get(teamKey(name));
+      let team = teamsByName.get(nameKey(name));
       if (!team) {
         team = { id: crypto.randomUUID(), name };
         teams.push(team);
-        teamsByName.set(teamKey(name), team);
+        teamsByName.set(nameKey(name), team);
       }
       teamId = team.id;
     }
@@ -82,7 +82,7 @@ export class GameSession {
     const migrated = migrateSetup(stored);
     const data: SetupData = {
       ...migrated,
-      games: (migrated.games ?? []).map((game) => game.status === "live" && !game.quarters && game.startingLineup
+      games: (migrated.games ?? []).filter((game) => (game as { status: string }).status !== "draft").map((game) => game.status === "live" && !game.quarters && game.startingLineup
         ? { ...game, quarters: [{ number: 1 as QuarterNumber, status: "live" as const, startingLineup: structuredClone(game.startingLineup), courtChanges: [], captureActions: [] }] }
         : game)
     };
@@ -104,7 +104,7 @@ export class GameSession {
 
   async createTeam(input: { name: string }): Promise<Team> {
     const name = requireText(input.name, "Team name");
-    const existing = this.data.teams.find((team) => teamKey(team.name) === teamKey(name));
+    const existing = this.data.teams.find((team) => nameKey(team.name) === nameKey(name));
     if (existing) return structuredClone(existing);
     const team = { id: crypto.randomUUID(), name };
     this.data.teams.push(team);
@@ -137,9 +137,12 @@ export class GameSession {
 
   async addPlayer(input: { name: string; nickname?: string }): Promise<Player> {
     const nickname = input.nickname?.trim();
+    const name = requireText(input.name, "Player name");
+    const existing = this.data.players.find((player) => nameKey(player.name) === nameKey(name));
+    if (existing) return structuredClone(existing);
     const player: Player = {
       id: crypto.randomUUID(),
-      name: requireText(input.name, "Player name"),
+      name,
       ...(nickname ? { nickname } : {})
     };
     this.data.players.push(player);
@@ -148,9 +151,18 @@ export class GameSession {
   }
 
   async addOpposition(input: { name: string }): Promise<Opposition> {
+    const name = requireText(input.name, "Opposition name");
+    const existing = this.data.opposition.find((opposition) => nameKey(opposition.name) === nameKey(name));
+    if (existing) {
+      if (existing.archived) {
+        existing.archived = false;
+        await this.persist();
+      }
+      return structuredClone(existing);
+    }
     const opposition: Opposition = {
       id: crypto.randomUUID(),
-      name: requireText(input.name, "Opposition name"),
+      name,
       archived: false
     };
     this.data.opposition.push(opposition);
@@ -209,6 +221,7 @@ export class GameSession {
       };
     }
     this.data = migrateSetup(this.data);
+    this.data.games = this.data.games.filter((game) => (game as { status: string }).status !== "draft");
     await this.persist();
   }
 
@@ -244,7 +257,8 @@ export class GameSession {
     });
   }
 
-  async createDraft(input: CreateDraftInput): Promise<Game> {
+  async startMatch(input: StartMatchInput): Promise<Game> {
+    if (this.data.games.some((game) => game.status === "live")) throw new Error("Finish the live match before starting another.");
     if (this.requireSeason(input.seasonId).status !== "active") throw new Error("Select the active season.");
     this.requireActiveOpposition(input.oppositionId);
     const game: Game = {
@@ -253,47 +267,16 @@ export class GameSession {
       oppositionId: input.oppositionId,
       date: this.requireDate(input.date),
       squadPlayerIds: this.validSquad(input.squadPlayerIds),
-      status: "draft"
+      startingLineup: structuredClone(input.startingLineup),
+      status: "live",
+      activeQuarter: 1,
+      quarters: []
     };
+    this.validateStartingLineup(game, input.startingLineup);
+    game.quarters = [{ number: 1, status: "live", startingLineup: structuredClone(input.startingLineup), courtChanges: [], captureActions: [] }];
     this.data.games.push(game);
     await this.persist();
     return structuredClone(game);
-  }
-
-  async updateDraftSquad(id: string, squadPlayerIds: string[]): Promise<void> {
-    const game = this.requireDraft(id, "The squad cannot be changed after Quarter 1 starts.");
-    game.squadPlayerIds = this.validSquad(squadPlayerIds);
-    game.startingLineup = undefined;
-    await this.persist();
-  }
-
-  async setStartingLineup(id: string, lineup: StartingLineup): Promise<void> {
-    const game = this.requireDraft(id, "The starting court cannot be changed after Quarter 1 starts.");
-    this.validateStartingLineup(game, lineup);
-    game.startingLineup = structuredClone(lineup);
-    await this.persist();
-  }
-
-  async startQuarterOne(id: string): Promise<void> {
-    const game = this.requireDraft(id, "Quarter 1 has already started.");
-    if (!game.startingLineup) {
-      throw new Error("Assign every starting position before starting Quarter 1.");
-    }
-    this.validateStartingLineup(game, game.startingLineup);
-    game.status = "live";
-    game.activeQuarter = 1;
-    game.quarters = [{ number: 1, status: "live", startingLineup: structuredClone(game.startingLineup), courtChanges: [], captureActions: [] }];
-    await this.persist();
-  }
-
-  async deleteDraft(id: string): Promise<void> {
-    const game = this.data.games.find((candidate) => candidate.id === id);
-    if (!game || game.status !== "draft") {
-      throw new Error("Only a draft can be deleted.");
-    }
-    this.requireActiveSeason(game.seasonId);
-    this.data.games = this.data.games.filter((candidate) => candidate.id !== id);
-    await this.persist();
   }
 
   async endQuarter(id: string): Promise<void> {
@@ -447,7 +430,7 @@ export class GameSession {
 
   private validSquad(playerIds: string[]): string[] {
     const uniqueIds = [...new Set(playerIds)];
-    if (!uniqueIds.length) throw new Error("Choose at least one squad player.");
+    if (uniqueIds.length < 5) throw new Error("Choose at least five squad players.");
     if (uniqueIds.length > 12) throw new Error("A match squad can contain at most 12 players.");
     if (uniqueIds.length !== playerIds.length || uniqueIds.some((id) => !this.data.players.some((player) => player.id === id))) {
       throw new Error("Choose unique saved players for the squad.");
@@ -460,14 +443,6 @@ export class GameSession {
       throw new Error("Enter a valid match date.");
     }
     return value;
-  }
-
-  private requireDraft(id: string, liveMessage: string): Game {
-    const game = this.data.games.find((candidate) => candidate.id === id);
-    if (!game) throw new Error("Match draft was not found.");
-    if (game.status !== "draft") throw new Error(liveMessage);
-    this.requireActiveSeason(game.seasonId);
-    return game;
   }
 
   private requireLiveQuarter(id: string): { game: Game; quarter: NonNullable<Game["quarters"]>[number] } {
