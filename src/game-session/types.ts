@@ -97,7 +97,7 @@ export type LiveQuarterCapture = {
 
 export type GameOutcome =
   | { kind: "completed" }
-  | { kind: "abandoned"; winner: "team" | "opposition" }
+  | { kind: "abandoned" }
   | { kind: "terminated" };
 
 export type Game = {

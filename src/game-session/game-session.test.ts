@@ -295,7 +295,7 @@ describe("GameSession live quarter capture", () => {
     await expect(session.recordOppositionGoal(game.id)).rejects.toThrow("no live quarter");
     await expect(session.deleteCaptureAction(game.id, 1, actionId)).rejects.toThrow("Only a live game");
     await expect(session.correctPlayerStatistic(game.id, 1, actionId, { playerId: session.match(game.id)!.squadPlayerIds[0], position: "Wing Defence", statistic: "Intercept" })).rejects.toThrow("Only a live game");
-    await expect(session.abandonGame(game.id, "team")).rejects.toThrow("Only a live game");
+    await expect(session.abandonGame(game.id)).rejects.toThrow("Only a live game");
   });
 
   it("retains incomplete data and locks every mutation for abandoned games", async () => {
@@ -303,8 +303,8 @@ describe("GameSession live quarter capture", () => {
     await abandoned.session.recordPlayerStatistic(abandoned.game.id, { position: "Goal Attack", statistic: "Goals" });
     const actionId = abandoned.session.liveQuarter(abandoned.game.id).captureActions[0].id;
     await abandoned.session.endQuarter(abandoned.game.id);
-    await abandoned.session.abandonGame(abandoned.game.id, "opposition");
-    expect(abandoned.session.match(abandoned.game.id)).toMatchObject({ status: "abandoned", incomplete: true, outcome: { kind: "abandoned", winner: "opposition" }, finalScore: { own: 1, opposition: 0 }, quarters: [{ captureActions: [{ id: actionId }] }] });
+    await abandoned.session.abandonGame(abandoned.game.id);
+    expect(abandoned.session.match(abandoned.game.id)).toMatchObject({ status: "abandoned", incomplete: true, outcome: { kind: "abandoned" }, finalScore: { own: 1, opposition: 0 }, quarters: [{ captureActions: [{ id: actionId }] }] });
     await expect(abandoned.session.recordOppositionGoal(abandoned.game.id)).rejects.toThrow("no live quarter");
     await expect(abandoned.session.deleteCaptureAction(abandoned.game.id, 1, actionId)).rejects.toThrow("Only a live game");
     await expect(abandoned.session.correctPlayerStatistic(abandoned.game.id, 1, actionId, { playerId: abandoned.players[7].id, position: "Wing Defence", statistic: "Intercept" })).rejects.toThrow("Only a live game");
@@ -348,8 +348,8 @@ describe("GameSession live quarter capture", () => {
     await expect(completed.session.terminateGame(completed.game.id)).rejects.toThrow("Only a live game");
 
     const abandoned = await startLiveMatch();
-    await abandoned.session.abandonGame(abandoned.game.id, "team");
-    expect(abandoned.session.terminalMatchReport(abandoned.game.id)).toMatchObject({ status: "abandoned", outcome: { kind: "abandoned", winner: "team" } });
+    await abandoned.session.abandonGame(abandoned.game.id);
+    expect(abandoned.session.terminalMatchReport(abandoned.game.id)).toMatchObject({ status: "abandoned", outcome: { kind: "abandoned" } });
   });
 
   it("restores terminal history and report eligibility from a complete backup", async () => {

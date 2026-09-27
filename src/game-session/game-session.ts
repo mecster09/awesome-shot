@@ -12,6 +12,7 @@ const isLineup = (value: unknown) => {
 };
 const isSubstitution = (value: unknown) => isObject(value) && typeof value.sequence === "number" && POSITIONS.includes(value.position as Position) && (value.playerId === undefined || typeof value.playerId === "string");
 const isQuarter = (value: unknown) => isObject(value) && [1, 2, 3, 4].includes(value.number as number) && ["live", "ended"].includes(value.status as string) && isLineup(value.startingLineup) && Array.isArray(value.substitutions) && value.substitutions.every(isSubstitution) && Array.isArray(value.captureActions) && value.captureActions.every((action) => isObject(action) && typeof action.id === "string" && (action.kind === "opposition-goal" || action.kind === "player-statistic" && typeof action.playerId === "string" && POSITIONS.includes(action.position as Position) && PLAYER_STATISTICS.includes(action.statistic as PlayerStatistic)));
+const isLegacyQuarter = (value: unknown) => isObject(value) && [1, 2, 3, 4].includes(value.number as number) && ["live", "ended"].includes(value.status as string) && isLineup(value.startingLineup) && Array.isArray(value.courtChanges) && value.courtChanges.every((change) => isObject(change) && typeof change.sequence === "number" && isLineup(change.lineup)) && Array.isArray(value.captureActions);
 const migrateQuarter = (quarter: Quarter & { courtChanges?: Array<{ lineup: StartingLineup }> }): Quarter => {
   if (quarter.substitutions) return quarter;
   let court = structuredClone(quarter.startingLineup);
@@ -23,7 +24,7 @@ const migrateQuarter = (quarter: Quarter & { courtChanges?: Array<{ lineup: Star
   const { courtChanges: _, ...migrated } = quarter;
   return { ...migrated, substitutions };
 };
-const isGame = (value: unknown) => hasStrings(value, ["id", "seasonId", "oppositionId", "date", "status"]) && isObject(value) && ["draft", "live", "finalised", "abandoned", "terminated"].includes(value.status as string) && Array.isArray(value.squadPlayerIds) && value.squadPlayerIds.every((id) => typeof id === "string") && (value.startingLineup === undefined || isLineup(value.startingLineup)) && (value.quarters === undefined || Array.isArray(value.quarters) && value.quarters.every(isQuarter));
+const isGame = (value: unknown) => hasStrings(value, ["id", "seasonId", "oppositionId", "date", "status"]) && isObject(value) && ["draft", "live", "finalised", "abandoned", "terminated"].includes(value.status as string) && Array.isArray(value.squadPlayerIds) && value.squadPlayerIds.every((id) => typeof id === "string") && (value.startingLineup === undefined || isLineup(value.startingLineup)) && (value.quarters === undefined || Array.isArray(value.quarters) && value.quarters.every((quarter) => isQuarter(quarter) || isLegacyQuarter(quarter)));
 const parseBackup = (serialized: string): SetupData => {
   let parsed: unknown;
   try { parsed = JSON.parse(serialized); } catch { throw new Error("Choose a valid Natball Insights backup file."); }
@@ -103,7 +104,7 @@ export class GameSession {
         const { startingLineup, ...withoutSeparateStartingLineup } = legacyGame;
         return legacyGame.status === "live" && !legacyGame.quarters && startingLineup
           ? { ...withoutSeparateStartingLineup, quarters: [{ number: 1 as QuarterNumber, status: "live" as const, startingLineup: structuredClone(startingLineup), substitutions: [], captureActions: [] }] }
-          : { ...withoutSeparateStartingLineup, quarters: legacyGame.quarters?.map((quarter) => migrateQuarter(quarter as Quarter & { courtChanges?: Array<{ lineup: StartingLineup }> })) };
+          : { ...withoutSeparateStartingLineup, ...(legacyGame.status === "abandoned" ? { outcome: { kind: "abandoned" } } : {}), quarters: legacyGame.quarters?.map((quarter) => migrateQuarter(quarter as Quarter & { courtChanges?: Array<{ lineup: StartingLineup }> })) };
       })
     };
     if (JSON.stringify(stored) !== JSON.stringify(data)) await store.write(data);
@@ -241,7 +242,7 @@ export class GameSession {
       };
     }
     this.data = migrateSetup(this.data);
-    this.data.games = this.data.games.filter((game) => (game as { status: string }).status !== "draft");
+    this.data.games = this.data.games.filter((game) => (game as { status: string }).status !== "draft").map((game) => ({ ...game, ...(game.status === "abandoned" ? { outcome: { kind: "abandoned" } } : {}), quarters: game.quarters?.map((quarter) => migrateQuarter(quarter as Quarter & { courtChanges?: Array<{ lineup: StartingLineup }> })) }));
     await this.persist();
   }
 
@@ -370,8 +371,8 @@ export class GameSession {
     await this.persist();
   }
 
-  async abandonGame(id: string, winner: "team" | "opposition"): Promise<void> {
-    await this.endIncompleteGame(id, { kind: "abandoned", winner });
+  async abandonGame(id: string): Promise<void> {
+    await this.endIncompleteGame(id, { kind: "abandoned" });
   }
 
   async terminateGame(id: string): Promise<void> {
