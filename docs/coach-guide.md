@@ -1,54 +1,59 @@
 # Coach guide
 
-## Before the match
+## The normal journey
 
-1. In **Seasons**, add the season and your team name.
-2. In **Players**, add the players you may select for a match. A nickname is optional.
-3. In **Opposition**, add the other teams you play. Select the opposition for the next match if needed.
-4. Select **Create match**, choose the season, opposition, date, and up to 12 squad players.
-5. Set a unique player in each of the seven starting positions, then select **Start Quarter 1**.
+Natball Insights keeps the match-day journey focused: **Season Setup**, **Match Setup**, **Quarter Setup**, then the live **Match Centre**. Only one active Season and one live Match can exist at a time.
 
-## Capture a live quarter
+### 1. Set up a Season
 
-Use the position cards to record player statistics. Goals and misses can only be recorded for Goal Attack and Goal Shooter. Use **Opposition goal** for the opposition score.
+When there is no active Season, the app opens **Season Setup**. Give the Season a name, then select a saved Team or create a reusable Team. Once created, the Season is active and the app moves directly to **Match Setup**.
 
-Use **Undo last action** only for the newest action. To change the current court, select **Change court**, choose the complete new seven, and apply it. Later statistics use the new court.
+Use **Season settings** only when you need to end a Season or recover data. Ending a Season requires confirmation and is available only when all of its Matches are terminal. Ended Seasons remain available through retained Match history.
 
-Select **End quarter** when the quarter finishes. No further capture is possible until the next quarter starts. The final court automatically becomes the starting court for the next quarter.
+### 2. Set up a Match
 
-## Correct an earlier quarter
+Choose an active Opposition or add one inline. Then select the Match date and a Squad of five to twelve unique players. You can add a late or new player while making the Squad selection.
 
-While a later quarter is live, the ended quarters appear in **Review ended quarters**. For each recorded action, you can:
+There is no saved Match draft: selecting **Continue to Quarter Setup** keeps the setup in memory, and the Match is persisted only when you confirm the Quarter 1 Court.
 
-- Select **Edit statistic** to move it to the correct player, position, or statistic.
-- Select **Remove action** to remove an incorrect record and decrement its total.
+### 3. Confirm each Quarter Court
 
-Corrections remain available until the match reaches a terminal outcome.
+Assign five, six, or seven Squad players to Positions. A Court may have up to two vacant Positions, but no player can occupy more than one Position. Select **Start Quarter 1** to begin live recording.
 
-## Finish, abandon, or terminate a match
+After each ended Quarter from 1 to 3, confirm the next Quarter's Court before recording resumes. The previous Court is pre-filled, so you can reposition players or add a late-arriving player to the Squad. Changes between Courts are retained as pre-quarter Substitutions. After Quarter 4, confirm and finalise the displayed Match score instead of setting up another Court.
 
-After Quarter 4 ends, check the displayed final score and select **Confirm and finalise**. Finalisation locks every match record.
+## Record in the Match Centre
 
-If a live match cannot be completed, choose one of these options:
+The Match Centre shows only the current Court, with at most seven player rows. Its large score is the cumulative **Match score**; the smaller **Quarter score** covers the current Quarter only.
 
-- **Abandon - team wins** or **Abandon - opposition wins** records an incomplete result with a declared winner.
-- **Terminate game** records an incomplete result with no winner.
+- Use a player's accessible event icons to record player events. Goals and misses are available only for Goal Attack and Goal Shooter. A goal recorded this way updates both the player event total and your Match score.
+- Use the visually separate **Opposition goal** control for opposition scoring.
+- Select **Record Substitution** to replace the player in one Position or fill a vacant Position. The player picker excludes people already on the Court.
+- **Undo last player event** applies only to the latest player event in the active Quarter. It does not undo an opposition goal or a Substitution.
+- Select **History** to leave the live recording surface and view retained Matches. Use **Back to Match Centre** to resume the live Match.
+- Select **End quarter** when the Quarter finishes. Recording resumes only after the next Quarter Court is confirmed.
 
-Abandoned and terminated matches retain the statistics already captured. They are read-only and cannot be deleted.
+## Complete or abandon a Match
 
-## Review and export terminal matches
+After Quarter 4 ends, check the displayed score and select **Confirm and finalise**. A completed Match is read-only and retains its Quarter history, scores, player events, and Substitutions.
 
-Select **View match record** for a finalised, abandoned, or terminated match. The read-only record shows the outcome, scores, quarter history, starting courts, court changes, and player-position totals.
+If a live Match cannot be completed, select **Abandon match**. During live recording, open **More match actions** first; after a Quarter has ended, the action is available on the Quarter-complete screen. An Abandoned Match is terminal, has no winner, and retains its score at abandonment and all captured statistics.
 
-Use **Download CSV** for spreadsheet analysis. Its columns are documented in [the CSV schema](reports/csv-schema.md). Use **Download PDF** for a coach-readable match record.
+## Review and export retained Matches
+
+Open **Match history** to select a completed or Abandoned Match. Its read-only record includes the final score, Quarter scores, Courts, player-position events, and Substitutions.
+
+Use **Download CSV** for spreadsheet analysis; the columns are documented in [the CSV schema](reports/csv-schema.md). Use **Download PDF** for a coach-readable record.
+
+New Matches cannot be terminated. If an older backup contains a terminated record, it remains readable, exportable, and restorable as a no-winner legacy record.
 
 ## Back up or restore data
 
-In **Protect your data**, select **Download backup** to save all locally held setup and match data as a JSON backup. Store it somewhere safe before changing device or clearing browser data.
+Backup and restore are recovery controls, not match-day actions. Open **Season settings** and select **Download backup** to save locally held Season, Team, Match, Quarter, player event, Substitution, and result history as JSON.
 
 To restore a backup, paste its contents into **Backup data** and choose an import mode:
 
-- **Merge - keep current data** adds records that are not already present and keeps the current data.
-- **Replace all local data** replaces every local record. The app requires you to acknowledge the warning before importing.
+- **Merge - keep current data** adds records that are not already present.
+- **Replace all local data** replaces every local record after you acknowledge the warning.
 
 Invalid or incompatible backups are rejected without changing the current data.
