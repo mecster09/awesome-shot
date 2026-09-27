@@ -70,6 +70,7 @@ export function App({ store }: AppProps) {
   if (!session || !setup) {
     return <main className="loading" aria-live="polite">{error ?? message}</main>;
   }
+  const activeSeason = setup.seasons.find((season) => season.status === "active");
 
   return <main className="app-shell">
     <header className="app-header">
@@ -90,13 +91,12 @@ export function App({ store }: AppProps) {
     {error && <p className="error" role="alert">{error}</p>}
 
     <div className="setup-grid">
-      <SetupCard title="Seasons" description="Your team name is saved with every season.">
-        <SeasonForm
-          defaultTeamName={session.newSeasonDefaults().teamName}
-          onSubmit={(input) => perform(async () => { await session.createSeason(input); })}
-        />
+      <SetupCard title="Seasons" description="Create one active season at a time and reuse your saved teams.">
+        {activeSeason
+          ? <EndSeasonControl season={activeSeason} onConfirm={() => perform(() => session.endSeason(activeSeason.id))} />
+          : <SeasonForm teams={setup.teams} defaultTeamName={session.newSeasonDefaults().teamName} onSubmit={(input) => perform(async () => { await session.createSeason(input); })} />}
         <ul className="record-list" aria-label="Saved seasons">
-          {setup.seasons.map((season) => <li key={season.id}><strong>{season.name}</strong><span>{season.teamName}</span></li>)}
+          {setup.seasons.map((season) => <li key={season.id}><strong>{season.name}</strong><span>{setup.teams.find((team) => team.id === season.teamId)?.name} · {season.status === "active" ? "Active" : "Ended"}</span></li>)}
           {!setup.seasons.length && <EmptyState>Start with your current season.</EmptyState>}
         </ul>
       </SetupCard>
@@ -126,7 +126,7 @@ export function App({ store }: AppProps) {
     </section>
 
     <section className="match-area" aria-labelledby="match-title">
-      <div className="section-heading"><div><p className="eyebrow">MATCH CENTRE</p><h2 id="match-title">Prepare your next game</h2></div><button onClick={() => setMatchView({ kind: "new" })}>Create match</button></div>
+      <div className="section-heading"><div><p className="eyebrow">MATCH CENTRE</p><h2 id="match-title">Prepare your next game</h2></div><button disabled={!activeSeason} onClick={() => setMatchView({ kind: "new" })}>Create match</button></div>
       {matchView?.kind === "new" && <NewMatchForm
         setup={setup}
         onAddPlayer={async (input) => {
@@ -178,20 +178,27 @@ function EmptyState({ children }: { children: React.ReactNode }) {
   return <li className="empty-state">{children}</li>;
 }
 
-function SeasonForm({ defaultTeamName, onSubmit }: { defaultTeamName: string; onSubmit: (input: { name: string; teamName: string }) => Promise<void> }) {
+function SeasonForm({ teams, defaultTeamName, onSubmit }: { teams: SetupSummary["teams"]; defaultTeamName: string; onSubmit: (input: { name: string; teamId?: string; teamName?: string }) => Promise<void> }) {
   const [name, setName] = useState("");
+  const [teamId, setTeamId] = useState(teams[0]?.id ?? "");
   const [teamName, setTeamName] = useState(defaultTeamName);
   useEffect(() => setTeamName((current) => current || defaultTeamName), [defaultTeamName]);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    await onSubmit({ name, teamName });
+    await onSubmit(teamId ? { name, teamId } : { name, teamName });
     setName("");
   };
   return <form onSubmit={(event) => void submit(event)}>
     <label>Season name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. 2026 Winter" /></label>
-    <label>Team name<input value={teamName} onChange={(event) => setTeamName(event.target.value)} placeholder="Your team" /></label>
-    <button type="submit">Save season</button>
+    {teams.length > 0 && <label>Team<select value={teamId} onChange={(event) => setTeamId(event.target.value)}><option value="">Create a new team</option>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>}
+    {!teamId && <label>New team name<input value={teamName} onChange={(event) => setTeamName(event.target.value)} placeholder="Your team" /></label>}
+    <button type="submit">Create season</button>
   </form>;
+}
+
+function EndSeasonControl({ season, onConfirm }: { season: { name: string }; onConfirm: () => Promise<void> }) {
+  const [confirmed, setConfirmed] = useState(false);
+  return <div className="season-ending"><p><strong>{season.name}</strong> is active. End it only after every match is terminal; ended seasons remain readable.</p><label><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /> I understand ending this season makes it read-only.</label><button className="secondary-button" disabled={!confirmed} onClick={() => void onConfirm()}>Confirm end season</button></div>;
 }
 
 function PlayerForm({ onSubmit }: { onSubmit: (input: { name: string; nickname?: string }) => Promise<void> }) {
@@ -223,7 +230,8 @@ function OppositionForm({ onSubmit }: { onSubmit: (name: string) => Promise<void
 }
 
 function NewMatchForm({ setup, onAddPlayer, onCreate }: { setup: SetupSummary; onAddPlayer: (input: { name: string; nickname?: string }) => Promise<{ id: string }>; onCreate: (input: CreateDraftInput) => Promise<void> }) {
-  const [seasonId, setSeasonId] = useState(setup.seasons.at(-1)?.id ?? "");
+  const activeSeasons = setup.seasons.filter((season) => season.status === "active");
+  const [seasonId, setSeasonId] = useState(activeSeasons.at(-1)?.id ?? "");
   const [oppositionId, setOppositionId] = useState(setup.selectedOpposition?.id ?? setup.activeOpposition.at(0)?.id ?? "");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [squadPlayerIds, setSquadPlayerIds] = useState<string[]>([]);
@@ -242,7 +250,7 @@ function NewMatchForm({ setup, onAddPlayer, onCreate }: { setup: SetupSummary; o
   };
   return <form className="match-form" onSubmit={(event) => void submit(event)}>
     <div className="field-grid">
-      <label>Season<select value={seasonId} onChange={(event) => setSeasonId(event.target.value)}><option value="">Select season</option>{setup.seasons.map((season) => <option key={season.id} value={season.id}>{season.name} · {season.teamName}</option>)}</select></label>
+      <label>Season<select value={seasonId} onChange={(event) => setSeasonId(event.target.value)}><option value="">Select season</option>{activeSeasons.map((season) => <option key={season.id} value={season.id}>{season.name} · {setup.teams.find((team) => team.id === season.teamId)?.name}</option>)}</select></label>
       <label>Opposition<select value={oppositionId} onChange={(event) => setOppositionId(event.target.value)}><option value="">Select opposition</option>{setup.activeOpposition.map((opposition) => <option key={opposition.id} value={opposition.id}>{opposition.name}</option>)}</select></label>
       <label>Match date<input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
     </div>
@@ -283,7 +291,7 @@ function BackupCard({ exportBackup, onImport }: { exportBackup: () => string; on
 function LiveQuarterCard({ game, setup, capture, actions }: { game: Game; setup: SetupSummary; capture: LiveQuarterCapture; actions: MatchActions }) {
   const [changingCourt, setChangingCourt] = useState(false);
   const [nextLineup, setNextLineup] = useState<StartingLineup>(capture.lineup);
-  const teamName = setup.seasons.find((season) => season.id === game.seasonId)?.teamName ?? "Our team";
+  const teamName = setup.teams.find((team) => team.id === setup.seasons.find((season) => season.id === game.seasonId)?.teamId)?.name ?? "Our team";
   const oppositionName = setup.opposition.find((opposition) => opposition.id === game.oppositionId)?.name ?? "Opposition";
   const squad = setup.players.filter((player) => game.squadPlayerIds.includes(player.id));
   return <section className="live-capture" aria-labelledby="live-quarter-title"><div className="scoreboard"><div><p className="eyebrow">Quarter {capture.number} is live</p><h2 id="live-quarter-title">{teamName} {capture.ownScore} — {oppositionName} {capture.oppositionScore}</h2><p className="match-score">Match score: {teamName} {capture.ownGameScore} — {oppositionName} {capture.oppositionGameScore}</p></div><div className="score-actions"><button className="secondary-button" disabled={!capture.canUndo} onClick={() => void actions.undoCaptureAction()}>Undo last action</button><button onClick={() => void actions.recordOppositionGoal()}>Opposition goal</button><button className="secondary-button" onClick={() => void actions.endQuarter()}>End quarter</button></div></div><div className="court-toolbar"><strong>Current court</strong><button className="text-button" onClick={() => setChangingCourt((current) => !current)}>{changingCourt ? "Cancel court change" : "Change court"}</button></div>{changingCourt && <CourtChangeForm lineup={nextLineup} squad={squad} onLineupChange={setNextLineup} onApply={async () => { await actions.changeCourt(nextLineup); setChangingCourt(false); }} />}<div className="live-card-grid">{POSITIONS.map((position) => <PlayerStatCard key={position} position={position} player={setup.players.find((candidate) => candidate.id === capture.lineup[position])} capture={capture} onRecord={actions.recordPlayerStatistic} />)}</div><QuarterReview quarters={game.quarters?.filter((quarter) => quarter.status === "ended") ?? []} players={squad} onDeleteAction={actions.deleteHistoricalAction} onCorrectAction={actions.correctHistoricalAction} /><TerminalActions onAbandon={actions.abandon} onTerminate={actions.terminate} teamName={teamName} oppositionName={oppositionName} /></section>;
