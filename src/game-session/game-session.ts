@@ -1,4 +1,4 @@
-import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, type CaptureAction, type CourtSetupDraft, type Game, type GameSessionStore, type LiveQuarterCapture, type MatchIdentityDraft, type MatchSetupDraft, type MatchSquadDraft, type Opposition, type Player, type PlayerStatistic, type PlayerStatisticTotal, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartMatchInput, type StartingLineup, type Team, type TerminalMatchReport } from "./types";
+import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, TOTAL_QUARTERS, type CaptureAction, type CourtSetupDraft, type Game, type GameSessionStore, type LiveQuarterCapture, type MatchIdentityDraft, type MatchSetupDraft, type MatchSquadDraft, type Opposition, type Player, type PlayerStatistic, type PlayerStatisticTotal, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartMatchInput, type StartingLineup, type Team, type TerminalMatchReport } from "./types";
 
 const emptySetup = (): SetupData => ({ teams: [], seasons: [], players: [], opposition: [], games: [] });
 const backupFormat = "natball-insights-backup";
@@ -373,19 +373,16 @@ export class GameSession {
   }
 
   async addPlayerToSquad(id: string, playerId: string): Promise<void> {
-    const game = this.requireLiveGame(id);
-    if (game.activeQuarter) throw new Error("End the current quarter before changing the match squad.");
-    if (!this.data.players.some((player) => player.id === playerId)) throw new Error("Choose a saved player for the match squad.");
-    if (game.squadPlayerIds.includes(playerId)) return;
-    game.squadPlayerIds = this.validReadyMatchSquad([...game.squadPlayerIds, playerId]);
-    await this.persist();
+    this.requireLiveGame(id);
+    void playerId;
+    throw new Error("The Match Squad is fixed once the Match begins.");
   }
 
   async startNextQuarter(id: string, startingLineup: StartingLineup): Promise<void> {
     const game = this.requireLiveGame(id);
     if (game.activeQuarter) throw new Error("End the current quarter before starting the next one.");
     const previous = this.previousQuarter(game);
-    if (previous.number === 4) throw new Error("All four quarters have ended.");
+    if (previous.number === TOTAL_QUARTERS) throw new Error("All four quarters have ended.");
     const number = (previous.number + 1) as QuarterNumber;
     this.validateCourt(game, startingLineup);
     game.quarters?.push({ number, status: "live", startingLineup: structuredClone(this.currentLineup(previous)), substitutions: this.preQuarterSubstitutions(this.currentLineup(previous), startingLineup), captureActions: [] });
@@ -428,7 +425,7 @@ export class GameSession {
 
   async finaliseGame(id: string, confirmedScore: { own: number; opposition: number }): Promise<void> {
     const game = this.requireLiveGame(id);
-    if (game.activeQuarter || game.quarters?.length !== 4 || game.quarters.some((quarter) => quarter.status !== "ended")) throw new Error("End all four quarters before finalising.");
+    if (game.activeQuarter || game.quarters?.length !== TOTAL_QUARTERS || game.quarters.some((quarter) => quarter.status !== "ended")) throw new Error("End all four quarters before finalising.");
     const score = this.gameScore(id);
     if (score.own !== confirmedScore.own || score.opposition !== confirmedScore.opposition) throw new Error("Confirm the displayed final score before finalising.");
     game.status = "finalised";

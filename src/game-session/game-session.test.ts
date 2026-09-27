@@ -278,17 +278,17 @@ describe("GameSession live quarter capture", () => {
     expect(session.liveQuarter(game.id).lineup.Centre).toBe(players[7].id);
   });
 
-  it("confirms five-to-seven-player courts and a later quarter court explicitly", async () => {
+  it("confirms five-to-seven-player courts and keeps the Match Squad fixed after Match start", async () => {
     const { session, players, game } = await startLiveMatch();
     const latePlayer = await session.addPlayer({ name: "Ivy" });
     await session.endQuarter(game.id);
-    await session.addPlayerToSquad(game.id, latePlayer.id);
+    await expect(session.addPlayerToSquad(game.id, latePlayer.id)).rejects.toThrow("Match Squad is fixed");
 
     await session.startNextQuarter(game.id, {
       "Goal Keeper": players[0].id,
       "Goal Defence": players[1].id,
       "Wing Defence": players[2].id,
-      Centre: latePlayer.id,
+      Centre: players[3].id,
       "Wing Attack": players[4].id
     });
 
@@ -296,10 +296,10 @@ describe("GameSession live quarter capture", () => {
       "Goal Keeper": players[0].id,
       "Goal Defence": players[1].id,
       "Wing Defence": players[2].id,
-      Centre: latePlayer.id,
+      Centre: players[3].id,
       "Wing Attack": players[4].id
     });
-    expect(session.liveQuarter(game.id).substitutions).toContainEqual({ sequence: 1, position: "Centre", playerId: latePlayer.id });
+    expect(session.liveQuarter(game.id).substitutions).not.toContainEqual({ position: "Centre", playerId: latePlayer.id });
     await session.endQuarter(game.id);
     await expect(session.startNextQuarter(game.id, {
       "Goal Keeper": players[0].id,
