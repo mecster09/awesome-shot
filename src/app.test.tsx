@@ -94,6 +94,29 @@ describe("Natball Insights setup", () => {
     expect(await screen.findByText("Quarter 1 is live")).toBeInTheDocument();
   });
 
+  it("requires a confirmed, repositionable Court before starting a later Quarter", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
+    const game = await startLiveMatch(session, season.id, opposition.id, players);
+    await session.endQuarter(game.id);
+    const user = userEvent.setup();
+    render(<App store={store} />);
+
+    await user.click(await screen.findByRole("button", { name: "View live match" }));
+    await user.click(screen.getByRole("button", { name: "Set up Quarter 2" }));
+
+    expect(await screen.findByRole("heading", { name: "Set up Quarter 2 Court" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Goal Keeper")).toHaveValue(players[0].id);
+    expect(screen.getByRole("option", { name: "Ava" })).toBeInTheDocument();
+    expect(screen.getAllByRole("option", { name: "Ava" })).toHaveLength(1);
+    await user.type(screen.getByLabelText("Late player name"), "Hana");
+    await user.click(screen.getByRole("button", { name: "Add player to squad" }));
+    expect(await screen.findAllByRole("option", { name: "Hana" })).not.toHaveLength(0);
+  });
+
   it("captures live player and opposition statistics from the current court", async () => {
     const store = new InMemoryGameSessionStore();
     const session = await GameSession.open(store);
@@ -122,7 +145,7 @@ describe("Natball Insights setup", () => {
     const game = await startLiveMatch(session, season.id, opposition.id, players);
     await session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Tip" });
     await session.endQuarter(game.id);
-    await session.startNextQuarter(game.id);
+    await session.startNextQuarter(game.id, session.nextQuarterCourt(game.id));
     const user = userEvent.setup();
     render(<App store={store} />);
 
