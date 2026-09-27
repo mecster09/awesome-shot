@@ -33,7 +33,8 @@ export const POSITIONS = [
 ] as const;
 
 export type Position = (typeof POSITIONS)[number];
-export type StartingLineup = Record<Position, string>;
+export type Court = Partial<Record<Position, string>>;
+export type StartingLineup = Court;
 
 export const GENERAL_STATISTICS = [
   "Successful Centre Pass Received",
@@ -105,7 +106,6 @@ export type Game = {
   oppositionId: string;
   date: string;
   squadPlayerIds: string[];
-  startingLineup?: StartingLineup;
   status: "live" | "finalised" | "abandoned" | "terminated";
   activeQuarter?: QuarterNumber;
   quarters?: Quarter[];

@@ -125,13 +125,14 @@ describe("GameSession match drafts", () => {
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
     const opposition = await session.addOpposition({ name: "Thunder" });
     const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
-    const startingLineup = { "Goal Keeper": players[0].id, "Goal Defence": players[1].id, "Wing Defence": players[2].id, Centre: players[3].id, "Wing Attack": players[4].id, "Goal Attack": players[5].id, "Goal Shooter": players[6].id };
+    const startingLineup = { "Goal Keeper": players[0].id, "Goal Defence": players[1].id, "Wing Defence": players[2].id, Centre: players[3].id, "Wing Attack": players[4].id };
 
     await expect(session.startMatch({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.slice(0, 4).map((player) => player.id), startingLineup })).rejects.toThrow("at least five");
     expect(session.matches()).toEqual([]);
     const match = await session.startMatch({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id), startingLineup });
 
     expect(match).toMatchObject({ status: "live", activeQuarter: 1 });
+    expect(match).not.toHaveProperty("startingLineup");
     await expect(session.startMatch({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id), startingLineup })).rejects.toThrow("live match");
   });
 
@@ -252,9 +253,40 @@ describe("GameSession live quarter capture", () => {
     await session.changeCourt(game.id, { "Goal Keeper": players[0].id, "Goal Defence": players[1].id, "Wing Defence": players[2].id, Centre: players[7].id, "Wing Attack": players[4].id, "Goal Attack": players[5].id, "Goal Shooter": players[6].id });
     await session.endQuarter(game.id);
     await expect(session.recordOppositionGoal(game.id)).rejects.toThrow("no live quarter");
-    await session.startNextQuarter(game.id);
+    await session.startNextQuarter(game.id, session.nextQuarterCourt(game.id));
     expect(session.match(game.id)).toMatchObject({ activeQuarter: 2 });
     expect(session.liveQuarter(game.id).lineup.Centre).toBe(players[7].id);
+  });
+
+  it("confirms five-to-seven-player courts and a later quarter court explicitly", async () => {
+    const { session, players, game } = await startLiveMatch();
+    const latePlayer = await session.addPlayer({ name: "Ivy" });
+    await session.endQuarter(game.id);
+    await session.addPlayerToSquad(game.id, latePlayer.id);
+
+    await session.startNextQuarter(game.id, {
+      "Goal Keeper": players[0].id,
+      "Goal Defence": players[1].id,
+      "Wing Defence": players[2].id,
+      Centre: latePlayer.id,
+      "Wing Attack": players[4].id
+    });
+
+    expect(session.liveQuarter(game.id).lineup).toEqual({
+      "Goal Keeper": players[0].id,
+      "Goal Defence": players[1].id,
+      "Wing Defence": players[2].id,
+      Centre: latePlayer.id,
+      "Wing Attack": players[4].id
+    });
+    await session.endQuarter(game.id);
+    await expect(session.startNextQuarter(game.id, {
+      "Goal Keeper": players[0].id,
+      "Goal Defence": players[0].id,
+      "Wing Defence": players[2].id,
+      Centre: players[3].id,
+      "Wing Attack": players[4].id
+    })).rejects.toThrow("unique player");
   });
 
   it("corrects an ended quarter while a later quarter is live", async () => {
@@ -262,7 +294,7 @@ describe("GameSession live quarter capture", () => {
     await session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Tip" });
     const actionId = session.liveQuarter(game.id).captureActions[0].id;
     await session.endQuarter(game.id);
-    await session.startNextQuarter(game.id);
+    await session.startNextQuarter(game.id, session.nextQuarterCourt(game.id));
     await session.correctPlayerStatistic(game.id, 1, actionId, { playerId: players[7].id, position: "Wing Defence", statistic: "Intercept" });
     expect(session.quarterCapture(game.id, 1).playerStatistics).toContainEqual({ playerId: players[7].id, position: "Wing Defence", statistic: "Intercept", count: 1 });
     await session.deleteCaptureAction(game.id, 1, actionId);
@@ -275,13 +307,13 @@ describe("GameSession live quarter capture", () => {
     const actionId = session.liveQuarter(game.id).captureActions[0].id;
     for (let quarter = 1; quarter <= 4; quarter += 1) {
       await session.endQuarter(game.id);
-      if (quarter < 4) await session.startNextQuarter(game.id);
+      if (quarter < 4) await session.startNextQuarter(game.id, session.nextQuarterCourt(game.id));
     }
     await expect(session.finaliseGame(game.id, { own: 0, opposition: 0 })).rejects.toThrow("Confirm the displayed");
     await session.finaliseGame(game.id, { own: 1, opposition: 0 });
     expect(session.match(game.id)).toMatchObject({ status: "finalised", finalScore: { own: 1, opposition: 0 } });
     expect(session.match(game.id)?.incomplete).toBeUndefined();
-    await expect(session.startNextQuarter(game.id)).rejects.toThrow("Only a live game");
+    await expect(session.startNextQuarter(game.id, {})).rejects.toThrow("Only a live game");
     await expect(session.recordOppositionGoal(game.id)).rejects.toThrow("no live quarter");
     await expect(session.deleteCaptureAction(game.id, 1, actionId)).rejects.toThrow("Only a live game");
     await expect(session.correctPlayerStatistic(game.id, 1, actionId, { playerId: session.match(game.id)!.squadPlayerIds[0], position: "Wing Defence", statistic: "Intercept" })).rejects.toThrow("Only a live game");
@@ -311,7 +343,7 @@ describe("GameSession live quarter capture", () => {
     await expect(terminated.session.recordOppositionGoal(terminated.game.id)).rejects.toThrow("no live quarter");
     await expect(terminated.session.deleteCaptureAction(terminated.game.id, 1, actionId)).rejects.toThrow("Only a live game");
     await expect(terminated.session.correctPlayerStatistic(terminated.game.id, 1, actionId, { playerId: terminated.players[7].id, position: "Wing Defence", statistic: "Intercept" })).rejects.toThrow("Only a live game");
-    await expect(terminated.session.startNextQuarter(terminated.game.id)).rejects.toThrow("Only a live game");
+    await expect(terminated.session.startNextQuarter(terminated.game.id, {})).rejects.toThrow("Only a live game");
   });
 
   it("exposes a read-only report model only for terminal matches", async () => {
@@ -332,7 +364,7 @@ describe("GameSession live quarter capture", () => {
   it("reports completed and abandoned outcomes without reopening their data", async () => {
     const completed = await startLiveMatch();
     await completed.session.recordPlayerStatistic(completed.game.id, { position: "Goal Attack", statistic: "Goals" });
-    for (let quarter = 1; quarter <= 4; quarter += 1) { await completed.session.endQuarter(completed.game.id); if (quarter < 4) await completed.session.startNextQuarter(completed.game.id); }
+    for (let quarter = 1; quarter <= 4; quarter += 1) { await completed.session.endQuarter(completed.game.id); if (quarter < 4) await completed.session.startNextQuarter(completed.game.id, completed.session.nextQuarterCourt(completed.game.id)); }
     await completed.session.finaliseGame(completed.game.id, { own: 1, opposition: 0 });
     expect(completed.session.terminalMatchReport(completed.game.id)).toMatchObject({ status: "finalised", outcome: { kind: "completed" }, score: { own: 1, opposition: 0 } });
     await expect(completed.session.terminateGame(completed.game.id)).rejects.toThrow("Only a live game");
