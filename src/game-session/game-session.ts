@@ -478,7 +478,7 @@ export class GameSession {
       ownGameScore: gameScore.own,
       oppositionGameScore: gameScore.opposition,
       captureActions: structuredClone(quarter.captureActions),
-      canUndo: quarter.captureActions.at(-1)?.kind === "player-statistic"
+      canUndo: quarter.captureActions.length > 0
     };
   }
 
@@ -504,7 +504,7 @@ export class GameSession {
 
   async undoLastCaptureAction(id: string): Promise<void> {
     const { quarter } = this.requireLiveQuarter(id);
-    if (quarter.captureActions.at(-1)?.kind !== "player-statistic") throw new Error("Undo is only available for the latest player event.");
+    if (!quarter.captureActions.length) throw new Error("No event is available to undo.");
     quarter.captureActions.pop();
     await this.persist();
   }
