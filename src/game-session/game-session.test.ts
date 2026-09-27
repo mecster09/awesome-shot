@@ -278,6 +278,32 @@ describe("GameSession live quarter capture", () => {
     expect(session.liveQuarter(game.id).lineup.Centre).toBe(players[7].id);
   });
 
+  it("reports separate Player-Position stints for between-Quarter planning", async () => {
+    const { session, players, game } = await startLiveMatch();
+    await session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Tip" });
+    await session.recordPlayerStatistic(game.id, { position: "Goal Keeper", statistic: "Tip" });
+    await session.endQuarter(game.id);
+    await session.startNextQuarter(game.id, {
+      "Goal Keeper": players[0].id,
+      "Goal Defence": players[1].id,
+      "Wing Defence": players[2].id,
+      Centre: players[4].id,
+      "Wing Attack": players[3].id,
+      "Goal Attack": players[5].id,
+      "Goal Shooter": players[6].id
+    });
+    await session.recordPlayerStatistic(game.id, { position: "Wing Attack", statistic: "Tip" });
+    await session.recordPlayerStatistic(game.id, { position: "Goal Keeper", statistic: "Tip" });
+    await session.endQuarter(game.id);
+
+    const statistics = session.betweenQuarterStatistics(game.id);
+
+    expect(statistics.previousQuarterStints).toContainEqual({ playerId: players[3].id, position: "Wing Attack", playerStatistics: [{ playerId: players[3].id, position: "Wing Attack", statistic: "Tip", count: 1 }] });
+    expect(statistics.matchStints).toContainEqual({ playerId: players[3].id, position: "Centre", playerStatistics: [{ playerId: players[3].id, position: "Centre", statistic: "Tip", count: 1 }] });
+    expect(statistics.matchStints).toContainEqual({ playerId: players[3].id, position: "Wing Attack", playerStatistics: [{ playerId: players[3].id, position: "Wing Attack", statistic: "Tip", count: 1 }] });
+    expect(statistics.matchStints).toContainEqual({ playerId: players[0].id, position: "Goal Keeper", playerStatistics: [{ playerId: players[0].id, position: "Goal Keeper", statistic: "Tip", count: 2 }] });
+  });
+
   it("confirms five-to-seven-player courts and keeps the Match Squad fixed after Match start", async () => {
     const { session, players, game } = await startLiveMatch();
     const latePlayer = await session.addPlayer({ name: "Ivy" });

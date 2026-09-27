@@ -1,4 +1,4 @@
-import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, TOTAL_QUARTERS, type CaptureAction, type CourtSetupDraft, type Game, type GameSessionStore, type LiveQuarterCapture, type MatchIdentityDraft, type MatchSetupDraft, type MatchSquadDraft, type Opposition, type Player, type PlayerStatistic, type PlayerStatisticTotal, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartMatchInput, type StartingLineup, type Team, type TerminalMatchReport } from "./types";
+import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, TOTAL_QUARTERS, type BetweenQuarterStatistics, type CaptureAction, type CourtSetupDraft, type Game, type GameSessionStore, type LiveQuarterCapture, type MatchIdentityDraft, type MatchSetupDraft, type MatchSquadDraft, type Opposition, type Player, type PlayerPositionStint, type PlayerStatistic, type PlayerStatisticTotal, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartMatchInput, type StartingLineup, type Team, type TerminalMatchReport } from "./types";
 
 const emptySetup = (): SetupData => ({ teams: [], seasons: [], players: [], opposition: [], games: [] });
 const backupFormat = "natball-insights-backup";
@@ -396,6 +396,18 @@ export class GameSession {
     return structuredClone(this.currentLineup(this.previousQuarter(game)));
   }
 
+  betweenQuarterStatistics(id: string): BetweenQuarterStatistics {
+    const game = this.requireLiveGame(id);
+    if (game.activeQuarter) throw new Error("End the current quarter before reviewing statistics.");
+    const previousQuarter = this.previousQuarter(game);
+    const quarters = game.quarters ?? [];
+    return structuredClone({
+      previousQuarter: previousQuarter.number,
+      previousQuarterStints: this.playerPositionStints(game, [previousQuarter]),
+      matchStints: this.playerPositionStints(game, quarters)
+    });
+  }
+
   quarterCapture(id: string, number: QuarterNumber): LiveQuarterCapture {
     const game = this.requireLiveGame(id);
     const quarter = game.quarters?.find((candidate) => candidate.number === number);
@@ -603,6 +615,30 @@ export class GameSession {
       if (action.kind === "opposition-goal") return { ...score, opposition: score.opposition + 1 };
       return action.statistic === "Goals" ? { ...score, own: score.own + 1 } : score;
     }, { own: 0, opposition: 0 });
+  }
+
+  private playerPositionStints(game: Game, quarters: Quarter[]): PlayerPositionStint[] {
+    const stints = new Map<string, PlayerPositionStint>();
+    const addStint = (playerId: string, position: Position) => {
+      if (!game.squadPlayerIds.includes(playerId)) return;
+      const key = `${playerId}:${position}`;
+      if (!stints.has(key)) stints.set(key, { playerId, position, playerStatistics: [] });
+    };
+    for (const quarter of quarters) {
+      for (const position of POSITIONS) {
+        const playerId = quarter.startingLineup[position];
+        if (playerId) addStint(playerId, position);
+      }
+      for (const substitution of quarter.substitutions) {
+        if (substitution.playerId) addStint(substitution.playerId, substitution.position);
+      }
+    }
+    for (const statistic of this.statisticTotals(quarters.flatMap((quarter) => quarter.captureActions))) {
+      addStint(statistic.playerId, statistic.position);
+      const stint = stints.get(`${statistic.playerId}:${statistic.position}`);
+      if (stint) stint.playerStatistics.push(statistic);
+    }
+    return [...stints.values()].sort((left, right) => POSITIONS.indexOf(left.position) - POSITIONS.indexOf(right.position));
   }
 
   private statisticTotals(actions: CaptureAction[]): PlayerStatisticTotal[] {
