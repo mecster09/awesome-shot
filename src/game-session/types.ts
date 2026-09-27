@@ -126,8 +126,16 @@ export type MatchSquadDraft = {
   oppositionId: string;
   date: string;
   stage: "match-squad";
+  squadPlayerIds?: string[];
 };
-export type MatchSetupDraft = MatchIdentityDraft | MatchSquadDraft;
+export type CourtSetupDraft = {
+  seasonId: string;
+  oppositionId: string;
+  date: string;
+  squadPlayerIds: string[];
+  stage: "court-setup";
+};
+export type MatchSetupDraft = MatchIdentityDraft | MatchSquadDraft | CourtSetupDraft;
 
 export type SetupData = {
   teams: Team[];

@@ -1,4 +1,4 @@
-import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, type CaptureAction, type Game, type GameSessionStore, type LiveQuarterCapture, type MatchIdentityDraft, type MatchSetupDraft, type MatchSquadDraft, type Opposition, type Player, type PlayerStatistic, type PlayerStatisticTotal, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartMatchInput, type StartingLineup, type Team, type TerminalMatchReport } from "./types";
+import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, type CaptureAction, type CourtSetupDraft, type Game, type GameSessionStore, type LiveQuarterCapture, type MatchIdentityDraft, type MatchSetupDraft, type MatchSquadDraft, type Opposition, type Player, type PlayerStatistic, type PlayerStatisticTotal, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartMatchInput, type StartingLineup, type Team, type TerminalMatchReport } from "./types";
 
 const emptySetup = (): SetupData => ({ teams: [], seasons: [], players: [], opposition: [], games: [] });
 const backupFormat = "natball-insights-backup";
@@ -25,7 +25,12 @@ const migrateQuarter = (quarter: Quarter & { courtChanges?: Array<{ lineup: Star
   return { ...migrated, substitutions };
 };
 const isGame = (value: unknown) => hasStrings(value, ["id", "seasonId", "oppositionId", "date", "status"]) && isObject(value) && ["draft", "live", "finalised", "abandoned", "terminated"].includes(value.status as string) && Array.isArray(value.squadPlayerIds) && value.squadPlayerIds.every((id) => typeof id === "string") && (value.startingLineup === undefined || isLineup(value.startingLineup)) && (value.quarters === undefined || Array.isArray(value.quarters) && value.quarters.every((quarter) => isQuarter(quarter) || isLegacyQuarter(quarter)));
-const isMatchSetupDraft = (value: unknown): value is MatchSetupDraft => isObject(value) && typeof value.seasonId === "string" && (value.stage === "match-identity" && (value.oppositionId === undefined || typeof value.oppositionId === "string") && (value.date === undefined || typeof value.date === "string") || value.stage === "match-squad" && typeof value.oppositionId === "string" && typeof value.date === "string");
+const isMatchSetupDraft = (value: unknown): value is MatchSetupDraft => {
+  if (!isObject(value) || typeof value.seasonId !== "string") return false;
+  if (value.stage === "match-identity") return (value.oppositionId === undefined || typeof value.oppositionId === "string") && (value.date === undefined || typeof value.date === "string");
+  if (value.stage === "match-squad") return typeof value.oppositionId === "string" && typeof value.date === "string" && (value.squadPlayerIds === undefined || Array.isArray(value.squadPlayerIds) && value.squadPlayerIds.every((id) => typeof id === "string"));
+  return value.stage === "court-setup" && typeof value.oppositionId === "string" && typeof value.date === "string" && Array.isArray(value.squadPlayerIds) && value.squadPlayerIds.every((id) => typeof id === "string");
+};
 const parseBackup = (serialized: string): SetupData => {
   let parsed: unknown;
   try { parsed = JSON.parse(serialized); } catch { throw new Error("Choose a valid Natball Insights backup file."); }
@@ -308,6 +313,36 @@ export class GameSession {
     return structuredClone(draft);
   }
 
+  async saveMatchSquad(input: Pick<MatchSquadDraft, "seasonId" | "oppositionId" | "date"> & { squadPlayerIds: string[] }): Promise<MatchSquadDraft> {
+    this.requireActiveSeason(input.seasonId);
+    this.requireActiveOpposition(input.oppositionId);
+    const draft: MatchSquadDraft = {
+      seasonId: input.seasonId,
+      oppositionId: input.oppositionId,
+      date: this.requireDate(input.date),
+      squadPlayerIds: this.validPartialMatchSquad(input.squadPlayerIds),
+      stage: "match-squad"
+    };
+    this.data.matchSetupDraft = draft;
+    await this.persist();
+    return structuredClone(draft);
+  }
+
+  async advanceToCourtSetup(input: Pick<CourtSetupDraft, "seasonId" | "oppositionId" | "date" | "squadPlayerIds">): Promise<CourtSetupDraft> {
+    this.requireActiveSeason(input.seasonId);
+    this.requireActiveOpposition(input.oppositionId);
+    const draft: CourtSetupDraft = {
+      seasonId: input.seasonId,
+      oppositionId: input.oppositionId,
+      date: this.requireDate(input.date),
+      squadPlayerIds: this.validReadyMatchSquad(input.squadPlayerIds),
+      stage: "court-setup"
+    };
+    this.data.matchSetupDraft = draft;
+    await this.persist();
+    return structuredClone(draft);
+  }
+
   async startMatch(input: StartMatchInput): Promise<Game> {
     if (this.data.games.some((game) => game.status === "live")) throw new Error("Finish the live match before starting another.");
     if (this.requireSeason(input.seasonId).status !== "active") throw new Error("Select the active season.");
@@ -317,7 +352,7 @@ export class GameSession {
       seasonId: input.seasonId,
       oppositionId: input.oppositionId,
       date: this.requireDate(input.date),
-      squadPlayerIds: this.validSquad(input.squadPlayerIds),
+      squadPlayerIds: this.validReadyMatchSquad(input.squadPlayerIds),
       status: "live",
       activeQuarter: 1,
       quarters: []
@@ -342,7 +377,7 @@ export class GameSession {
     if (game.activeQuarter) throw new Error("End the current quarter before changing the match squad.");
     if (!this.data.players.some((player) => player.id === playerId)) throw new Error("Choose a saved player for the match squad.");
     if (game.squadPlayerIds.includes(playerId)) return;
-    game.squadPlayerIds = this.validSquad([...game.squadPlayerIds, playerId]);
+    game.squadPlayerIds = this.validReadyMatchSquad([...game.squadPlayerIds, playerId]);
     await this.persist();
   }
 
@@ -493,13 +528,19 @@ export class GameSession {
     return opposition;
   }
 
-  private validSquad(playerIds: string[]): string[] {
+  private validReadyMatchSquad(playerIds: string[]): string[] {
     const uniqueIds = [...new Set(playerIds)];
     if (uniqueIds.length < 5) throw new Error("Choose at least five squad players.");
     if (uniqueIds.length > 12) throw new Error("A match squad can contain at most 12 players.");
     if (uniqueIds.length !== playerIds.length || uniqueIds.some((id) => !this.data.players.some((player) => player.id === id))) {
       throw new Error("Choose unique saved players for the squad.");
     }
+    return uniqueIds;
+  }
+
+  private validPartialMatchSquad(playerIds: string[]): string[] {
+    const uniqueIds = [...new Set(playerIds)];
+    if (uniqueIds.length > 12 || uniqueIds.length !== playerIds.length || uniqueIds.some((id) => !this.data.players.some((player) => player.id === id))) throw new Error("Choose up to 12 unique saved players for the Match Squad.");
     return uniqueIds;
   }
 

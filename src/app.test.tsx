@@ -106,6 +106,32 @@ describe("Natball Insights setup", () => {
     expect(await screen.findByRole("heading", { name: "Match Squad" })).toBeInTheDocument();
   });
 
+  it("persists a five-Player Match Squad before advancing to Court Setup", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi"].map((name) => session.addPlayer({ name })));
+    await session.advanceToMatchSquad({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26" });
+    const user = userEvent.setup();
+    const rendered = render(<App store={store} />);
+
+    expect(await screen.findByRole("heading", { name: "Match Squad" })).toBeInTheDocument();
+    const continueToCourt = screen.getByRole("button", { name: "Continue to Court Setup" });
+    expect(continueToCourt).toBeDisabled();
+    await user.type(screen.getByLabelText("New player name"), "Eve");
+    await user.click(screen.getByRole("button", { name: "Add player to Match Squad" }));
+    expect(await screen.findByLabelText("Eve")).toBeChecked();
+    for (const player of players) await user.click(screen.getByLabelText(player.name));
+    expect(screen.getByRole("button", { name: "Continue to Court Setup" })).toBeEnabled();
+    await user.click(continueToCourt);
+
+    expect(await screen.findByRole("heading", { name: "Court Setup" })).toBeInTheDocument();
+    rendered.unmount();
+    render(<App store={store} />);
+    expect(await screen.findByRole("heading", { name: "Court Setup" })).toBeInTheDocument();
+  });
+
   it("reopens a persisted live match after an interruption", async () => {
     const store = new InMemoryGameSessionStore();
     const session = await GameSession.open(store);

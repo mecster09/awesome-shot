@@ -151,6 +151,18 @@ describe("GameSession match drafts", () => {
     await expect(session.saveMatchIdentity({ seasonId: season.id, oppositionId: opposition.id, date: "2026-02-31" })).rejects.toThrow("valid match date");
   });
 
+  it("persists an incomplete Match Squad but requires five Players for Court Setup", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi"].map((name) => session.addPlayer({ name })));
+
+    await session.saveMatchSquad({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id) });
+    expect((await GameSession.open(store)).setup().matchSetupDraft).toMatchObject({ stage: "match-squad", squadPlayerIds: players.map((player) => player.id) });
+    await expect(session.advanceToCourtSetup({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id) })).rejects.toThrow("at least five");
+  });
+
   it("persists a live match only when Match Setup starts Quarter 1", async () => {
     const session = await GameSession.open(new InMemoryGameSessionStore());
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
