@@ -10,7 +10,19 @@ const isLineup = (value: unknown) => {
   const entries = Object.entries(value);
   return entries.length >= 5 && entries.length <= 7 && entries.every(([position, playerId]) => POSITIONS.includes(position as Position) && typeof playerId === "string") && new Set(entries.map(([, playerId]) => playerId)).size === entries.length;
 };
-const isQuarter = (value: unknown) => isObject(value) && [1, 2, 3, 4].includes(value.number as number) && ["live", "ended"].includes(value.status as string) && isLineup(value.startingLineup) && Array.isArray(value.courtChanges) && value.courtChanges.every((change) => isObject(change) && typeof change.sequence === "number" && isLineup(change.lineup)) && Array.isArray(value.captureActions) && value.captureActions.every((action) => isObject(action) && typeof action.id === "string" && (action.kind === "opposition-goal" || action.kind === "player-statistic" && typeof action.playerId === "string" && POSITIONS.includes(action.position as Position) && PLAYER_STATISTICS.includes(action.statistic as PlayerStatistic)));
+const isSubstitution = (value: unknown) => isObject(value) && typeof value.sequence === "number" && POSITIONS.includes(value.position as Position) && (value.playerId === undefined || typeof value.playerId === "string");
+const isQuarter = (value: unknown) => isObject(value) && [1, 2, 3, 4].includes(value.number as number) && ["live", "ended"].includes(value.status as string) && isLineup(value.startingLineup) && Array.isArray(value.substitutions) && value.substitutions.every(isSubstitution) && Array.isArray(value.captureActions) && value.captureActions.every((action) => isObject(action) && typeof action.id === "string" && (action.kind === "opposition-goal" || action.kind === "player-statistic" && typeof action.playerId === "string" && POSITIONS.includes(action.position as Position) && PLAYER_STATISTICS.includes(action.statistic as PlayerStatistic)));
+const migrateQuarter = (quarter: Quarter & { courtChanges?: Array<{ lineup: StartingLineup }> }): Quarter => {
+  if (quarter.substitutions) return quarter;
+  let court = structuredClone(quarter.startingLineup);
+  const substitutions = (quarter.courtChanges ?? []).flatMap((change) => POSITIONS.flatMap((position) => {
+    if (court[position] === change.lineup[position]) return [];
+    court = change.lineup[position] ? { ...court, [position]: change.lineup[position] } : Object.fromEntries(Object.entries(court).filter(([currentPosition]) => currentPosition !== position));
+    return [{ position, ...(change.lineup[position] ? { playerId: change.lineup[position] } : {}) }];
+  })).map((substitution, index) => ({ ...substitution, sequence: index + 1 }));
+  const { courtChanges: _, ...migrated } = quarter;
+  return { ...migrated, substitutions };
+};
 const isGame = (value: unknown) => hasStrings(value, ["id", "seasonId", "oppositionId", "date", "status"]) && isObject(value) && ["draft", "live", "finalised", "abandoned", "terminated"].includes(value.status as string) && Array.isArray(value.squadPlayerIds) && value.squadPlayerIds.every((id) => typeof id === "string") && (value.startingLineup === undefined || isLineup(value.startingLineup)) && (value.quarters === undefined || Array.isArray(value.quarters) && value.quarters.every(isQuarter));
 const parseBackup = (serialized: string): SetupData => {
   let parsed: unknown;
@@ -90,8 +102,8 @@ export class GameSession {
         const legacyGame = game as Game & { startingLineup?: StartingLineup };
         const { startingLineup, ...withoutSeparateStartingLineup } = legacyGame;
         return legacyGame.status === "live" && !legacyGame.quarters && startingLineup
-          ? { ...withoutSeparateStartingLineup, quarters: [{ number: 1 as QuarterNumber, status: "live" as const, startingLineup: structuredClone(startingLineup), courtChanges: [], captureActions: [] }] }
-          : withoutSeparateStartingLineup;
+          ? { ...withoutSeparateStartingLineup, quarters: [{ number: 1 as QuarterNumber, status: "live" as const, startingLineup: structuredClone(startingLineup), substitutions: [], captureActions: [] }] }
+          : { ...withoutSeparateStartingLineup, quarters: legacyGame.quarters?.map((quarter) => migrateQuarter(quarter as Quarter & { courtChanges?: Array<{ lineup: StartingLineup }> })) };
       })
     };
     if (JSON.stringify(stored) !== JSON.stringify(data)) await store.write(data);
@@ -249,7 +261,7 @@ export class GameSession {
       ownScore: this.score(quarter.captureActions).own,
       oppositionScore: this.score(quarter.captureActions).opposition,
       startingLineup: lineup(quarter.startingLineup),
-      courtChanges: quarter.courtChanges.map((change) => ({ sequence: change.sequence, lineup: lineup(change.lineup) })),
+      substitutions: quarter.substitutions.map((substitution) => ({ ...substitution, ...(substitution.playerId ? { playerName: playerName(substitution.playerId) } : {}) })),
       playerStatistics: this.statisticTotals(quarter.captureActions).map((statistic) => ({ ...statistic, playerName: playerName(statistic.playerId) }))
     }));
     return structuredClone({
@@ -280,7 +292,7 @@ export class GameSession {
       quarters: []
     };
     this.validateCourt(game, input.startingLineup);
-    game.quarters = [{ number: 1, status: "live", startingLineup: structuredClone(input.startingLineup), courtChanges: [], captureActions: [] }];
+    game.quarters = [{ number: 1, status: "live", startingLineup: structuredClone(input.startingLineup), substitutions: [], captureActions: [] }];
     this.data.games.push(game);
     await this.persist();
     return structuredClone(game);
@@ -309,7 +321,7 @@ export class GameSession {
     if (previous.number === 4) throw new Error("All four quarters have ended.");
     const number = (previous.number + 1) as QuarterNumber;
     this.validateCourt(game, startingLineup);
-    game.quarters?.push({ number, status: "live", startingLineup: structuredClone(startingLineup), courtChanges: [], captureActions: [] });
+    game.quarters?.push({ number, status: "live", startingLineup: structuredClone(this.currentLineup(previous)), substitutions: this.preQuarterSubstitutions(this.currentLineup(previous), startingLineup), captureActions: [] });
     game.activeQuarter = number;
     await this.persist();
   }
@@ -387,14 +399,14 @@ export class GameSession {
     return {
       number: quarter.number,
       lineup: structuredClone(lineup),
-      courtChanges: structuredClone(quarter.courtChanges),
+      substitutions: structuredClone(quarter.substitutions),
       playerStatistics: this.statisticTotals(quarter.captureActions),
       ownScore: quarterScore.own,
       oppositionScore: quarterScore.opposition,
       ownGameScore: gameScore.own,
       oppositionGameScore: gameScore.opposition,
       captureActions: structuredClone(quarter.captureActions),
-      canUndo: quarter.captureActions.length > 0
+      canUndo: quarter.captureActions.at(-1)?.kind === "player-statistic"
     };
   }
 
@@ -420,16 +432,18 @@ export class GameSession {
 
   async undoLastCaptureAction(id: string): Promise<void> {
     const { quarter } = this.requireLiveQuarter(id);
-    if (!quarter.captureActions.pop()) {
-      throw new Error("There is no capture action to undo.");
-    }
+    if (quarter.captureActions.at(-1)?.kind !== "player-statistic") throw new Error("Undo is only available for the latest player event.");
+    quarter.captureActions.pop();
     await this.persist();
   }
 
-  async changeCourt(id: string, lineup: StartingLineup): Promise<void> {
+  async substitutePlayer(id: string, input: { position: Position; playerId: string }): Promise<void> {
     const { game, quarter } = this.requireLiveQuarter(id);
-    this.validateCourt(game, lineup);
-    quarter.courtChanges.push({ sequence: quarter.courtChanges.length + 1, lineup: structuredClone(lineup) });
+    if (!game.squadPlayerIds.includes(input.playerId)) throw new Error("Choose a player from the match squad.");
+    const court = this.currentLineup(quarter);
+    if (court[input.position] === input.playerId) throw new Error("This player already occupies the Position.");
+    if (Object.entries(court).some(([position, playerId]) => position !== input.position && playerId === input.playerId)) throw new Error("A player can occupy only one Position.");
+    quarter.substitutions.push({ sequence: quarter.substitutions.length + 1, ...input });
     await this.persist();
   }
 
@@ -503,7 +517,15 @@ export class GameSession {
   }
 
   private currentLineup(quarter: Quarter): StartingLineup {
-    return quarter.courtChanges.at(-1)?.lineup ?? quarter.startingLineup;
+    return quarter.substitutions.reduce<StartingLineup>((court, substitution) => {
+      if (substitution.playerId) return { ...court, [substitution.position]: substitution.playerId };
+      const { [substitution.position]: _, ...remaining } = court;
+      return remaining;
+    }, structuredClone(quarter.startingLineup));
+  }
+
+  private preQuarterSubstitutions(previousCourt: StartingLineup, nextCourt: StartingLineup): Quarter["substitutions"] {
+    return POSITIONS.filter((position) => previousCourt[position] !== nextCourt[position]).map((position, index) => ({ sequence: index + 1, position, ...(nextCourt[position] ? { playerId: nextCourt[position] } : {}) }));
   }
 
   private score(actions: CaptureAction[]): { own: number; opposition: number } {
