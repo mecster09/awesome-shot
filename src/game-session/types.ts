@@ -115,6 +115,19 @@ export type Game = {
 };
 
 export type StartMatchInput = Pick<Game, "seasonId" | "oppositionId" | "date" | "squadPlayerIds"> & { startingLineup: StartingLineup };
+export type MatchIdentityDraft = {
+  seasonId: string;
+  oppositionId?: string;
+  date?: string;
+  stage: "match-identity";
+};
+export type MatchSquadDraft = {
+  seasonId: string;
+  oppositionId: string;
+  date: string;
+  stage: "match-squad";
+};
+export type MatchSetupDraft = MatchIdentityDraft | MatchSquadDraft;
 
 export type SetupData = {
   teams: Team[];
@@ -122,6 +135,7 @@ export type SetupData = {
   players: Player[];
   opposition: Opposition[];
   selectedOppositionId?: string;
+  matchSetupDraft?: MatchSetupDraft;
   games: Game[];
 };
 

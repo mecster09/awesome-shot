@@ -6,7 +6,7 @@ import { createMatchCsv, createMatchPdf } from "./reports";
 import "./styles.css";
 
 type AppProps = { store?: GameSessionStore };
-type MatchView = { kind: "new" } | { kind: "settings" } | { kind: "history"; returnToGameId?: string } | { kind: "quarter-setup"; input: Omit<StartMatchInput, "startingLineup"> } | { kind: "next-quarter-setup"; gameId: string; startingLineup: StartingLineup } | { kind: "game"; gameId: string };
+type MatchView = { kind: "team-setup" } | { kind: "season-setup" } | { kind: "match-identity" } | { kind: "match-squad" } | { kind: "settings"; section: "season" | "backup" } | { kind: "history"; returnToGameId?: string } | { kind: "quarter-setup"; input: Omit<StartMatchInput, "startingLineup"> } | { kind: "next-quarter-setup"; gameId: string; startingLineup: StartingLineup } | { kind: "game"; gameId: string };
 type MatchActions = {
   recordPlayerStatistic: (position: Position, statistic: PlayerStatistic) => Promise<void>;
   recordOppositionGoal: () => Promise<void>;
@@ -28,6 +28,10 @@ const download = (filename: string, type: string, content: string | Uint8Array) 
 
 const playerLabel = (player: { name: string; nickname?: string }) =>
   player.nickname ? `${player.name} (${player.nickname})` : player.name;
+const localDate = () => {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+};
 const statisticIcon: Record<PlayerStatistic, string> = {
   "Successful Centre Pass Received": "↗",
   Tip: "⌁",
@@ -47,6 +51,7 @@ export function App({ store }: AppProps) {
   const [message, setMessage] = useState("Preparing your offline workspace…");
   const [error, setError] = useState<string>();
   const [matchView, setMatchView] = useState<MatchView>();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     void GameSession.open(gameSessionStore)
@@ -77,7 +82,11 @@ export function App({ store }: AppProps) {
   }
   const activeSeason = setup.seasons.find((season) => season.status === "active");
   const liveMatch = session.matches().find((game) => game.status === "live");
-  const currentView = matchView ?? (liveMatch ? { kind: "game" as const, gameId: liveMatch.id } : activeSeason ? { kind: "new" as const } : undefined);
+  const currentView = matchView ?? (liveMatch ? { kind: "game" as const, gameId: liveMatch.id } : activeSeason ? setup.matchSetupDraft?.stage === "match-squad" ? { kind: "match-squad" as const } : { kind: "match-identity" as const } : setup.teams.length > 0 ? { kind: "season-setup" as const } : { kind: "team-setup" as const });
+  const openMenuView = (view: Extract<MatchView, { kind: "settings" | "history" }>) => {
+    setMatchView(view);
+    setMenuOpen(false);
+  };
 
   return <main className="app-shell">
     <header className="app-header">
@@ -87,37 +96,52 @@ export function App({ store }: AppProps) {
         <h1>Natball Insights</h1>
       </div>
       <span className="offline-badge">Ready offline</span>
+      <div className="header-menu">
+        <button className="text-button" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}>Open menu</button>
+        {menuOpen && <div className="header-menu-panel" role="menu">
+          {activeSeason && <button type="button" role="menuitem" disabled={Boolean(liveMatch)} onClick={() => openMenuView({ kind: "settings", section: "season" })}>End season</button>}
+          <button type="button" role="menuitem" onClick={() => openMenuView({ kind: "settings", section: "backup" })}>Backup & restore</button>
+          <button type="button" role="menuitem" onClick={() => openMenuView({ kind: "history" })}>Match history</button>
+        </div>}
+      </div>
     </header>
 
     {error && <p className="error" role="alert">{error}</p>}
-    {!activeSeason && currentView?.kind !== "settings" && <section className="match-area focused-screen" aria-labelledby="season-setup-title">
+    {currentView.kind === "team-setup" && <section className="match-area focused-screen" aria-labelledby="team-setup-title">
+      <p className="eyebrow">TEAM SETUP</p>
+      <h2 id="team-setup-title">Team Setup</h2>
+      <p>Save your reusable Team before creating a Season.</p>
+      <TeamForm onSubmit={(input) => perform(async () => { await session.createTeam(input); setMatchView({ kind: "season-setup" }); })} />
+    </section>}
+
+    {currentView.kind === "season-setup" && <section className="match-area focused-screen" aria-labelledby="season-setup-title">
       <p className="eyebrow">SEASON SETUP</p>
       <h2 id="season-setup-title">Season Setup</h2>
       <p>Create an active Season before preparing a Match.</p>
-      <SeasonForm teams={setup.teams} defaultTeamName={session.newSeasonDefaults().teamName} onSubmit={(input) => perform(async () => { await session.createSeason(input); setMatchView(undefined); })} />
+      <SeasonForm team={setup.teams.at(-1)!} onSubmit={(input) => perform(async () => { await session.createSeason(input); setMatchView(undefined); })} />
     </section>}
 
-    <div className="screen-utilities"><button className="text-button season-settings-button" onClick={() => setMatchView({ kind: "settings" })}>Season settings</button>{activeSeason && session.matches().length > 0 && <button className="text-button" onClick={() => setMatchView({ kind: "history" })}>Match history</button>}</div>
-    {currentView?.kind === "settings" && <section className="match-area focused-screen" aria-labelledby="season-settings-title"><div className="section-heading"><h2 id="season-settings-title">Season settings</h2><button className="text-button" onClick={() => setMatchView(undefined)}>Back</button></div>{activeSeason && <EndSeasonControl season={activeSeason} onConfirm={() => perform(async () => { await session.endSeason(activeSeason.id); setMatchView(undefined); })} />}<BackupCard exportBackup={() => session.exportBackup()} onImport={(serialized, mode, confirmed) => perform(() => session.importBackup(serialized, mode, confirmed))} /></section>}
+    {currentView.kind === "settings" && <section className="match-area focused-screen" aria-labelledby="settings-title"><div className="section-heading"><h2 id="settings-title">{currentView.section === "season" ? "End season" : "Backup & restore"}</h2><button className="text-button" onClick={() => setMatchView(undefined)}>Back</button></div>{currentView.section === "season" && activeSeason && !liveMatch && <EndSeasonControl season={activeSeason} onConfirm={() => perform(async () => { await session.endSeason(activeSeason.id); setMatchView(undefined); })} />}{currentView.section === "backup" && <BackupCard exportBackup={() => session.exportBackup()} onImport={(serialized, mode, confirmed) => perform(() => session.importBackup(serialized, mode, confirmed))} />}</section>}
 
-    {currentView?.kind === "new" && <section className="match-area focused-screen" aria-labelledby="match-setup-title">
-      <p className="eyebrow">MATCH SETUP</p><h2 id="match-setup-title">Match Setup</h2><p>{activeSeason?.name} · select the opposition and Squad for this Match.</p>
-      <NewMatchForm
-        setup={setup}
-        onAddPlayer={async (input) => {
-          const player = await session.addPlayer(input);
-          refresh();
-          return player;
-        }}
+    {currentView.kind === "match-identity" && activeSeason && <section className="match-area focused-screen" aria-labelledby="match-identity-title">
+      <p className="eyebrow">MATCH SETUP · STAGE 3</p><h2 id="match-identity-title">Add Opponent</h2><p>{activeSeason.name} · choose the Opposition and Match date.</p>
+      <MatchIdentityForm
+        opposition={setup.activeOpposition}
+        draft={setup.matchSetupDraft?.stage === "match-identity" ? setup.matchSetupDraft : undefined}
         onAddOpposition={async (input) => {
           const opposition = await session.addOpposition(input);
           refresh();
           return opposition;
         }}
-        onProceed={(input) => setMatchView({ kind: "quarter-setup", input })}
+        onSave={(input) => perform(async () => { await session.saveMatchIdentity({ seasonId: activeSeason.id, ...input }); })}
+        onProceed={(input) => perform(async () => {
+          await session.advanceToMatchSquad({ seasonId: activeSeason.id, ...input });
+          setMatchView({ kind: "match-squad" });
+        })}
       />
     </section>}
-    {currentView?.kind === "quarter-setup" && <QuarterSetupCard match={currentView.input} startingLineup={{}} quarterNumber={1} setup={setup} onCancel={() => setMatchView({ kind: "new" })} onStart={(startingLineup) => perform(async () => {
+    {currentView.kind === "match-squad" && setup.matchSetupDraft && <section className="match-area focused-screen" aria-labelledby="match-squad-title"><p className="eyebrow">MATCH SETUP · STAGE 4</p><h2 id="match-squad-title">Match Squad</h2><p>{setup.matchSetupDraft.date} · {setup.opposition.find((opposition) => opposition.id === setup.matchSetupDraft?.oppositionId)?.name}</p><p>Choose the Match Squad next.</p></section>}
+    {currentView?.kind === "quarter-setup" && <QuarterSetupCard match={currentView.input} startingLineup={{}} quarterNumber={1} setup={setup} onCancel={() => setMatchView({ kind: "match-identity" })} onStart={(startingLineup) => perform(async () => {
         const game = await session.startMatch({ ...currentView.input, startingLineup });
         setMatchView({ kind: "game", gameId: game.id });
       })} />}
@@ -134,7 +158,7 @@ export function App({ store }: AppProps) {
           setMatchView({ kind: "game", gameId: game.id });
         })} />;
       })()}
-      {currentView?.kind === "history" && <MatchHistory games={session.matches()} setup={setup} backLabel={currentView.returnToGameId ? "Back to Match Centre" : "Back to Match Setup"} onBack={() => setMatchView(currentView.returnToGameId ? { kind: "game", gameId: currentView.returnToGameId } : { kind: "new" })} onOpen={(gameId) => setMatchView({ kind: "game", gameId })} />}
+      {currentView?.kind === "history" && <MatchHistory games={session.matches()} setup={setup} backLabel={currentView.returnToGameId ? "Back to Match Centre" : activeSeason ? "Back to Match Setup" : "Back to Season Setup"} onBack={() => setMatchView(currentView.returnToGameId ? { kind: "game", gameId: currentView.returnToGameId } : undefined)} onOpen={(gameId) => setMatchView({ kind: "game", gameId })} />}
       {session.matches().map((game) => currentView?.kind === "game" && currentView.gameId === game.id && <MatchCard
         key={game.id}
         game={game}
@@ -163,21 +187,29 @@ function MatchHistory({ games, setup, backLabel, onBack, onOpen }: { games: Game
   return <section className="match-area focused-screen" aria-labelledby="match-history-title"><div className="section-heading"><div><p className="eyebrow">MATCH HISTORY</p><h2 id="match-history-title">Match history</h2></div><button className="text-button" onClick={onBack}>{backLabel}</button></div><ul className="match-list" aria-label="Saved matches">{games.map((game) => <li key={game.id}><span><strong>{game.date}</strong> · {setup.opposition.find((opposition) => opposition.id === game.oppositionId)?.name}</span><button className="text-button" onClick={() => onOpen(game.id)}>{game.status === "live" ? "View live match" : "View match record"}</button></li>)}</ul></section>;
 }
 
-function SeasonForm({ teams, defaultTeamName, onSubmit }: { teams: SetupSummary["teams"]; defaultTeamName: string; onSubmit: (input: { name: string; teamId?: string; teamName?: string }) => Promise<void> }) {
+function TeamForm({ onSubmit }: { onSubmit: (input: { name: string }) => Promise<void> }) {
   const [name, setName] = useState("");
-  const [teamId, setTeamId] = useState(teams[0]?.id ?? "");
-  const [teamName, setTeamName] = useState(defaultTeamName);
-  useEffect(() => setTeamName((current) => current || defaultTeamName), [defaultTeamName]);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    await onSubmit(teamId ? { name, teamId } : { name, teamName });
+    await onSubmit({ name });
+  };
+  return <form onSubmit={(event) => void submit(event)}>
+    <label>Team name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your team" /></label>
+    <button type="submit" disabled={!name.trim()}>Save team</button>
+  </form>;
+}
+
+function SeasonForm({ team, onSubmit }: { team: SetupSummary["teams"][number]; onSubmit: (input: { name: string; teamId: string }) => Promise<void> }) {
+  const [name, setName] = useState("");
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    await onSubmit({ name, teamId: team.id });
     setName("");
   };
   return <form onSubmit={(event) => void submit(event)}>
     <label>Season name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. 2026 Winter" /></label>
-    {teams.length > 0 && <label>Team<select value={teamId} onChange={(event) => setTeamId(event.target.value)}><option value="">Create a new team</option>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>}
-    {!teamId && <label>New team name<input value={teamName} onChange={(event) => setTeamName(event.target.value)} placeholder="Your team" /></label>}
-    <button type="submit">Create season</button>
+    <p><strong>Team:</strong> {team.name}</p>
+    <button type="submit" disabled={!name.trim()}>Create season</button>
   </form>;
 }
 
@@ -214,41 +246,27 @@ function OppositionForm({ onSubmit }: { onSubmit: (name: string) => Promise<void
   </form>;
 }
 
-function NewMatchForm({ setup, onAddPlayer, onAddOpposition, onProceed }: { setup: SetupSummary; onAddPlayer: (input: { name: string; nickname?: string }) => Promise<{ id: string }>; onAddOpposition: (input: { name: string }) => Promise<{ id: string }>; onProceed: (input: Omit<StartMatchInput, "startingLineup">) => void }) {
-  const activeSeasons = setup.seasons.filter((season) => season.status === "active");
-  const [seasonId, setSeasonId] = useState(activeSeasons.at(-1)?.id ?? "");
-  const [oppositionId, setOppositionId] = useState(setup.selectedOpposition?.id ?? setup.activeOpposition.at(0)?.id ?? "");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [squadPlayerIds, setSquadPlayerIds] = useState<string[]>([]);
-  const [newPlayerName, setNewPlayerName] = useState("");
-  const [newPlayerNickname, setNewPlayerNickname] = useState("");
+function MatchIdentityForm({ opposition, draft, onAddOpposition, onSave, onProceed }: { opposition: SetupSummary["activeOpposition"]; draft?: { oppositionId?: string; date?: string }; onAddOpposition: (input: { name: string }) => Promise<{ id: string }>; onSave: (input: { oppositionId?: string; date?: string }) => Promise<void>; onProceed: (input: { oppositionId: string; date: string }) => Promise<void> }) {
+  const [oppositionId, setOppositionId] = useState(draft?.oppositionId ?? "");
+  const [date, setDate] = useState(draft?.date ?? localDate());
   const [newOppositionName, setNewOppositionName] = useState("");
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    onProceed({ seasonId, oppositionId, date, squadPlayerIds });
-  };
-  const togglePlayer = (id: string) => setSquadPlayerIds((current) => current.includes(id) ? current.filter((playerId) => playerId !== id) : [...current, id]);
-  const addPlayerToSquad = async () => {
-    const player = await onAddPlayer({ name: newPlayerName, nickname: newPlayerNickname });
-    setSquadPlayerIds((current) => current.includes(player.id) ? current : [...current, player.id]);
-    setNewPlayerName("");
-    setNewPlayerNickname("");
+    await onProceed({ oppositionId, date });
   };
   const addOpposition = async () => {
     const opposition = await onAddOpposition({ name: newOppositionName });
     setOppositionId(opposition.id);
     setNewOppositionName("");
+    await onSave({ oppositionId: opposition.id, date });
   };
   return <form className="match-form" onSubmit={(event) => void submit(event)}>
     <div className="field-grid">
-      <label>Season<select value={seasonId} onChange={(event) => setSeasonId(event.target.value)}><option value="">Select season</option>{activeSeasons.map((season) => <option key={season.id} value={season.id}>{season.name} · {setup.teams.find((team) => team.id === season.teamId)?.name}</option>)}</select></label>
-      <label>Opposition<select value={oppositionId} onChange={(event) => setOppositionId(event.target.value)}><option value="">Select opposition</option>{setup.activeOpposition.map((opposition) => <option key={opposition.id} value={opposition.id}>{opposition.name}</option>)}</select></label>
-      <label>Match date<input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
+      <label>Opponent<select value={oppositionId} onChange={(event) => { setOppositionId(event.target.value); void onSave({ oppositionId: event.target.value || undefined, date }); }}><option value="">Select opponent</option>{opposition.map((opponent) => <option key={opponent.id} value={opponent.id}>{opponent.name}</option>)}</select></label>
+      <label>Match date<input type="date" value={date} onChange={(event) => { setDate(event.target.value); void onSave({ oppositionId: oppositionId || undefined, date: event.target.value || undefined }); }} /></label>
     </div>
     <div className="quick-player"><label>New opposition name<input value={newOppositionName} onChange={(event) => setNewOppositionName(event.target.value)} placeholder="Opposition team" /></label><button type="button" disabled={!newOppositionName.trim()} onClick={() => void addOpposition()}>Add opposition to match</button></div>
-    <div className="quick-player" aria-label="Add a player to this squad"><label>New player name<input value={newPlayerName} onChange={(event) => setNewPlayerName(event.target.value)} placeholder="Player name" /></label><label>New player nickname <span className="optional">optional</span><input aria-label="New player nickname" value={newPlayerNickname} onChange={(event) => setNewPlayerNickname(event.target.value)} placeholder="Nickname" /></label><button type="button" disabled={!newPlayerName.trim() || squadPlayerIds.length === 12} onClick={() => void addPlayerToSquad()}>Add player to squad</button></div>
-    <fieldset className="squad-picker"><legend>Match squad <span>{squadPlayerIds.length}/12 selected</span></legend><div className="player-checks">{setup.players.map((player) => <label key={player.id} className="player-check"><input type="checkbox" checked={squadPlayerIds.includes(player.id)} onChange={() => togglePlayer(player.id)} disabled={!squadPlayerIds.includes(player.id) && squadPlayerIds.length === 12} />{playerLabel(player)}</label>)}</div></fieldset>
-    <button type="submit">Continue to Quarter Setup</button>
+    <button type="submit" disabled={!oppositionId || !date}>Continue to Match Squad</button>
   </form>;
 }
 
