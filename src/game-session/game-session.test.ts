@@ -243,17 +243,17 @@ describe("GameSession live quarter capture", () => {
     await expect(session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Misses" })).rejects.toThrow("Goals and Misses can only be recorded");
   });
 
-  it("undos only the latest player event, never an opposition goal or Substitution", async () => {
+  it("undos the latest event, including an opposition goal", async () => {
     const { session, game } = await startLiveMatch();
     await session.recordPlayerStatistic(game.id, { position: "Goal Attack", statistic: "Goals" });
     await session.recordOppositionGoal(game.id);
 
-    await expect(session.undoLastCaptureAction(game.id)).rejects.toThrow("latest player event");
-    expect(session.liveQuarter(game.id)).toMatchObject({ ownScore: 1, oppositionScore: 1, ownGameScore: 1, oppositionGameScore: 1 });
+    await session.undoLastCaptureAction(game.id);
+    expect(session.liveQuarter(game.id)).toMatchObject({ ownScore: 1, oppositionScore: 0, ownGameScore: 1, oppositionGameScore: 0 });
 
     await session.recordPlayerStatistic(game.id, { position: "Goal Attack", statistic: "Goals" });
     await session.undoLastCaptureAction(game.id);
-    expect(session.liveQuarter(game.id)).toMatchObject({ ownScore: 1, oppositionScore: 1 });
+    expect(session.liveQuarter(game.id)).toMatchObject({ ownScore: 1, oppositionScore: 0 });
   });
 
   it("records a single-position Substitution and retains event attribution", async () => {

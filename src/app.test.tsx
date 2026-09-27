@@ -224,7 +224,13 @@ describe("Natball Insights setup", () => {
 
     expect(await screen.findByText("Roses 1 — Thunder 1")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Hana" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Undo last player event" })).toBeDisabled();
+    expect(screen.getByRole("heading", { name: "Quarter 1 event feed" })).toBeInTheDocument();
+    expect(screen.getAllByText("Opposition goal")).toHaveLength(2);
+    expect(screen.getByText((_, element) => element?.textContent === "Faye · GA · Goals")).toBeInTheDocument();
+    expect(screen.getByText("GA")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Correct event" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Remove event" })).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Undo last event" })).toBeEnabled();
     expect(await screen.findByText("Roses 1 — Thunder 1")).toBeInTheDocument();
   });
 
@@ -240,7 +246,7 @@ describe("Natball Insights setup", () => {
 
     expect(await screen.findByRole("heading", { name: "Roses 0 — Thunder 0" })).toBeInTheDocument();
     expect(screen.getByText("Quarter score: Roses 0 — Thunder 0")).toBeInTheDocument();
-    expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(7);
+    expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(8);
     expect(screen.getByRole("button", { name: "Record Goals for Faye" })).toHaveTextContent("◎");
     expect(screen.queryByText("Quarter 1 review")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Abandon match" })).not.toBeInTheDocument();
