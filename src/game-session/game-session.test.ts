@@ -120,6 +120,37 @@ describe("GameSession setup", () => {
 });
 
 describe("GameSession match drafts", () => {
+  it("persists a selected Match identity until advancing to Match Squad", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+
+    await session.saveMatchIdentity({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26" });
+
+    const reopened = await GameSession.open(store);
+    expect(reopened.setup().matchSetupDraft).toEqual({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", stage: "match-identity" });
+  });
+
+  it("clears an incomplete Match identity when its Season ends", async () => {
+    const session = await GameSession.open(new InMemoryGameSessionStore());
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    await session.saveMatchIdentity({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26" });
+
+    await session.endSeason(season.id);
+
+    expect(session.setup().matchSetupDraft).toBeUndefined();
+  });
+
+  it("rejects impossible Match identity dates", async () => {
+    const session = await GameSession.open(new InMemoryGameSessionStore());
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+
+    await expect(session.saveMatchIdentity({ seasonId: season.id, oppositionId: opposition.id, date: "2026-02-31" })).rejects.toThrow("valid match date");
+  });
+
   it("persists a live match only when Match Setup starts Quarter 1", async () => {
     const session = await GameSession.open(new InMemoryGameSessionStore());
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });

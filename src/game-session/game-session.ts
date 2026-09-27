@@ -1,4 +1,4 @@
-import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, type CaptureAction, type Game, type GameSessionStore, type LiveQuarterCapture, type Opposition, type Player, type PlayerStatistic, type PlayerStatisticTotal, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartMatchInput, type StartingLineup, type Team, type TerminalMatchReport } from "./types";
+import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, type CaptureAction, type Game, type GameSessionStore, type LiveQuarterCapture, type MatchIdentityDraft, type MatchSetupDraft, type MatchSquadDraft, type Opposition, type Player, type PlayerStatistic, type PlayerStatisticTotal, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartMatchInput, type StartingLineup, type Team, type TerminalMatchReport } from "./types";
 
 const emptySetup = (): SetupData => ({ teams: [], seasons: [], players: [], opposition: [], games: [] });
 const backupFormat = "natball-insights-backup";
@@ -25,6 +25,7 @@ const migrateQuarter = (quarter: Quarter & { courtChanges?: Array<{ lineup: Star
   return { ...migrated, substitutions };
 };
 const isGame = (value: unknown) => hasStrings(value, ["id", "seasonId", "oppositionId", "date", "status"]) && isObject(value) && ["draft", "live", "finalised", "abandoned", "terminated"].includes(value.status as string) && Array.isArray(value.squadPlayerIds) && value.squadPlayerIds.every((id) => typeof id === "string") && (value.startingLineup === undefined || isLineup(value.startingLineup)) && (value.quarters === undefined || Array.isArray(value.quarters) && value.quarters.every((quarter) => isQuarter(quarter) || isLegacyQuarter(quarter)));
+const isMatchSetupDraft = (value: unknown): value is MatchSetupDraft => isObject(value) && typeof value.seasonId === "string" && (value.stage === "match-identity" && (value.oppositionId === undefined || typeof value.oppositionId === "string") && (value.date === undefined || typeof value.date === "string") || value.stage === "match-squad" && typeof value.oppositionId === "string" && typeof value.date === "string");
 const parseBackup = (serialized: string): SetupData => {
   let parsed: unknown;
   try { parsed = JSON.parse(serialized); } catch { throw new Error("Choose a valid Natball Insights backup file."); }
@@ -35,9 +36,9 @@ const parseBackup = (serialized: string): SetupData => {
   if (!Array.isArray(rawData.seasons) || !Array.isArray(rawData.players) || !Array.isArray(rawData.opposition) || !Array.isArray(rawData.games)) throw new Error("This backup is incompatible with Natball Insights.");
   let data: SetupData;
   try { data = migrateSetup(rawData as SetupData); } catch { throw new Error("This backup is incompatible with Natball Insights."); }
-  if (!Array.isArray(data.teams) || !data.teams.every((team) => hasStrings(team, ["id", "name"])) || !data.seasons.every((season) => hasStrings(season, ["id", "name", "teamId", "status"]) && ["active", "ended"].includes(season.status)) || !data.players.every((player) => hasStrings(player, ["id", "name"]) && (player.nickname === undefined || typeof player.nickname === "string")) || !data.opposition.every((opposition) => hasStrings(opposition, ["id", "name"]) && typeof opposition.archived === "boolean") || !data.games.every(isGame) || (data.selectedOppositionId !== undefined && typeof data.selectedOppositionId !== "string")) throw new Error("This backup is incompatible with Natball Insights.");
+  if (!Array.isArray(data.teams) || !data.teams.every((team) => hasStrings(team, ["id", "name"])) || !data.seasons.every((season) => hasStrings(season, ["id", "name", "teamId", "status"]) && ["active", "ended"].includes(season.status)) || !data.players.every((player) => hasStrings(player, ["id", "name"]) && (player.nickname === undefined || typeof player.nickname === "string")) || !data.opposition.every((opposition) => hasStrings(opposition, ["id", "name"]) && typeof opposition.archived === "boolean") || !data.games.every(isGame) || (data.selectedOppositionId !== undefined && typeof data.selectedOppositionId !== "string") || (data.matchSetupDraft !== undefined && !isMatchSetupDraft(data.matchSetupDraft))) throw new Error("This backup is incompatible with Natball Insights.");
   const seasonIds = new Set(data.seasons.map((season) => season.id)); const teamIds = new Set(data.teams.map((team) => team.id)); const playerIds = new Set(data.players.map((player) => player.id)); const oppositionIds = new Set(data.opposition.map((opposition) => opposition.id));
-  if (data.seasons.some((season) => !teamIds.has(season.teamId)) || data.games.some((game) => !seasonIds.has(game.seasonId) || !oppositionIds.has(game.oppositionId) || game.squadPlayerIds.some((id) => !playerIds.has(id))) || data.selectedOppositionId && !oppositionIds.has(data.selectedOppositionId)) throw new Error("This backup has broken record references.");
+  if (data.seasons.some((season) => !teamIds.has(season.teamId)) || data.games.some((game) => !seasonIds.has(game.seasonId) || !oppositionIds.has(game.oppositionId) || game.squadPlayerIds.some((id) => !playerIds.has(id))) || data.selectedOppositionId && !oppositionIds.has(data.selectedOppositionId) || data.matchSetupDraft && (!seasonIds.has(data.matchSetupDraft.seasonId) || data.matchSetupDraft.oppositionId && !oppositionIds.has(data.matchSetupDraft.oppositionId))) throw new Error("This backup has broken record references.");
   return structuredClone(data as SetupData);
 };
 
@@ -153,6 +154,7 @@ export class GameSession {
     if (season.status !== "active") throw new Error("Only the active season can be ended.");
     if (this.data.games.some((game) => game.seasonId === id && !isTerminalMatch(game))) throw new Error("All matches must be terminal before ending a season.");
     season.status = "ended";
+    if (this.data.matchSetupDraft?.seasonId === id) this.data.matchSetupDraft = undefined;
     await this.persist();
   }
 
@@ -278,6 +280,34 @@ export class GameSession {
     });
   }
 
+  async saveMatchIdentity(input: Pick<MatchIdentityDraft, "seasonId" | "oppositionId" | "date">): Promise<MatchIdentityDraft> {
+    this.requireActiveSeason(input.seasonId);
+    if (input.oppositionId) this.requireActiveOpposition(input.oppositionId);
+    const draft: MatchIdentityDraft = {
+      seasonId: input.seasonId,
+      ...(input.oppositionId ? { oppositionId: input.oppositionId } : {}),
+      ...(input.date ? { date: this.requireDate(input.date) } : {}),
+      stage: "match-identity"
+    };
+    this.data.matchSetupDraft = draft;
+    await this.persist();
+    return structuredClone(draft);
+  }
+
+  async advanceToMatchSquad(input: Pick<MatchSquadDraft, "seasonId" | "oppositionId" | "date">): Promise<MatchSquadDraft> {
+    this.requireActiveSeason(input.seasonId);
+    this.requireActiveOpposition(input.oppositionId);
+    const draft: MatchSquadDraft = {
+      seasonId: input.seasonId,
+      oppositionId: input.oppositionId,
+      date: this.requireDate(input.date),
+      stage: "match-squad"
+    };
+    this.data.matchSetupDraft = draft;
+    await this.persist();
+    return structuredClone(draft);
+  }
+
   async startMatch(input: StartMatchInput): Promise<Game> {
     if (this.data.games.some((game) => game.status === "live")) throw new Error("Finish the live match before starting another.");
     if (this.requireSeason(input.seasonId).status !== "active") throw new Error("Select the active season.");
@@ -295,6 +325,7 @@ export class GameSession {
     this.validateCourt(game, input.startingLineup);
     game.quarters = [{ number: 1, status: "live", startingLineup: structuredClone(input.startingLineup), substitutions: [], captureActions: [] }];
     this.data.games.push(game);
+    this.data.matchSetupDraft = undefined;
     await this.persist();
     return structuredClone(game);
   }
@@ -473,9 +504,13 @@ export class GameSession {
   }
 
   private requireDate(value: string): string {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(new Date(`${value}T00:00:00`).valueOf())) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (!match) {
       throw new Error("Enter a valid match date.");
     }
+    const [year, month, day] = match.slice(1).map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) throw new Error("Enter a valid match date.");
     return value;
   }
 

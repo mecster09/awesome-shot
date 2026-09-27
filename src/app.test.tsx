@@ -24,7 +24,7 @@ describe("Natball Insights setup", () => {
     expect(screen.queryByRole("heading", { name: "Team Setup" })).not.toBeInTheDocument();
   });
 
-  it("guides a coach from Season Setup to Match Setup and Quarter Setup without persistent setup panels", async () => {
+  it("guides a coach from Season Setup to the focused Match identity screen", async () => {
     const user = userEvent.setup();
     render(<App store={new InMemoryGameSessionStore()} />);
 
@@ -33,20 +33,8 @@ describe("Natball Insights setup", () => {
     await user.type(await screen.findByLabelText("Season name"), "2026 Winter");
     await user.click(screen.getByRole("button", { name: "Create season" }));
 
-    expect(await screen.findByRole("heading", { name: "Match Setup" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Add Opponent" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Season Setup" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Protect your data" })).not.toBeInTheDocument();
-
-    await user.type(screen.getByLabelText("New opposition name"), "Thunder");
-    await user.click(screen.getByRole("button", { name: "Add opposition to match" }));
-    for (const name of ["Ava", "Bea", "Cora", "Demi", "Eve"]) {
-      await user.type(screen.getByLabelText("New player name"), name);
-      await user.click(screen.getByRole("button", { name: "Add player to squad" }));
-    }
-    await user.click(screen.getByRole("button", { name: "Continue to Quarter Setup" }));
-
-    expect(await screen.findByRole("heading", { name: "Set up Quarter 1 Court" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Match Setup" })).not.toBeInTheDocument();
   });
 
   it("requires confirmation before ending the active season and then offers its saved team for the next season", async () => {
@@ -71,7 +59,7 @@ describe("Natball Insights setup", () => {
     await user.type(await screen.findByLabelText("Season name"), "2027 Winter");
     expect(screen.getByText("Roses")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Create season" }));
-    expect(await screen.findByRole("heading", { name: "Match Setup" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Add Opponent" })).toBeInTheDocument();
   });
 
   it("keeps secondary lifecycle and recovery actions in the header menu", async () => {
@@ -91,32 +79,31 @@ describe("Natball Insights setup", () => {
     expect(screen.queryByRole("heading", { name: "Season settings" })).not.toBeInTheDocument();
   });
 
-  it("keeps Match Setup transient until Quarter 1 starts", async () => {
+  it("persists Match identity and resumes Match Squad setup after an interruption", async () => {
     const store = new InMemoryGameSessionStore();
     const session = await GameSession.open(store);
-    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
     const opposition = await session.addOpposition({ name: "Thunder" });
-    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia", "Hana"].map((name) => session.addPlayer({ name })));
     const user = userEvent.setup();
+    const rendered = render(<App store={store} />);
+
+    expect(await screen.findByRole("heading", { name: "Add Opponent" })).toBeInTheDocument();
+    const continueToSquad = screen.getByRole("button", { name: "Continue to Match Squad" });
+    expect(continueToSquad).toBeDisabled();
+    await user.selectOptions(screen.getByLabelText("Opponent"), opposition.id);
+    expect(continueToSquad).toBeEnabled();
+    const date = screen.getByLabelText("Match date").getAttribute("value");
+    rendered.unmount();
+    const resumed = render(<App store={store} />);
+    expect(await screen.findByRole("heading", { name: "Add Opponent" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Opponent")).toHaveValue(opposition.id);
+    expect(screen.getByLabelText("Match date")).toHaveValue(date ?? "");
+    await user.click(screen.getByRole("button", { name: "Continue to Match Squad" }));
+
+    expect(await screen.findByRole("heading", { name: "Match Squad" })).toBeInTheDocument();
+    resumed.unmount();
     render(<App store={store} />);
-
-    await user.selectOptions(await screen.findByLabelText("Season"), season.id);
-    await user.selectOptions(screen.getByLabelText("Opposition"), opposition.id);
-    await user.clear(screen.getByLabelText("Match date"));
-    await user.type(screen.getByLabelText("Match date"), "2026-09-26");
-    await user.type(screen.getByLabelText("New player name"), "Hana");
-    await user.click(screen.getByRole("button", { name: "Add player to squad" }));
-    expect(await screen.findByLabelText("Hana")).toBeChecked();
-    for (const player of players) await user.click(screen.getByLabelText(player.name));
-    await user.click(screen.getByRole("button", { name: "Continue to Quarter Setup" }));
-    expect(session.matches()).toEqual([]);
-
-    for (const [index, position] of ["Goal Keeper", "Goal Defence", "Wing Defence", "Centre", "Wing Attack", "Goal Attack", "Goal Shooter"].entries()) {
-      await user.selectOptions(screen.getByLabelText(position), players[index].id);
-    }
-    await user.click(screen.getByRole("button", { name: "Start Quarter 1" }));
-
-    expect(await screen.findByText("Quarter 1 is live")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Match Squad" })).toBeInTheDocument();
   });
 
   it("reopens a persisted live match after an interruption", async () => {
