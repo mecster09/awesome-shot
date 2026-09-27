@@ -11,8 +11,8 @@ describe("Natball Insights setup", () => {
     render(<App store={new InMemoryGameSessionStore()} />);
 
     await user.type(await screen.findByLabelText("Season name"), "2026 Winter");
-    await user.type(screen.getByLabelText("Team name"), "Roses");
-    await user.click(screen.getByRole("button", { name: "Save season" }));
+    await user.type(screen.getByLabelText("New team name"), "Roses");
+    await user.click(screen.getByRole("button", { name: "Create season" }));
 
     await user.type(screen.getByLabelText("Player name"), "Natalie");
     await user.type(screen.getByLabelText("Nickname"), "Nat");
@@ -21,12 +21,31 @@ describe("Natball Insights setup", () => {
     await user.type(screen.getByLabelText("Opposition name"), "Thunder");
     await user.click(screen.getByRole("button", { name: "Add opposition" }));
 
-    expect(screen.getByText("2026 Winter")).toBeInTheDocument();
+    expect(screen.getAllByText("2026 Winter")).not.toHaveLength(0);
     expect(screen.getByText("Natalie (Nat)")).toBeInTheDocument();
     expect(screen.getByText("Thunder")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download backup" })).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("Import mode"), "replace");
     expect(screen.getByLabelText("I understand this permanently replaces local data.")).toBeInTheDocument();
+  });
+
+  it("requires confirmation before ending the active season and then offers its saved team for the next season", async () => {
+    const user = userEvent.setup();
+    render(<App store={new InMemoryGameSessionStore()} />);
+
+    await user.type(await screen.findByLabelText("Season name"), "2026 Winter");
+    await user.type(screen.getByLabelText("New team name"), "Roses");
+    await user.click(screen.getByRole("button", { name: "Create season" }));
+
+    const endSeason = screen.getByRole("button", { name: "Confirm end season" });
+    expect(endSeason).toBeDisabled();
+    await user.click(screen.getByLabelText("I understand ending this season makes it read-only."));
+    await user.click(endSeason);
+
+    await user.type(await screen.findByLabelText("Season name"), "2027 Winter");
+    expect(screen.getByRole("option", { name: "Roses" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Create season" }));
+    expect((await screen.findAllByText("2027 Winter")).length).toBeGreaterThan(0);
   });
 
   it("creates a protected match draft and starts Quarter 1 from the setup screen", async () => {

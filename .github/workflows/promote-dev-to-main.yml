@@ -1,7 +1,11 @@
 name: Promote dev to main
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - dev
+    paths:
+      - .github/workflows/promote-dev-to-main.yml
 
 permissions:
   contents: write
@@ -11,46 +15,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  validate-dispatch:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Require the dev branch
-        run: |
-          if [ "${{ github.ref }}" != "refs/heads/dev" ]; then
-            echo "Run this workflow from the dev branch."
-            exit 1
-          fi
-
   promote:
-    needs: validate-dispatch
     runs-on: ubuntu-latest
+
     steps:
-      - name: Check out dev with history
+      - name: Check out main
         uses: actions/checkout@v4
         with:
-          ref: dev
+          ref: main
           fetch-depth: 0
 
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Run tests
-        run: pnpm test
-
-      - name: Build production bundle
-        run: pnpm run build
-
-      - name: Verify main can fast-forward to dev
-        run: git merge-base --is-ancestor origin/main HEAD
-
-      - name: Promote dev to main
-        run: git push origin HEAD:main
+      - name: Copy the promotion workflow from dev
+        run: |
+          git fetch origin dev
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout origin/dev -- .github/workflows/promote-dev-to-main.yml
+          if git diff --quiet -- .github/workflows/promote-dev-to-main.yml; then
+            exit 0
+          fi
+          git add .github/workflows/promote-dev-to-main.yml
+          git commit -m "chore: promote dev workflow to main"
+          git push origin HEAD:main

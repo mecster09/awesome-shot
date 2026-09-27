@@ -1,6 +1,6 @@
-import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, type CaptureAction, type CreateDraftInput, type Game, type GameSessionStore, type LiveQuarterCapture, type Opposition, type Player, type PlayerStatistic, type PlayerStatisticTotal, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartingLineup, type TerminalMatchReport } from "./types";
+import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, type CaptureAction, type CreateDraftInput, type Game, type GameSessionStore, type LiveQuarterCapture, type Opposition, type Player, type PlayerStatistic, type PlayerStatisticTotal, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartingLineup, type Team, type TerminalMatchReport } from "./types";
 
-const emptySetup = (): SetupData => ({ seasons: [], players: [], opposition: [], games: [] });
+const emptySetup = (): SetupData => ({ teams: [], seasons: [], players: [], opposition: [], games: [] });
 const backupFormat = "natball-insights-backup";
 
 const isObject = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object";
@@ -14,10 +14,13 @@ const parseBackup = (serialized: string): SetupData => {
   if (!parsed || typeof parsed !== "object") throw new Error("Choose a valid Natball Insights backup file.");
   const backup = parsed as { format?: unknown; version?: unknown; data?: unknown };
   if (backup.format !== backupFormat || backup.version !== 1 || !backup.data || typeof backup.data !== "object") throw new Error("Choose a valid Natball Insights backup file.");
-  const data = backup.data as Partial<SetupData>;
-  if (!Array.isArray(data.seasons) || !data.seasons.every((season) => hasStrings(season, ["id", "name", "teamName"])) || !Array.isArray(data.players) || !data.players.every((player) => hasStrings(player, ["id", "name"]) && (player.nickname === undefined || typeof player.nickname === "string")) || !Array.isArray(data.opposition) || !data.opposition.every((opposition) => hasStrings(opposition, ["id", "name"]) && typeof opposition.archived === "boolean") || !Array.isArray(data.games) || !data.games.every(isGame) || (data.selectedOppositionId !== undefined && typeof data.selectedOppositionId !== "string")) throw new Error("This backup is incompatible with Natball Insights.");
-  const seasonIds = new Set(data.seasons.map((season) => season.id)); const playerIds = new Set(data.players.map((player) => player.id)); const oppositionIds = new Set(data.opposition.map((opposition) => opposition.id));
-  if (data.games.some((game) => !seasonIds.has(game.seasonId) || !oppositionIds.has(game.oppositionId) || game.squadPlayerIds.some((id) => !playerIds.has(id))) || data.selectedOppositionId && !oppositionIds.has(data.selectedOppositionId)) throw new Error("This backup has broken record references.");
+  const rawData = backup.data as Partial<SetupData>;
+  if (!Array.isArray(rawData.seasons) || !Array.isArray(rawData.players) || !Array.isArray(rawData.opposition) || !Array.isArray(rawData.games)) throw new Error("This backup is incompatible with Natball Insights.");
+  let data: SetupData;
+  try { data = migrateSetup(rawData as SetupData); } catch { throw new Error("This backup is incompatible with Natball Insights."); }
+  if (!Array.isArray(data.teams) || !data.teams.every((team) => hasStrings(team, ["id", "name"])) || !data.seasons.every((season) => hasStrings(season, ["id", "name", "teamId", "status"]) && ["active", "ended"].includes(season.status)) || !data.players.every((player) => hasStrings(player, ["id", "name"]) && (player.nickname === undefined || typeof player.nickname === "string")) || !data.opposition.every((opposition) => hasStrings(opposition, ["id", "name"]) && typeof opposition.archived === "boolean") || !data.games.every(isGame) || (data.selectedOppositionId !== undefined && typeof data.selectedOppositionId !== "string")) throw new Error("This backup is incompatible with Natball Insights.");
+  const seasonIds = new Set(data.seasons.map((season) => season.id)); const teamIds = new Set(data.teams.map((team) => team.id)); const playerIds = new Set(data.players.map((player) => player.id)); const oppositionIds = new Set(data.opposition.map((opposition) => opposition.id));
+  if (data.seasons.some((season) => !teamIds.has(season.teamId)) || data.games.some((game) => !seasonIds.has(game.seasonId) || !oppositionIds.has(game.oppositionId) || game.squadPlayerIds.some((id) => !playerIds.has(id))) || data.selectedOppositionId && !oppositionIds.has(data.selectedOppositionId)) throw new Error("This backup has broken record references.");
   return structuredClone(data as SetupData);
 };
 
@@ -27,6 +30,44 @@ const requireText = (value: string, field: string) => {
     throw new Error(`${field} is required.`);
   }
   return trimmed;
+};
+const teamKey = (name: string) => name.trim().toLocaleLowerCase();
+const isTerminalMatch = (game: Game) => ["finalised", "abandoned", "terminated"].includes(game.status);
+
+const migrateSetup = (stored: SetupData): SetupData => {
+  const legacy = stored as unknown as { teams?: Team[]; seasons: Array<{ id: string; name: string; teamId?: string; teamName?: string; status?: Season["status"] }> };
+  const teams: Team[] = [];
+  const teamsByName = new Map<string, Team>();
+  const canonicalTeamIds = new Map<string, string>();
+  for (const storedTeam of legacy.teams ?? []) {
+    const name = requireText(storedTeam.name, "Team name");
+    let team = teamsByName.get(teamKey(name));
+    if (!team) {
+      team = { id: storedTeam.id, name };
+      teams.push(team);
+      teamsByName.set(teamKey(name), team);
+    }
+    canonicalTeamIds.set(storedTeam.id, team.id);
+  }
+  const legacySeasons = legacy.seasons ?? [];
+  const lastLegacySeason = legacySeasons.reduce((last, season, index) => season.status === undefined ? index : last, -1);
+  const seasons = legacySeasons.map((season, index) => {
+    let teamId = season.teamId ? canonicalTeamIds.get(season.teamId) ?? season.teamId : undefined;
+    if (!teamId) {
+      const name = requireText(season.teamName ?? "", "Team name");
+      let team = teamsByName.get(teamKey(name));
+      if (!team) {
+        team = { id: crypto.randomUUID(), name };
+        teams.push(team);
+        teamsByName.set(teamKey(name), team);
+      }
+      teamId = team.id;
+    }
+    return { id: season.id, name: season.name, teamId, status: season.status ?? (index === lastLegacySeason ? "active" : "ended") };
+  });
+  const activeSeasons = seasons.filter((season) => season.status === "active");
+  for (const season of activeSeasons.slice(0, -1)) season.status = "ended";
+  return { ...structuredClone(stored), teams, seasons };
 };
 
 export class GameSession {
@@ -38,12 +79,15 @@ export class GameSession {
   static async open(store: GameSessionStore): Promise<GameSession> {
     const stored = await store.read();
     if (!stored) return new GameSession(store, emptySetup());
-    return new GameSession(store, {
-      ...stored,
-      games: (stored.games ?? []).map((game) => game.status === "live" && !game.quarters && game.startingLineup
-        ? { ...game, quarters: [{ number: 1, status: "live", startingLineup: structuredClone(game.startingLineup), courtChanges: [], captureActions: [] }] }
+    const migrated = migrateSetup(stored);
+    const data: SetupData = {
+      ...migrated,
+      games: (migrated.games ?? []).map((game) => game.status === "live" && !game.quarters && game.startingLineup
+        ? { ...game, quarters: [{ number: 1 as QuarterNumber, status: "live" as const, startingLineup: structuredClone(game.startingLineup), courtChanges: [], captureActions: [] }] }
         : game)
-    });
+    };
+    if (JSON.stringify(stored) !== JSON.stringify(data)) await store.write(data);
+    return new GameSession(store, data);
   }
 
   setup(): SetupSummary {
@@ -55,18 +99,40 @@ export class GameSession {
   }
 
   newSeasonDefaults(): { teamName: string } {
-    return { teamName: this.data.seasons.at(-1)?.teamName ?? "" };
+    return { teamName: this.data.teams.at(-1)?.name ?? "" };
   }
 
-  async createSeason(input: { name: string; teamName: string }): Promise<Season> {
+  async createTeam(input: { name: string }): Promise<Team> {
+    const name = requireText(input.name, "Team name");
+    const existing = this.data.teams.find((team) => teamKey(team.name) === teamKey(name));
+    if (existing) return structuredClone(existing);
+    const team = { id: crypto.randomUUID(), name };
+    this.data.teams.push(team);
+    await this.persist();
+    return structuredClone(team);
+  }
+
+  async createSeason(input: { name: string; teamId?: string; teamName?: string }): Promise<Season> {
+    if (this.data.seasons.some((season) => season.status === "active")) throw new Error("End the active season before creating another.");
+    const team = input.teamId ? this.requireTeam(input.teamId) : input.teamName ? await this.createTeam({ name: input.teamName }) : undefined;
+    if (!team) throw new Error("Select a saved team.");
     const season: Season = {
       id: crypto.randomUUID(),
       name: requireText(input.name, "Season name"),
-      teamName: requireText(input.teamName, "Team name")
+      teamId: team.id,
+      status: "active"
     };
     this.data.seasons.push(season);
     await this.persist();
     return structuredClone(season);
+  }
+
+  async endSeason(id: string): Promise<void> {
+    const season = this.requireSeason(id);
+    if (season.status !== "active") throw new Error("Only the active season can be ended.");
+    if (this.data.games.some((game) => game.seasonId === id && !isTerminalMatch(game))) throw new Error("All matches must be terminal before ending a season.");
+    season.status = "ended";
+    await this.persist();
   }
 
   async addPlayer(input: { name: string; nickname?: string }): Promise<Player> {
@@ -134,6 +200,7 @@ export class GameSession {
     } else {
       const merge = <T extends { id: string }>(current: T[], incoming: T[]) => [...current, ...incoming.filter((candidate) => !current.some((existing) => existing.id === candidate.id || JSON.stringify(existing) === JSON.stringify(candidate)))];
       this.data = {
+        teams: merge(this.data.teams, imported.teams),
         seasons: merge(this.data.seasons, imported.seasons),
         players: merge(this.data.players, imported.players),
         opposition: merge(this.data.opposition, imported.opposition),
@@ -141,6 +208,7 @@ export class GameSession {
         selectedOppositionId: this.data.selectedOppositionId ?? imported.selectedOppositionId
       };
     }
+    this.data = migrateSetup(this.data);
     await this.persist();
   }
 
@@ -166,7 +234,7 @@ export class GameSession {
     return structuredClone({
       id: game.id,
       date: game.date,
-      teamName: this.requireSeason(game.seasonId).teamName,
+      teamName: this.requireTeam(this.requireSeason(game.seasonId).teamId).name,
       oppositionName: this.data.opposition.find((opposition) => opposition.id === game.oppositionId)?.name ?? "Unknown opposition",
       status: game.status,
       outcome: game.outcome,
@@ -177,7 +245,7 @@ export class GameSession {
   }
 
   async createDraft(input: CreateDraftInput): Promise<Game> {
-    this.requireSeason(input.seasonId);
+    if (this.requireSeason(input.seasonId).status !== "active") throw new Error("Select the active season.");
     this.requireActiveOpposition(input.oppositionId);
     const game: Game = {
       id: crypto.randomUUID(),
@@ -223,6 +291,7 @@ export class GameSession {
     if (!game || game.status !== "draft") {
       throw new Error("Only a draft can be deleted.");
     }
+    this.requireActiveSeason(game.seasonId);
     this.data.games = this.data.games.filter((candidate) => candidate.id !== id);
     await this.persist();
   }
@@ -364,6 +433,12 @@ export class GameSession {
     return season;
   }
 
+  private requireTeam(id: string): Team {
+    const team = this.data.teams.find((candidate) => candidate.id === id);
+    if (!team) throw new Error("Team was not found.");
+    return team;
+  }
+
   private requireActiveOpposition(id: string): Opposition {
     const opposition = this.data.opposition.find((candidate) => candidate.id === id && !candidate.archived);
     if (!opposition) throw new Error("Select an active opposition.");
@@ -391,6 +466,7 @@ export class GameSession {
     const game = this.data.games.find((candidate) => candidate.id === id);
     if (!game) throw new Error("Match draft was not found.");
     if (game.status !== "draft") throw new Error(liveMessage);
+    this.requireActiveSeason(game.seasonId);
     return game;
   }
 
@@ -406,7 +482,14 @@ export class GameSession {
   private requireLiveGame(id: string): Game {
     const game = this.data.games.find((candidate) => candidate.id === id);
     if (!game || game.status !== "live") throw new Error("Only a live game can be changed.");
+    this.requireActiveSeason(game.seasonId);
     return game;
+  }
+
+  private requireActiveSeason(id: string): Season {
+    const season = this.requireSeason(id);
+    if (season.status !== "active") throw new Error("This season is read-only.");
+    return season;
   }
 
   private requireUnfinalisedQuarter(game: Game, number: QuarterNumber): Quarter {

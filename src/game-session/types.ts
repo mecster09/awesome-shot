@@ -1,7 +1,13 @@
+export type Team = {
+  id: string;
+  name: string;
+};
+
 export type Season = {
   id: string;
   name: string;
-  teamName: string;
+  teamId: string;
+  status: "active" | "ended";
 };
 
 export type Player = {
@@ -111,6 +117,7 @@ export type Game = {
 export type CreateDraftInput = Pick<Game, "seasonId" | "oppositionId" | "date" | "squadPlayerIds">;
 
 export type SetupData = {
+  teams: Team[];
   seasons: Season[];
   players: Player[];
   opposition: Opposition[];

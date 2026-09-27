@@ -34,6 +34,7 @@ describe("GameSession setup", () => {
     const rehydrated = await GameSession.open(store);
 
     expect(rehydrated.setup()).toEqual({
+      teams: [{ id: season.teamId, name: "Roses" }],
       seasons: [season],
       players: [player],
       opposition: [opposition],
@@ -43,18 +44,56 @@ describe("GameSession setup", () => {
     });
   });
 
-  it("prefills a new season with the latest team name and retains its own snapshot", async () => {
+  it("uses one active season at a time and reuses teams without case or whitespace duplicates", async () => {
     const session = await GameSession.open(new InMemoryGameSessionStore());
-    await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const first = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
 
-    expect(session.newSeasonDefaults()).toEqual({ teamName: "Roses" });
+    await expect(session.createSeason({ name: "2027 Winter", teamName: " roses " })).rejects.toThrow("active");
+    await session.endSeason(first.id);
+    const second = await session.createSeason({ name: "2027 Winter", teamName: " roses " });
 
-    const season = await session.createSeason({ name: "2027 Winter", teamName: "Academy Roses" });
+    expect(session.setup().teams).toMatchObject([{ name: "Roses" }]);
+    expect(second.teamId).toBe(first.teamId);
+    expect(session.setup().seasons).toMatchObject([
+      { name: "2026 Winter", status: "ended" },
+      { name: "2027 Winter", status: "active" }
+    ]);
+  });
 
-    expect(season.teamName).toBe("Academy Roses");
-    expect(session.setup().seasons.map(({ name, teamName }) => ({ name, teamName }))).toEqual([
-      { name: "2026 Winter", teamName: "Roses" },
-      { name: "2027 Winter", teamName: "Academy Roses" }
+  it("will not end a season while one of its matches is live", async () => {
+    const session = await GameSession.open(new InMemoryGameSessionStore());
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
+    const match = await session.createDraft({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id) });
+
+    await expect(session.endSeason(season.id)).rejects.toThrow("terminal");
+    await session.deleteDraft(match.id);
+    await session.endSeason(season.id);
+    await expect(session.createDraft({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id) })).rejects.toThrow("active");
+  });
+
+  it("migrates legacy season team names into reusable teams without losing season records", async () => {
+    const legacy = {
+      seasons: [
+        { id: "season-1", name: "2025 Winter", teamName: "Roses" },
+        { id: "season-2", name: "2026 Winter", teamName: " roses " }
+      ],
+      players: [],
+      opposition: [],
+      games: []
+    };
+    const store = {
+      read: async () => structuredClone(legacy),
+      write: async () => undefined
+    };
+
+    const session = await GameSession.open(store as never);
+
+    expect(session.setup().teams).toMatchObject([{ name: "Roses" }]);
+    expect(session.setup().seasons).toMatchObject([
+      { id: "season-1", status: "ended" },
+      { id: "season-2", status: "active" }
     ]);
   });
 
