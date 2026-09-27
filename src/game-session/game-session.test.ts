@@ -65,12 +65,12 @@ describe("GameSession setup", () => {
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
     const opposition = await session.addOpposition({ name: "Thunder" });
     const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
-    const match = await session.createDraft({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id) });
+    const match = await session.startMatch({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id), startingLineup: { "Goal Keeper": players[0].id, "Goal Defence": players[1].id, "Wing Defence": players[2].id, Centre: players[3].id, "Wing Attack": players[4].id, "Goal Attack": players[5].id, "Goal Shooter": players[6].id } });
 
     await expect(session.endSeason(season.id)).rejects.toThrow("terminal");
-    await session.deleteDraft(match.id);
+    await session.terminateGame(match.id);
     await session.endSeason(season.id);
-    await expect(session.createDraft({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id) })).rejects.toThrow("active");
+    await expect(session.startMatch({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id), startingLineup: { "Goal Keeper": players[0].id, "Goal Defence": players[1].id, "Wing Defence": players[2].id, Centre: players[3].id, "Wing Attack": players[4].id, "Goal Attack": players[5].id, "Goal Shooter": players[6].id } })).rejects.toThrow("active");
   });
 
   it("migrates legacy season team names into reusable teams without losing season records", async () => {
@@ -120,75 +120,48 @@ describe("GameSession setup", () => {
 });
 
 describe("GameSession match drafts", () => {
-  it("persists a draft with its selected season, opposition, date, and squad", async () => {
-    const store = new InMemoryGameSessionStore();
-    const session = await GameSession.open(store);
-    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
-    const opposition = await session.addOpposition({ name: "Thunder" });
-    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
-
-    const draft = await session.createDraft({
-      seasonId: season.id,
-      oppositionId: opposition.id,
-      date: "2026-09-26",
-      squadPlayerIds: players.map((player) => player.id)
-    });
-
-    const reopened = await GameSession.open(store);
-    expect(reopened.match(draft.id)).toMatchObject({
-      status: "draft",
-      seasonId: season.id,
-      oppositionId: opposition.id,
-      date: "2026-09-26",
-      squadPlayerIds: players.map((player) => player.id)
-    });
-  });
-
-  it("only starts a complete unique starting seven and then locks the squad", async () => {
-    const session = await GameSession.open(new InMemoryGameSessionStore());
-    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
-    const opposition = await session.addOpposition({ name: "Thunder" });
-    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia", "Hana"].map((name) => session.addPlayer({ name })));
-    const draft = await session.createDraft({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id) });
-
-    await expect(session.startQuarterOne(draft.id)).rejects.toThrow("Assign every starting position");
-    await session.setStartingLineup(draft.id, {
-      "Goal Keeper": players[0].id,
-      "Goal Defence": players[1].id,
-      "Wing Defence": players[2].id,
-      Centre: players[3].id,
-      "Wing Attack": players[4].id,
-      "Goal Attack": players[5].id,
-      "Goal Shooter": players[6].id
-    });
-
-    await session.startQuarterOne(draft.id);
-
-    expect(session.match(draft.id)).toMatchObject({ status: "live", activeQuarter: 1 });
-    await expect(session.deleteDraft(draft.id)).rejects.toThrow("Only a draft can be deleted");
-    await expect(session.updateDraftSquad(draft.id, [players[0].id])).rejects.toThrow("cannot be changed after Quarter 1 starts");
-  });
-
-  it("rejects an invalid starting seven and allows a setup-only draft to be deleted", async () => {
+  it("persists a live match only when Match Setup starts Quarter 1", async () => {
     const session = await GameSession.open(new InMemoryGameSessionStore());
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
     const opposition = await session.addOpposition({ name: "Thunder" });
     const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
-    const draft = await session.createDraft({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id) });
+    const startingLineup = { "Goal Keeper": players[0].id, "Goal Defence": players[1].id, "Wing Defence": players[2].id, Centre: players[3].id, "Wing Attack": players[4].id, "Goal Attack": players[5].id, "Goal Shooter": players[6].id };
 
-    await expect(session.setStartingLineup(draft.id, {
-      "Goal Keeper": players[0].id,
-      "Goal Defence": players[0].id,
-      "Wing Defence": players[2].id,
-      Centre: players[3].id,
-      "Wing Attack": players[4].id,
-      "Goal Attack": players[5].id,
-      "Goal Shooter": players[6].id
-    })).rejects.toThrow("unique player");
+    await expect(session.startMatch({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.slice(0, 4).map((player) => player.id), startingLineup })).rejects.toThrow("at least five");
+    expect(session.matches()).toEqual([]);
+    const match = await session.startMatch({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id), startingLineup });
 
-    await session.deleteDraft(draft.id);
-    expect(session.match(draft.id)).toBeUndefined();
+    expect(match).toMatchObject({ status: "live", activeQuarter: 1 });
+    await expect(session.startMatch({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id), startingLineup })).rejects.toThrow("live match");
   });
+
+  it("reuses normalised Opposition and player names for Match Setup", async () => {
+    const session = await GameSession.open(new InMemoryGameSessionStore());
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const sameOpposition = await session.addOpposition({ name: " thunder " });
+    const player = await session.addPlayer({ name: "Ava" });
+    const samePlayer = await session.addPlayer({ name: " ava " });
+
+    expect(sameOpposition.id).toBe(opposition.id);
+    expect(samePlayer.id).toBe(player.id);
+    expect(session.setup().opposition).toHaveLength(1);
+    expect(session.setup().players).toHaveLength(1);
+  });
+
+  it("drops legacy persisted Match drafts during backup import", async () => {
+    const source = await GameSession.open(new InMemoryGameSessionStore());
+    const season = await source.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await source.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve"].map((name) => source.addPlayer({ name })));
+    const backup = JSON.parse(source.exportBackup()) as { data: { games: unknown[] } };
+    backup.data.games.push({ id: "legacy-draft", seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id), status: "draft" });
+    const target = await GameSession.open(new InMemoryGameSessionStore());
+
+    await target.importBackup(JSON.stringify(backup), "replace", true);
+
+    expect(target.matches()).toEqual([]);
+  });
+
 });
 
 describe("GameSession live quarter capture", () => {
@@ -197,8 +170,7 @@ describe("GameSession live quarter capture", () => {
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
     const opposition = await session.addOpposition({ name: "Thunder" });
     const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia", "Hana"].map((name) => session.addPlayer({ name })));
-    const game = await session.createDraft({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id) });
-    await session.setStartingLineup(game.id, {
+    const game = await session.startMatch({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id), startingLineup: {
       "Goal Keeper": players[0].id,
       "Goal Defence": players[1].id,
       "Wing Defence": players[2].id,
@@ -206,8 +178,7 @@ describe("GameSession live quarter capture", () => {
       "Wing Attack": players[4].id,
       "Goal Attack": players[5].id,
       "Goal Shooter": players[6].id
-    });
-    await session.startQuarterOne(game.id);
+    } });
     return { session, players, game };
   };
 
@@ -328,7 +299,6 @@ describe("GameSession live quarter capture", () => {
     await expect(abandoned.session.deleteCaptureAction(abandoned.game.id, 1, actionId)).rejects.toThrow("Only a live game");
     await expect(abandoned.session.correctPlayerStatistic(abandoned.game.id, 1, actionId, { playerId: abandoned.players[7].id, position: "Wing Defence", statistic: "Intercept" })).rejects.toThrow("Only a live game");
     await expect(abandoned.session.endQuarter(abandoned.game.id)).rejects.toThrow("no live quarter");
-    await expect(abandoned.session.deleteDraft(abandoned.game.id)).rejects.toThrow("Only a draft");
   });
 
   it("retains incomplete data and locks every mutation for terminated games", async () => {

@@ -5,6 +5,8 @@ import { App } from "./app";
 import { GameSession } from "./game-session/game-session";
 import { InMemoryGameSessionStore } from "./game-session/in-memory-game-session-store";
 
+const startLiveMatch = (session: GameSession, seasonId: string, oppositionId: string, players: Array<{ id: string }>) => session.startMatch({ seasonId, oppositionId, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id), startingLineup: { "Goal Keeper": players[0].id, "Goal Defence": players[1].id, "Wing Defence": players[2].id, Centre: players[3].id, "Wing Attack": players[4].id, "Goal Attack": players[5].id, "Goal Shooter": players[6].id } });
+
 describe("Natball Insights setup", () => {
   it("lets a coach create reusable season, player, and opposition setup data", async () => {
     const user = userEvent.setup();
@@ -48,7 +50,7 @@ describe("Natball Insights setup", () => {
     expect((await screen.findAllByText("2027 Winter")).length).toBeGreaterThan(0);
   });
 
-  it("creates a protected match draft and starts Quarter 1 from the setup screen", async () => {
+  it("keeps Match Setup transient until Quarter 1 starts", async () => {
     const store = new InMemoryGameSessionStore();
     const session = await GameSession.open(store);
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
@@ -66,7 +68,8 @@ describe("Natball Insights setup", () => {
     await user.click(screen.getByRole("button", { name: "Add player to squad" }));
     expect(await screen.findByLabelText("Hana")).toBeChecked();
     for (const player of players) await user.click(screen.getByLabelText(player.name));
-    await user.click(screen.getByRole("button", { name: "Create draft" }));
+    await user.click(screen.getByRole("button", { name: "Continue to Quarter Setup" }));
+    expect(session.matches()).toEqual([]);
 
     for (const [index, position] of ["Goal Keeper", "Goal Defence", "Wing Defence", "Centre", "Wing Attack", "Goal Attack", "Goal Shooter"].entries()) {
       await user.selectOptions(screen.getByLabelText(position), players[index].id);
@@ -82,17 +85,7 @@ describe("Natball Insights setup", () => {
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
     const opposition = await session.addOpposition({ name: "Thunder" });
     const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
-    const game = await session.createDraft({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id) });
-    await session.setStartingLineup(game.id, {
-      "Goal Keeper": players[0].id,
-      "Goal Defence": players[1].id,
-      "Wing Defence": players[2].id,
-      Centre: players[3].id,
-      "Wing Attack": players[4].id,
-      "Goal Attack": players[5].id,
-      "Goal Shooter": players[6].id
-    });
-    await session.startQuarterOne(game.id);
+    const game = await startLiveMatch(session, season.id, opposition.id, players);
     const user = userEvent.setup();
     render(<App store={store} />);
 
@@ -107,17 +100,7 @@ describe("Natball Insights setup", () => {
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
     const opposition = await session.addOpposition({ name: "Thunder" });
     const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
-    const game = await session.createDraft({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id) });
-    await session.setStartingLineup(game.id, {
-      "Goal Keeper": players[0].id,
-      "Goal Defence": players[1].id,
-      "Wing Defence": players[2].id,
-      Centre: players[3].id,
-      "Wing Attack": players[4].id,
-      "Goal Attack": players[5].id,
-      "Goal Shooter": players[6].id
-    });
-    await session.startQuarterOne(game.id);
+    const game = await startLiveMatch(session, season.id, opposition.id, players);
     const user = userEvent.setup();
     render(<App store={store} />);
 
@@ -136,9 +119,7 @@ describe("Natball Insights setup", () => {
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
     const opposition = await session.addOpposition({ name: "Thunder" });
     const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia", "Hana"].map((name) => session.addPlayer({ name })));
-    const game = await session.createDraft({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id) });
-    await session.setStartingLineup(game.id, { "Goal Keeper": players[0].id, "Goal Defence": players[1].id, "Wing Defence": players[2].id, Centre: players[3].id, "Wing Attack": players[4].id, "Goal Attack": players[5].id, "Goal Shooter": players[6].id });
-    await session.startQuarterOne(game.id);
+    const game = await startLiveMatch(session, season.id, opposition.id, players);
     await session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Tip" });
     await session.endQuarter(game.id);
     await session.startNextQuarter(game.id);
@@ -164,9 +145,7 @@ describe("Natball Insights setup", () => {
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
     const opposition = await session.addOpposition({ name: "Thunder" });
     const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
-    const game = await session.createDraft({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id) });
-    await session.setStartingLineup(game.id, { "Goal Keeper": players[0].id, "Goal Defence": players[1].id, "Wing Defence": players[2].id, Centre: players[3].id, "Wing Attack": players[4].id, "Goal Attack": players[5].id, "Goal Shooter": players[6].id });
-    await session.startQuarterOne(game.id);
+    const game = await startLiveMatch(session, season.id, opposition.id, players);
     await session.recordPlayerStatistic(game.id, { position: "Goal Attack", statistic: "Goals" });
     await session.terminateGame(game.id);
     const user = userEvent.setup();

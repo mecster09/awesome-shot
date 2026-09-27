@@ -106,7 +106,7 @@ export type Game = {
   date: string;
   squadPlayerIds: string[];
   startingLineup?: StartingLineup;
-  status: "draft" | "live" | "finalised" | "abandoned" | "terminated";
+  status: "live" | "finalised" | "abandoned" | "terminated";
   activeQuarter?: QuarterNumber;
   quarters?: Quarter[];
   outcome?: GameOutcome;
@@ -114,7 +114,7 @@ export type Game = {
   finalScore?: { own: number; opposition: number };
 };
 
-export type CreateDraftInput = Pick<Game, "seasonId" | "oppositionId" | "date" | "squadPlayerIds">;
+export type StartMatchInput = Pick<Game, "seasonId" | "oppositionId" | "date" | "squadPlayerIds"> & { startingLineup: StartingLineup };
 
 export type SetupData = {
   teams: Team[];
