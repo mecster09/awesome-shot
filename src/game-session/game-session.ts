@@ -375,10 +375,6 @@ export class GameSession {
     await this.endIncompleteGame(id, { kind: "abandoned" });
   }
 
-  async terminateGame(id: string): Promise<void> {
-    await this.endIncompleteGame(id, { kind: "terminated" });
-  }
-
   private async endIncompleteGame(id: string, outcome: Exclude<NonNullable<Game["outcome"]>, { kind: "completed" }>): Promise<void> {
     const game = this.requireLiveGame(id);
     game.status = outcome.kind;
