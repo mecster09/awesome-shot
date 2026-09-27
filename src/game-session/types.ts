@@ -33,6 +33,7 @@ export const POSITIONS = [
 ] as const;
 
 export type Position = (typeof POSITIONS)[number];
+export const TOTAL_QUARTERS = 4;
 export type Court = Partial<Record<Position, string>>;
 export type StartingLineup = Court;
 

@@ -1,12 +1,12 @@
 import { FormEvent, useEffect, useState } from "react";
 import { GameSession } from "./game-session/game-session";
 import { IndexedDbGameSessionStore } from "./game-session/indexed-db-game-session-store";
-import { GENERAL_STATISTICS, PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, type CaptureAction, type Game, type GameSessionStore, type LiveQuarterCapture, type PlayerStatistic, type Position, type QuarterNumber, type SetupSummary, type StartMatchInput, type StartingLineup, type TerminalMatchReport } from "./game-session/types";
+import { GENERAL_STATISTICS, PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, TOTAL_QUARTERS, type CaptureAction, type Game, type GameSessionStore, type LiveQuarterCapture, type PlayerStatistic, type Position, type QuarterNumber, type SetupSummary, type StartMatchInput, type StartingLineup, type TerminalMatchReport } from "./game-session/types";
 import { createMatchCsv, createMatchPdf } from "./reports";
 import "./styles.css";
 
 type AppProps = { store?: GameSessionStore };
-type MatchView = { kind: "team-setup" } | { kind: "season-setup" } | { kind: "match-identity" } | { kind: "match-squad" } | { kind: "court-setup" } | { kind: "settings"; section: "season" | "backup" } | { kind: "history"; returnToGameId?: string } | { kind: "quarter-setup"; input: Omit<StartMatchInput, "startingLineup"> } | { kind: "next-quarter-setup"; gameId: string; startingLineup: StartingLineup } | { kind: "game"; gameId: string };
+type MatchView = { kind: "team-setup" } | { kind: "season-setup" } | { kind: "match-identity" } | { kind: "match-squad" } | { kind: "court-setup" } | { kind: "settings"; section: "season" | "backup" } | { kind: "history"; returnToGameId?: string } | { kind: "next-quarter-setup"; gameId: string; startingLineup: StartingLineup } | { kind: "game"; gameId: string };
 type MatchActions = {
   recordPlayerStatistic: (position: Position, statistic: PlayerStatistic) => Promise<void>;
   recordOppositionGoal: () => Promise<void>;
@@ -17,6 +17,20 @@ type MatchActions = {
   finalise: (score: { own: number; opposition: number }) => Promise<void>;
   deleteHistoricalAction: (quarter: QuarterNumber, actionId: string) => Promise<void>;
   correctHistoricalAction: (quarter: QuarterNumber, actionId: string, correction: { playerId: string; position: Position; statistic: PlayerStatistic }) => Promise<void>;
+};
+
+export const deriveCurrentView = ({ matchView, setup, liveMatch, nextQuarterCourt }: { matchView?: MatchView; setup: SetupSummary; liveMatch?: Game; nextQuarterCourt: (gameId: string) => StartingLineup }): MatchView => {
+  if (matchView) return matchView;
+  if (liveMatch) {
+    if (!liveMatch.activeQuarter && (liveMatch.quarters?.length ?? 0) < TOTAL_QUARTERS) return { kind: "next-quarter-setup", gameId: liveMatch.id, startingLineup: nextQuarterCourt(liveMatch.id) };
+    return { kind: "game", gameId: liveMatch.id };
+  }
+  if (setup.seasons.some((season) => season.status === "active")) {
+    if (setup.matchSetupDraft?.stage === "court-setup") return { kind: "court-setup" };
+    if (setup.matchSetupDraft?.stage === "match-squad") return { kind: "match-squad" };
+    return { kind: "match-identity" };
+  }
+  return setup.teams.length > 0 ? { kind: "season-setup" } : { kind: "team-setup" };
 };
 
 const download = (filename: string, type: string, content: string | Uint8Array) => {
@@ -83,7 +97,8 @@ export function App({ store }: AppProps) {
   const activeSeason = setup.seasons.find((season) => season.status === "active");
   const liveMatch = session.matches().find((game) => game.status === "live");
   const matchSquadDraft = setup.matchSetupDraft?.stage === "match-squad" ? setup.matchSetupDraft : undefined;
-  const currentView = matchView ?? (liveMatch ? { kind: "game" as const, gameId: liveMatch.id } : activeSeason ? setup.matchSetupDraft?.stage === "court-setup" ? { kind: "court-setup" as const } : setup.matchSetupDraft?.stage === "match-squad" ? { kind: "match-squad" as const } : { kind: "match-identity" as const } : setup.teams.length > 0 ? { kind: "season-setup" as const } : { kind: "team-setup" as const });
+  const courtSetupDraft = setup.matchSetupDraft?.stage === "court-setup" ? setup.matchSetupDraft : undefined;
+  const currentView = deriveCurrentView({ matchView, setup, liveMatch, nextQuarterCourt: (gameId) => session.nextQuarterCourt(gameId) });
   const openMenuView = (view: Extract<MatchView, { kind: "settings" | "history" }>) => {
     setMatchView(view);
     setMenuOpen(false);
@@ -142,20 +157,15 @@ export function App({ store }: AppProps) {
       />
     </section>}
     {currentView.kind === "match-squad" && matchSquadDraft && <section className="match-area focused-screen" aria-labelledby="match-squad-title"><p className="eyebrow">MATCH SETUP · STAGE 4</p><h2 id="match-squad-title">Match Squad</h2><p>{matchSquadDraft.date} · {setup.opposition.find((opposition) => opposition.id === matchSquadDraft.oppositionId)?.name}</p><MatchSquadForm players={setup.players} selectedPlayerIds={matchSquadDraft.squadPlayerIds ?? []} onAddPlayer={async (input) => { const player = await session.addPlayer(input); refresh(); return player; }} onSave={(squadPlayerIds) => perform(async () => { await session.saveMatchSquad({ ...matchSquadDraft, squadPlayerIds }); })} onProceed={(squadPlayerIds) => perform(async () => { await session.advanceToCourtSetup({ ...matchSquadDraft, squadPlayerIds }); setMatchView({ kind: "court-setup" }); })} /></section>}
-    {currentView.kind === "court-setup" && <section className="match-area focused-screen" aria-labelledby="court-setup-title"><p className="eyebrow">MATCH SETUP · STAGE 5</p><h2 id="court-setup-title">Court Setup</h2><p>Choose the Quarter 1 Court next.</p></section>}
-    {currentView?.kind === "quarter-setup" && <QuarterSetupCard match={currentView.input} startingLineup={{}} quarterNumber={1} setup={setup} onCancel={() => setMatchView({ kind: "match-identity" })} onStart={(startingLineup) => perform(async () => {
-        const game = await session.startMatch({ ...currentView.input, startingLineup });
+    {currentView.kind === "court-setup" && courtSetupDraft && <QuarterSetupCard match={courtSetupDraft} startingLineup={{}} quarterNumber={1} setup={setup} onStart={(startingLineup) => perform(async () => {
+        const game = await session.startMatch({ ...courtSetupDraft, startingLineup });
         setMatchView({ kind: "game", gameId: game.id });
       })} />}
       {currentView?.kind === "next-quarter-setup" && (() => {
         const game = session.match(currentView.gameId);
         if (!game) return null;
         const quarterNumber = (game.quarters?.length ?? 0) + 1;
-        return <QuarterSetupCard match={game} startingLineup={currentView.startingLineup} quarterNumber={quarterNumber} setup={setup} onCancel={() => setMatchView({ kind: "game", gameId: game.id })} onAddPlayer={async (input) => {
-          const player = await session.addPlayer(input);
-          await session.addPlayerToSquad(game.id, player.id);
-          refresh();
-        }} onStart={(startingLineup) => perform(async () => {
+        return <QuarterSetupCard match={game} startingLineup={currentView.startingLineup} quarterNumber={quarterNumber} setup={setup} onStart={(startingLineup) => perform(async () => {
           await session.startNextQuarter(game.id, startingLineup);
           setMatchView({ kind: "game", gameId: game.id });
         })} />;
@@ -173,13 +183,16 @@ export function App({ store }: AppProps) {
           recordOppositionGoal: () => perform(() => session.recordOppositionGoal(game.id)),
           undoCaptureAction: () => perform(() => session.undoLastCaptureAction(game.id)),
           substitutePlayer: (input) => perform(() => session.substitutePlayer(game.id, input)),
-          endQuarter: () => perform(() => session.endQuarter(game.id)),
+          endQuarter: () => perform(async () => {
+            const completedQuarter = game.activeQuarter;
+            await session.endQuarter(game.id);
+            if (completedQuarter && completedQuarter < TOTAL_QUARTERS) setMatchView({ kind: "next-quarter-setup", gameId: game.id, startingLineup: session.nextQuarterCourt(game.id) });
+          }),
           abandon: () => perform(() => session.abandonGame(game.id)),
           finalise: (score) => perform(() => session.finaliseGame(game.id, score)),
           deleteHistoricalAction: (quarter, actionId) => perform(() => session.deleteCaptureAction(game.id, quarter, actionId)),
           correctHistoricalAction: (quarter, actionId, correction) => perform(() => session.correctPlayerStatistic(game.id, quarter, actionId, correction))
         }}
-        onSetUpNextQuarter={() => setMatchView({ kind: "next-quarter-setup", gameId: game.id, startingLineup: session.nextQuarterCourt(game.id) })}
         onOpenHistory={() => setMatchView({ kind: "history", returnToGameId: game.id })}
       />)}
   </main>;
@@ -292,22 +305,22 @@ function MatchSquadForm({ players, selectedPlayerIds, onAddPlayer, onSave, onPro
   </form>;
 }
 
-function QuarterSetupCard({ match, startingLineup, quarterNumber, setup, onCancel, onAddPlayer, onStart }: { match: Pick<StartMatchInput, "date" | "oppositionId" | "squadPlayerIds">; startingLineup: StartingLineup; quarterNumber: number; setup: SetupSummary; onCancel: () => void; onAddPlayer?: (input: { name: string }) => Promise<void>; onStart: (startingLineup: StartingLineup) => Promise<void> }) {
+function QuarterSetupCard({ match, startingLineup, quarterNumber, setup, onStart }: { match: Pick<StartMatchInput, "date" | "oppositionId" | "squadPlayerIds">; startingLineup: StartingLineup; quarterNumber: number; setup: SetupSummary; onStart: (startingLineup: StartingLineup) => Promise<void> }) {
   const [lineup, setLineup] = useState<StartingLineup>(startingLineup);
-  const [latePlayerName, setLatePlayerName] = useState("");
   const squad = setup.players.filter((player) => match.squadPlayerIds.includes(player.id));
+  const canStart = Object.values(lineup).filter(Boolean).length >= 5 && new Set(Object.values(lineup).filter(Boolean)).size === Object.values(lineup).filter(Boolean).length;
   const updatePosition = (position: Position, playerId: string) => setLineup((current) => {
     if (playerId) return { ...current, [position]: playerId };
     const { [position]: _, ...remaining } = current;
     return remaining;
   });
   const availablePlayers = (position: Position) => squad.filter((player) => !Object.entries(lineup).some(([assignedPosition, playerId]) => assignedPosition !== position && playerId === player.id));
-  return <section className="draft-card" aria-labelledby="quarter-setup-title"><div className="draft-heading"><div><p className="eyebrow">QUARTER SETUP</p><h2 id="quarter-setup-title">Set up Quarter {quarterNumber} Court</h2><p>{match.date} · {setup.opposition.find((opposition) => opposition.id === match.oppositionId)?.name}</p></div><button className="text-button" onClick={onCancel}>Cancel Match Setup</button></div>{onAddPlayer && <div className="quick-player"><label>Late player name<input value={latePlayerName} onChange={(event) => setLatePlayerName(event.target.value)} placeholder="Player name" /></label><button type="button" disabled={!latePlayerName.trim() || match.squadPlayerIds.length === 12} onClick={() => void onAddPlayer({ name: latePlayerName }).then(() => setLatePlayerName(""))}>Add player to squad</button></div>}<div className="lineup-grid">{POSITIONS.map((position) => <label key={position}>{position}<select aria-label={position} value={lineup[position] ?? ""} onChange={(event) => updatePosition(position, event.target.value)}><option value="">Vacant position</option>{availablePlayers(position).map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label>)}</div><div className="draft-actions"><button onClick={() => void onStart(lineup)}>Start Quarter {quarterNumber}</button></div></section>;
+  return <section className="draft-card" aria-labelledby="quarter-setup-title"><div className="draft-heading"><div><p className="eyebrow">QUARTER SETUP</p><h2 id="quarter-setup-title">Set up Quarter {quarterNumber} Court</h2><p>{match.date} · {setup.opposition.find((opposition) => opposition.id === match.oppositionId)?.name}</p></div></div><div className="lineup-grid">{POSITIONS.map((position) => <label key={position}>{position}<select aria-label={position} value={lineup[position] ?? ""} onChange={(event) => updatePosition(position, event.target.value)}><option value="">Vacant position</option>{availablePlayers(position).map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label>)}</div><div className="draft-actions"><button disabled={!canStart} onClick={() => void onStart(lineup)}>{quarterNumber === 1 ? "Start Match" : `Start Quarter ${quarterNumber}`}</button></div></section>;
 }
 
-function MatchCard({ game, setup, capture, score, report, actions, onSetUpNextQuarter, onOpenHistory }: { game: Game; setup: SetupSummary; capture?: LiveQuarterCapture; score?: { own: number; opposition: number }; report?: TerminalMatchReport; actions: MatchActions; onSetUpNextQuarter: () => void; onOpenHistory: () => void }) {
+function MatchCard({ game, setup, capture, score, report, actions, onOpenHistory }: { game: Game; setup: SetupSummary; capture?: LiveQuarterCapture; score?: { own: number; opposition: number }; report?: TerminalMatchReport; actions: MatchActions; onOpenHistory: () => void }) {
   if (game.status === "live" && capture) return <LiveQuarterCard game={game} setup={setup} capture={capture} actions={actions} onOpenHistory={onOpenHistory} />;
-  if (game.status === "live") return <section className="draft-card live-card"><p className="eyebrow">QUARTER COMPLETE</p><h2>Quarter {game.quarters?.at(-1)?.number} has ended</h2><p>Review the final Court, reposition players, and confirm before the next Quarter starts.</p>{game.quarters?.length === 4 ? <><p>Final score: {score?.own} — {score?.opposition}</p><button onClick={() => score && void actions.finalise(score)}>Confirm and finalise</button></> : <button onClick={onSetUpNextQuarter}>Set up Quarter {(game.quarters?.length ?? 0) + 1}</button>}<AbandonMatchAction onAbandon={actions.abandon} /></section>;
+  if (game.status === "live") return <section className="draft-card live-card"><p className="eyebrow">QUARTER COMPLETE</p><h2>Quarter {game.quarters?.at(-1)?.number} has ended</h2><p>Review the final Court, reposition players, and confirm before the next Quarter starts.</p>{game.quarters?.length === TOTAL_QUARTERS && <><p>Final score: {score?.own} — {score?.opposition}</p><button onClick={() => score && void actions.finalise(score)}>Confirm and finalise</button></>}<AbandonMatchAction onAbandon={actions.abandon} /></section>;
   if (report) return <TerminalMatchCard report={report} />;
   return null;
 }
