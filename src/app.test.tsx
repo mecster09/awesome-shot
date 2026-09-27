@@ -145,7 +145,35 @@ describe("Natball Insights setup", () => {
     expect(await screen.findByText("Roses 1 — Thunder 1")).toBeInTheDocument();
   });
 
-  it("lets a coach correct or remove an ended quarter action while the next quarter is live", async () => {
+  it("keeps Match Centre recording compact and secondary actions separate", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
+    const game = await startLiveMatch(session, season.id, opposition.id, players);
+    const user = userEvent.setup();
+    render(<App store={store} />);
+
+    expect(await screen.findByRole("heading", { name: "Roses 0 — Thunder 0" })).toBeInTheDocument();
+    expect(screen.getByText("Quarter score: Roses 0 — Thunder 0")).toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(7);
+    expect(screen.getByRole("button", { name: "Record Goals for Faye" })).toHaveTextContent("◎");
+    expect(screen.queryByText("Quarter 1 review")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Abandon match" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Terminate game" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "More match actions" }));
+    expect(screen.getByRole("button", { name: "Abandon match" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "History" }));
+    expect(await screen.findByRole("heading", { name: "Match history" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "End quarter" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Back to Match Centre" }));
+    expect(await screen.findByRole("button", { name: "End quarter" })).toBeInTheDocument();
+    expect(session.match(game.id)?.status).toBe("live");
+  });
+
+  it("opens ended Quarter history away from the live Match Centre", async () => {
     const store = new InMemoryGameSessionStore();
     const session = await GameSession.open(store);
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
@@ -159,16 +187,10 @@ describe("Natball Insights setup", () => {
     render(<App store={store} />);
 
     await screen.findByText("Quarter 2 is live");
-    expect(await screen.findByText("Quarter 1 review")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Edit statistic" }));
-    await user.selectOptions(screen.getByLabelText("Correction player"), players[7].id);
-    await user.selectOptions(screen.getByLabelText("Correction position"), "Wing Defence");
-    await user.selectOptions(screen.getByLabelText("Correction statistic"), "Intercept");
-    await user.click(screen.getByRole("button", { name: "Save correction" }));
-
-    expect(await screen.findByText("Hana · Wing Defence · Intercept")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Remove action from Quarter 1" }));
-    expect(screen.queryByText("Hana · Wing Defence · Intercept")).not.toBeInTheDocument();
+    expect(screen.queryByText("Quarter 1 review")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "History" }));
+    expect(await screen.findByRole("heading", { name: "Match history" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "End quarter" })).not.toBeInTheDocument();
   });
 
   it("shows read-only review and report exports only for terminal matches", async () => {
@@ -179,7 +201,7 @@ describe("Natball Insights setup", () => {
     const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
     const game = await startLiveMatch(session, season.id, opposition.id, players);
     await session.recordPlayerStatistic(game.id, { position: "Goal Attack", statistic: "Goals" });
-    await session.terminateGame(game.id);
+    await session.abandonGame(game.id);
     const user = userEvent.setup();
     render(<App store={store} />);
 
