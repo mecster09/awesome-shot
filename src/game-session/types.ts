@@ -64,6 +64,8 @@ export type Quarter = {
 };
 
 export type PlayerStatisticTotal = { playerId: string; position: Position; statistic: PlayerStatistic; count: number };
+export type PlayerPositionStint = { playerId: string; position: Position; playerStatistics: PlayerStatisticTotal[] };
+export type BetweenQuarterStatistics = { previousQuarter: QuarterNumber; previousQuarterStints: PlayerPositionStint[]; matchStints: PlayerPositionStint[] };
 export type ReportPlayerStatisticTotal = PlayerStatisticTotal & { playerName: string };
 export type TerminalMatchReport = {
   id: string;

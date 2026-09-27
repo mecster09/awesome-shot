@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { GameSession } from "./game-session/game-session";
 import { IndexedDbGameSessionStore } from "./game-session/indexed-db-game-session-store";
-import { GENERAL_STATISTICS, PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, TOTAL_QUARTERS, type CaptureAction, type Game, type GameSessionStore, type LiveQuarterCapture, type PlayerStatistic, type Position, type QuarterNumber, type SetupSummary, type StartMatchInput, type StartingLineup, type TerminalMatchReport } from "./game-session/types";
+import { GENERAL_STATISTICS, PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, TOTAL_QUARTERS, type BetweenQuarterStatistics, type CaptureAction, type Game, type GameSessionStore, type LiveQuarterCapture, type PlayerStatistic, type Position, type QuarterNumber, type SetupSummary, type StartMatchInput, type StartingLineup, type TerminalMatchReport } from "./game-session/types";
 import { createMatchCsv, createMatchPdf } from "./reports";
 import "./styles.css";
 
@@ -165,7 +165,7 @@ export function App({ store }: AppProps) {
         const game = session.match(currentView.gameId);
         if (!game) return null;
         const quarterNumber = (game.quarters?.length ?? 0) + 1;
-        return <QuarterSetupCard match={game} startingLineup={currentView.startingLineup} quarterNumber={quarterNumber} setup={setup} onStart={(startingLineup) => perform(async () => {
+        return <QuarterSetupCard match={game} startingLineup={currentView.startingLineup} quarterNumber={quarterNumber} setup={setup} statistics={session.betweenQuarterStatistics(game.id)} onStart={(startingLineup) => perform(async () => {
           await session.startNextQuarter(game.id, startingLineup);
           setMatchView({ kind: "game", gameId: game.id });
         })} />;
@@ -305,7 +305,7 @@ function MatchSquadForm({ players, selectedPlayerIds, onAddPlayer, onSave, onPro
   </form>;
 }
 
-function QuarterSetupCard({ match, startingLineup, quarterNumber, setup, onStart }: { match: Pick<StartMatchInput, "date" | "oppositionId" | "squadPlayerIds">; startingLineup: StartingLineup; quarterNumber: number; setup: SetupSummary; onStart: (startingLineup: StartingLineup) => Promise<void> }) {
+function QuarterSetupCard({ match, startingLineup, quarterNumber, setup, statistics, onStart }: { match: Pick<StartMatchInput, "date" | "oppositionId" | "squadPlayerIds">; startingLineup: StartingLineup; quarterNumber: number; setup: SetupSummary; statistics?: BetweenQuarterStatistics; onStart: (startingLineup: StartingLineup) => Promise<void> }) {
   const [lineup, setLineup] = useState<StartingLineup>(startingLineup);
   const squad = setup.players.filter((player) => match.squadPlayerIds.includes(player.id));
   const canStart = Object.values(lineup).filter(Boolean).length >= 5 && new Set(Object.values(lineup).filter(Boolean)).size === Object.values(lineup).filter(Boolean).length;
@@ -315,7 +315,14 @@ function QuarterSetupCard({ match, startingLineup, quarterNumber, setup, onStart
     return remaining;
   });
   const availablePlayers = (position: Position) => squad.filter((player) => !Object.entries(lineup).some(([assignedPosition, playerId]) => assignedPosition !== position && playerId === player.id));
-  return <section className="draft-card" aria-labelledby="quarter-setup-title"><div className="draft-heading"><div><p className="eyebrow">QUARTER SETUP</p><h2 id="quarter-setup-title">Set up Quarter {quarterNumber} Court</h2><p>{match.date} · {setup.opposition.find((opposition) => opposition.id === match.oppositionId)?.name}</p></div></div><div className="lineup-grid">{POSITIONS.map((position) => <label key={position}>{position}<select aria-label={position} value={lineup[position] ?? ""} onChange={(event) => updatePosition(position, event.target.value)}><option value="">Vacant position</option>{availablePlayers(position).map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label>)}</div><div className="draft-actions"><button disabled={!canStart} onClick={() => void onStart(lineup)}>{quarterNumber === 1 ? "Start Match" : `Start Quarter ${quarterNumber}`}</button></div></section>;
+  return <section className="draft-card" aria-labelledby="quarter-setup-title"><div className="draft-heading"><div><p className="eyebrow">QUARTER SETUP</p><h2 id="quarter-setup-title">Set up Quarter {quarterNumber} Court</h2><p>{match.date} · {setup.opposition.find((opposition) => opposition.id === match.oppositionId)?.name}</p></div></div>{statistics && <BetweenQuarterStatisticsPanel statistics={statistics} players={setup.players} />}<div className="lineup-grid">{POSITIONS.map((position) => <label key={position}>{position}<select aria-label={position} value={lineup[position] ?? ""} onChange={(event) => updatePosition(position, event.target.value)}><option value="">Vacant position</option>{availablePlayers(position).map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label>)}</div><div className="draft-actions"><button disabled={!canStart} onClick={() => void onStart(lineup)}>{quarterNumber === 1 ? "Start Match" : `Start Quarter ${quarterNumber}`}</button></div></section>;
+}
+
+function BetweenQuarterStatisticsPanel({ statistics, players }: { statistics: BetweenQuarterStatistics; players: SetupSummary["players"] }) {
+  const [view, setView] = useState<"previous" | "match">("previous");
+  const stints = view === "previous" ? statistics.previousQuarterStints : statistics.matchStints;
+  const title = view === "previous" ? "Previous quarter statistics" : "All Match statistics";
+  return <section className="between-quarter-statistics" aria-labelledby="between-quarter-statistics-title"><div className="section-heading"><h3 id="between-quarter-statistics-title">{title}</h3><button type="button" className="text-button" onClick={() => setView(view === "previous" ? "match" : "previous")}>{view === "previous" ? "All Match" : "Previous quarter"}</button></div><p>{view === "previous" ? `Quarter ${statistics.previousQuarter}` : "All completed quarters"}</p><ul>{stints.map((stint) => <li key={`${stint.playerId}:${stint.position}`}><strong>{playerLabel(players.find((player) => player.id === stint.playerId) ?? { name: "Unknown player" })}</strong> · {stint.position} · {stint.playerStatistics.length ? stint.playerStatistics.map((statistic) => `${statistic.statistic}: ${statistic.count}`).join(" · ") : "No events"}</li>)}</ul></section>;
 }
 
 function MatchCard({ game, setup, capture, score, report, actions, onOpenHistory }: { game: Game; setup: SetupSummary; capture?: LiveQuarterCapture; score?: { own: number; opposition: number }; report?: TerminalMatchReport; actions: MatchActions; onOpenHistory: () => void }) {

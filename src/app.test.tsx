@@ -153,13 +153,14 @@ describe("Natball Insights setup", () => {
     expect(await screen.findByText("Quarter 1 is live")).toBeInTheDocument();
   });
 
-  it("returns to a prefilled Court setup after an ended Quarter without offering new Players", async () => {
+  it("shows switchable previous-quarter and Match statistics beside a prefilled Court", async () => {
     const store = new InMemoryGameSessionStore();
     const session = await GameSession.open(store);
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
     const opposition = await session.addOpposition({ name: "Thunder" });
     const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
     const game = await startLiveMatch(session, season.id, opposition.id, players);
+    await session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Tip" });
     await session.endQuarter(game.id);
     const user = userEvent.setup();
     render(<App store={store} />);
@@ -168,6 +169,18 @@ describe("Natball Insights setup", () => {
     expect(screen.getByLabelText("Goal Keeper")).toHaveValue(players[0].id);
     expect(screen.getByRole("option", { name: "Ava" })).toBeInTheDocument();
     expect(screen.getAllByRole("option", { name: "Ava" })).toHaveLength(1);
+    expect(screen.getByRole("heading", { name: "Previous quarter statistics" })).toBeInTheDocument();
+    expect(screen.getByText((_, element) => element?.tagName === "LI" && element.textContent === "Demi · Centre · Tip: 1")).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Centre"), "");
+    await user.click(screen.getByRole("button", { name: "All Match" }));
+    expect(screen.getByRole("heading", { name: "All Match statistics" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Centre")).toHaveValue("");
+    await user.click(screen.getByRole("button", { name: "Previous quarter" }));
+    expect(screen.getByRole("heading", { name: "Previous quarter statistics" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Centre")).toHaveValue("");
+    await user.selectOptions(screen.getByLabelText("Centre"), players[3].id);
+    await user.click(screen.getByRole("button", { name: "Start Quarter 2" }));
+    expect(await screen.findByText("Quarter 2 is live")).toBeInTheDocument();
     expect(screen.queryByLabelText("Late player name")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add player to squad" })).not.toBeInTheDocument();
   });
