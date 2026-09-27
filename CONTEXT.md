@@ -29,7 +29,7 @@ A terminal match ended before completion that retains its score-at-abandonment a
 _Avoid_: Deleted match, terminated match
 
 **Squad**:
-The set of at least five players selected for a match and eligible to take court during it.
+The fixed set of at least five players selected before a match begins and eligible to take court during it.
 _Avoid_: Starting court, lineup
 
 **Quarter**:
@@ -47,6 +47,10 @@ One of the seven named on-court roles. A position may be occupied by at most one
 A recorded statistic attributed to a player and the position that player occupied when it occurred. Own goals are player events; opposition goals are separate score events.
 _Avoid_: Player total, generic event
 
+**Event feed**:
+The ordered, live-quarter record of player events and opposition score events.
+_Avoid_: Activity log, event history
+
 **Substitution**:
 A recorded change to a court position, replacing its player or filling a vacant position. It may occur during a live quarter or before a quarter begins.
 _Avoid_: Court change
@@ -56,3 +60,7 @@ The goals scored by each side in one quarter.
 
 **Match score**:
 The cumulative goals scored by each side across all quarters of a match.
+
+**Statistics summary**:
+A view of player events for either one completed quarter or the cumulative match. It includes only the Match Squad and has one row for each player-position stint.
+_Avoid_: Player scoreboard, all-player statistics
