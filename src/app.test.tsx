@@ -55,7 +55,7 @@ describe("Natball Insights setup", () => {
     const session = await GameSession.open(store);
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
     const opposition = await session.addOpposition({ name: "Thunder" });
-    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia", "Hana"].map((name) => session.addPlayer({ name })));
     const user = userEvent.setup();
     render(<App store={store} />);
 
@@ -122,7 +122,7 @@ describe("Natball Insights setup", () => {
     const session = await GameSession.open(store);
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
     const opposition = await session.addOpposition({ name: "Thunder" });
-    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia", "Hana"].map((name) => session.addPlayer({ name })));
     const game = await startLiveMatch(session, season.id, opposition.id, players);
     const user = userEvent.setup();
     render(<App store={store} />);
@@ -130,10 +130,15 @@ describe("Natball Insights setup", () => {
     await user.click(await screen.findByRole("button", { name: "View live match" }));
     await user.click(screen.getByRole("button", { name: "Record Goals for Faye" }));
     await user.click(screen.getByRole("button", { name: "Opposition goal" }));
+    await user.click(screen.getByRole("button", { name: "Record Substitution" }));
+    await user.selectOptions(screen.getByLabelText("Substitution Position"), "Centre");
+    await user.selectOptions(screen.getByLabelText("Substitution Player"), players[7].id);
+    await user.click(screen.getAllByRole("button", { name: "Record Substitution" }).at(-1)!);
 
     expect(await screen.findByText("Roses 1 — Thunder 1")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Undo last action" }));
-    expect(await screen.findByText("Roses 1 — Thunder 0")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Hana" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Undo last player event" })).toBeDisabled();
+    expect(await screen.findByText("Roses 1 — Thunder 1")).toBeInTheDocument();
   });
 
   it("lets a coach correct or remove an ended quarter action while the next quarter is live", async () => {

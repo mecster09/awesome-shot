@@ -200,57 +200,34 @@ describe("GameSession live quarter capture", () => {
     await expect(session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Misses" })).rejects.toThrow("Goals and Misses can only be recorded");
   });
 
-  it("undos only the most recent stat or opposition-goal action", async () => {
+  it("undos only the latest player event, never an opposition goal or Substitution", async () => {
     const { session, game } = await startLiveMatch();
     await session.recordPlayerStatistic(game.id, { position: "Goal Attack", statistic: "Goals" });
     await session.recordOppositionGoal(game.id);
 
-    await session.undoLastCaptureAction(game.id);
-    expect(session.liveQuarter(game.id)).toMatchObject({ ownScore: 1, oppositionScore: 0, ownGameScore: 1, oppositionGameScore: 0 });
+    await expect(session.undoLastCaptureAction(game.id)).rejects.toThrow("latest player event");
+    expect(session.liveQuarter(game.id)).toMatchObject({ ownScore: 1, oppositionScore: 1, ownGameScore: 1, oppositionGameScore: 1 });
 
+    await session.recordPlayerStatistic(game.id, { position: "Goal Attack", statistic: "Goals" });
     await session.undoLastCaptureAction(game.id);
-    expect(session.liveQuarter(game.id)).toMatchObject({ ownScore: 0, oppositionScore: 0 });
+    expect(session.liveQuarter(game.id)).toMatchObject({ ownScore: 1, oppositionScore: 1 });
   });
 
-  it("uses the latest valid court change for subsequent statistic attribution", async () => {
+  it("records a single-position Substitution and retains event attribution", async () => {
     const { session, players, game } = await startLiveMatch();
-    await session.changeCourt(game.id, {
-      "Goal Keeper": players[0].id,
-      "Goal Defence": players[1].id,
-      "Wing Defence": players[3].id,
-      Centre: players[7].id,
-      "Wing Attack": players[4].id,
-      "Goal Attack": players[5].id,
-      "Goal Shooter": players[6].id
-    });
-    await session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Intercept" });
+    await session.substitutePlayer(game.id, { position: "Goal Attack", playerId: players[7].id });
+    await session.recordPlayerStatistic(game.id, { position: "Goal Attack", statistic: "Goals" });
 
-    await session.changeCourt(game.id, {
-      "Goal Keeper": players[0].id,
-      "Goal Defence": players[1].id,
-      "Wing Defence": players[2].id,
-      Centre: players[3].id,
-      "Wing Attack": players[4].id,
-      "Goal Attack": players[5].id,
-      "Goal Shooter": players[6].id
-    });
-
-    expect(session.liveQuarter(game.id).courtChanges).toMatchObject([{ sequence: 1 }, { sequence: 2 }]);
-    expect(session.liveQuarter(game.id).playerStatistics).toContainEqual({ playerId: players[7].id, position: "Centre", statistic: "Intercept", count: 1 });
-    await expect(session.changeCourt(game.id, {
-      "Goal Keeper": players[0].id,
-      "Goal Defence": players[0].id,
-      "Wing Defence": players[3].id,
-      Centre: players[7].id,
-      "Wing Attack": players[4].id,
-      "Goal Attack": players[5].id,
-      "Goal Shooter": players[6].id
-    })).rejects.toThrow("unique player");
+    expect(session.liveQuarter(game.id).substitutions).toEqual([{ sequence: 1, position: "Goal Attack", playerId: players[7].id }]);
+    expect(session.liveQuarter(game.id)).toMatchObject({ ownScore: 1, ownGameScore: 1 });
+    expect(session.liveQuarter(game.id).playerStatistics).toContainEqual({ playerId: players[7].id, position: "Goal Attack", statistic: "Goals", count: 1 });
+    await expect(session.undoLastCaptureAction(game.id)).resolves.toBeUndefined();
+    expect(session.liveQuarter(game.id).playerStatistics).toEqual([]);
   });
 
   it("progresses through ended quarters using the final court as the next starting court", async () => {
     const { session, players, game } = await startLiveMatch();
-    await session.changeCourt(game.id, { "Goal Keeper": players[0].id, "Goal Defence": players[1].id, "Wing Defence": players[2].id, Centre: players[7].id, "Wing Attack": players[4].id, "Goal Attack": players[5].id, "Goal Shooter": players[6].id });
+    await session.substitutePlayer(game.id, { position: "Centre", playerId: players[7].id });
     await session.endQuarter(game.id);
     await expect(session.recordOppositionGoal(game.id)).rejects.toThrow("no live quarter");
     await session.startNextQuarter(game.id, session.nextQuarterCourt(game.id));
@@ -279,6 +256,7 @@ describe("GameSession live quarter capture", () => {
       Centre: latePlayer.id,
       "Wing Attack": players[4].id
     });
+    expect(session.liveQuarter(game.id).substitutions).toContainEqual({ sequence: 1, position: "Centre", playerId: latePlayer.id });
     await session.endQuarter(game.id);
     await expect(session.startNextQuarter(game.id, {
       "Goal Keeper": players[0].id,
@@ -377,13 +355,13 @@ describe("GameSession live quarter capture", () => {
   it("restores terminal history and report eligibility from a complete backup", async () => {
     const source = await startLiveMatch();
     await source.session.recordPlayerStatistic(source.game.id, { position: "Goal Attack", statistic: "Goals" });
-    await source.session.changeCourt(source.game.id, { "Goal Keeper": source.players[0].id, "Goal Defence": source.players[1].id, "Wing Defence": source.players[2].id, Centre: source.players[7].id, "Wing Attack": source.players[4].id, "Goal Attack": source.players[5].id, "Goal Shooter": source.players[6].id });
+    await source.session.substitutePlayer(source.game.id, { position: "Centre", playerId: source.players[7].id });
     await source.session.endQuarter(source.game.id);
     await source.session.terminateGame(source.game.id);
     const restored = await GameSession.open(new InMemoryGameSessionStore());
 
     await restored.importBackup(source.session.exportBackup(), "merge");
-    expect(restored.match(source.game.id)).toMatchObject({ status: "terminated", incomplete: true, outcome: { kind: "terminated" }, quarters: [{ courtChanges: [{ sequence: 1 }], captureActions: [{ statistic: "Goals" }] }] });
+    expect(restored.match(source.game.id)).toMatchObject({ status: "terminated", incomplete: true, outcome: { kind: "terminated" }, quarters: [{ substitutions: [{ sequence: 1 }], captureActions: [{ statistic: "Goals" }] }] });
     expect(restored.terminalMatchReport(source.game.id)).toMatchObject({ score: { own: 1, opposition: 0 }, status: "terminated" });
   });
 });

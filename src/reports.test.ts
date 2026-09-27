@@ -4,7 +4,7 @@ import type { TerminalMatchReport } from "./game-session/types";
 
 const report: TerminalMatchReport = {
   id: "game-1", date: "2026-09-26", teamName: "Roses", oppositionName: "Thunder", status: "abandoned", outcome: { kind: "abandoned", winner: "team" }, score: { own: 12, opposition: 9 },
-  quarters: [{ number: 1, ownScore: 12, oppositionScore: 9, startingLineup: [{ position: "Goal Attack", playerId: "faye", playerName: "Faye" }], courtChanges: [{ sequence: 1, lineup: [{ position: "Goal Attack", playerId: "hana", playerName: "Hana" }] }], playerStatistics: [{ playerId: "faye", playerName: "Faye", position: "Goal Attack", statistic: "Goals", count: 12 }]}],
+  quarters: [{ number: 1, ownScore: 12, oppositionScore: 9, startingLineup: [{ position: "Goal Attack", playerId: "faye", playerName: "Faye" }], substitutions: [{ sequence: 1, position: "Goal Attack", playerId: "hana", playerName: "Hana" }], playerStatistics: [{ playerId: "faye", playerName: "Faye", position: "Goal Attack", statistic: "Goals", count: 12 }]}],
   gamePlayerStatistics: [{ playerId: "faye", playerName: "Faye", position: "Goal Attack", statistic: "Goals", count: 12 }]
 };
 
@@ -23,7 +23,7 @@ describe("terminal match reports", () => {
     expect(pdf).toContain("Outcome: Abandoned - Roses won");
     expect(pdf).toContain("Final score: 12 - 9");
     expect(pdf).toContain("Starting court: Goal Attack: Faye");
-    expect(pdf).toContain("Court change 1: Goal Attack: Hana");
+    expect(pdf).toContain("Substitution 1: Goal Attack: Hana");
     expect(pdf).toContain("Goals: 12");
     expect(new TextDecoder().decode(createMatchPdf({ ...report, status: "finalised", outcome: { kind: "completed" }, score: { own: 12, opposition: 9 } }))).toContain("Outcome: Finalised - Roses won");
   });

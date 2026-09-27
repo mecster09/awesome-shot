@@ -52,13 +52,13 @@ export type CaptureAction =
   | { id: string; kind: "player-statistic"; playerId: string; position: Position; statistic: PlayerStatistic }
   | { id: string; kind: "opposition-goal" };
 
-export type CourtChange = { sequence: number; lineup: StartingLineup };
+export type Substitution = { sequence: number; position: Position; playerId?: string };
 export type QuarterNumber = 1 | 2 | 3 | 4;
 export type Quarter = {
   number: QuarterNumber;
   status: "live" | "ended";
   startingLineup: StartingLineup;
-  courtChanges: CourtChange[];
+  substitutions: Substitution[];
   captureActions: CaptureAction[];
 };
 
@@ -77,7 +77,7 @@ export type TerminalMatchReport = {
     ownScore: number;
     oppositionScore: number;
     startingLineup: Array<{ position: Position; playerId: string; playerName: string }>;
-    courtChanges: Array<{ sequence: number; lineup: Array<{ position: Position; playerId: string; playerName: string }> }>;
+    substitutions: Array<{ sequence: number; position: Position; playerId?: string; playerName?: string }>;
     playerStatistics: ReportPlayerStatisticTotal[];
   }>;
   gamePlayerStatistics: ReportPlayerStatisticTotal[];
@@ -85,7 +85,7 @@ export type TerminalMatchReport = {
 export type LiveQuarterCapture = {
   number: QuarterNumber;
   lineup: StartingLineup;
-  courtChanges: CourtChange[];
+  substitutions: Substitution[];
   playerStatistics: PlayerStatisticTotal[];
   ownScore: number;
   oppositionScore: number;
