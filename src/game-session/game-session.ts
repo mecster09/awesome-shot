@@ -1,23 +1,43 @@
-import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, type CaptureAction, type CreateDraftInput, type Game, type GameSessionStore, type LiveQuarterCapture, type Opposition, type Player, type PlayerStatistic, type PlayerStatisticTotal, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartingLineup, type TerminalMatchReport } from "./types";
+import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, type CaptureAction, type Game, type GameSessionStore, type LiveQuarterCapture, type Opposition, type Player, type PlayerStatistic, type PlayerStatisticTotal, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartMatchInput, type StartingLineup, type Team, type TerminalMatchReport } from "./types";
 
-const emptySetup = (): SetupData => ({ seasons: [], players: [], opposition: [], games: [] });
+const emptySetup = (): SetupData => ({ teams: [], seasons: [], players: [], opposition: [], games: [] });
 const backupFormat = "natball-insights-backup";
 
 const isObject = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object";
 const hasStrings = (value: unknown, keys: string[]) => isObject(value) && keys.every((key) => typeof value[key] === "string");
-const isLineup = (value: unknown) => isObject(value) && POSITIONS.every((position) => typeof value[position] === "string");
-const isQuarter = (value: unknown) => isObject(value) && [1, 2, 3, 4].includes(value.number as number) && ["live", "ended"].includes(value.status as string) && isLineup(value.startingLineup) && Array.isArray(value.courtChanges) && value.courtChanges.every((change) => isObject(change) && typeof change.sequence === "number" && isLineup(change.lineup)) && Array.isArray(value.captureActions) && value.captureActions.every((action) => isObject(action) && typeof action.id === "string" && (action.kind === "opposition-goal" || action.kind === "player-statistic" && typeof action.playerId === "string" && POSITIONS.includes(action.position as Position) && PLAYER_STATISTICS.includes(action.statistic as PlayerStatistic)));
-const isGame = (value: unknown) => hasStrings(value, ["id", "seasonId", "oppositionId", "date", "status"]) && isObject(value) && ["draft", "live", "finalised", "abandoned", "terminated"].includes(value.status as string) && Array.isArray(value.squadPlayerIds) && value.squadPlayerIds.every((id) => typeof id === "string") && (value.startingLineup === undefined || isLineup(value.startingLineup)) && (value.quarters === undefined || Array.isArray(value.quarters) && value.quarters.every(isQuarter));
+const isLineup = (value: unknown) => {
+  if (!isObject(value)) return false;
+  const entries = Object.entries(value);
+  return entries.length >= 5 && entries.length <= 7 && entries.every(([position, playerId]) => POSITIONS.includes(position as Position) && typeof playerId === "string") && new Set(entries.map(([, playerId]) => playerId)).size === entries.length;
+};
+const isSubstitution = (value: unknown) => isObject(value) && typeof value.sequence === "number" && POSITIONS.includes(value.position as Position) && (value.playerId === undefined || typeof value.playerId === "string");
+const isQuarter = (value: unknown) => isObject(value) && [1, 2, 3, 4].includes(value.number as number) && ["live", "ended"].includes(value.status as string) && isLineup(value.startingLineup) && Array.isArray(value.substitutions) && value.substitutions.every(isSubstitution) && Array.isArray(value.captureActions) && value.captureActions.every((action) => isObject(action) && typeof action.id === "string" && (action.kind === "opposition-goal" || action.kind === "player-statistic" && typeof action.playerId === "string" && POSITIONS.includes(action.position as Position) && PLAYER_STATISTICS.includes(action.statistic as PlayerStatistic)));
+const isLegacyQuarter = (value: unknown) => isObject(value) && [1, 2, 3, 4].includes(value.number as number) && ["live", "ended"].includes(value.status as string) && isLineup(value.startingLineup) && Array.isArray(value.courtChanges) && value.courtChanges.every((change) => isObject(change) && typeof change.sequence === "number" && isLineup(change.lineup)) && Array.isArray(value.captureActions);
+const migrateQuarter = (quarter: Quarter & { courtChanges?: Array<{ lineup: StartingLineup }> }): Quarter => {
+  if (quarter.substitutions) return quarter;
+  let court = structuredClone(quarter.startingLineup);
+  const substitutions = (quarter.courtChanges ?? []).flatMap((change) => POSITIONS.flatMap((position) => {
+    if (court[position] === change.lineup[position]) return [];
+    court = change.lineup[position] ? { ...court, [position]: change.lineup[position] } : Object.fromEntries(Object.entries(court).filter(([currentPosition]) => currentPosition !== position));
+    return [{ position, ...(change.lineup[position] ? { playerId: change.lineup[position] } : {}) }];
+  })).map((substitution, index) => ({ ...substitution, sequence: index + 1 }));
+  const { courtChanges: _, ...migrated } = quarter;
+  return { ...migrated, substitutions };
+};
+const isGame = (value: unknown) => hasStrings(value, ["id", "seasonId", "oppositionId", "date", "status"]) && isObject(value) && ["draft", "live", "finalised", "abandoned", "terminated"].includes(value.status as string) && Array.isArray(value.squadPlayerIds) && value.squadPlayerIds.every((id) => typeof id === "string") && (value.startingLineup === undefined || isLineup(value.startingLineup)) && (value.quarters === undefined || Array.isArray(value.quarters) && value.quarters.every((quarter) => isQuarter(quarter) || isLegacyQuarter(quarter)));
 const parseBackup = (serialized: string): SetupData => {
   let parsed: unknown;
   try { parsed = JSON.parse(serialized); } catch { throw new Error("Choose a valid Natball Insights backup file."); }
   if (!parsed || typeof parsed !== "object") throw new Error("Choose a valid Natball Insights backup file.");
   const backup = parsed as { format?: unknown; version?: unknown; data?: unknown };
   if (backup.format !== backupFormat || backup.version !== 1 || !backup.data || typeof backup.data !== "object") throw new Error("Choose a valid Natball Insights backup file.");
-  const data = backup.data as Partial<SetupData>;
-  if (!Array.isArray(data.seasons) || !data.seasons.every((season) => hasStrings(season, ["id", "name", "teamName"])) || !Array.isArray(data.players) || !data.players.every((player) => hasStrings(player, ["id", "name"]) && (player.nickname === undefined || typeof player.nickname === "string")) || !Array.isArray(data.opposition) || !data.opposition.every((opposition) => hasStrings(opposition, ["id", "name"]) && typeof opposition.archived === "boolean") || !Array.isArray(data.games) || !data.games.every(isGame) || (data.selectedOppositionId !== undefined && typeof data.selectedOppositionId !== "string")) throw new Error("This backup is incompatible with Natball Insights.");
-  const seasonIds = new Set(data.seasons.map((season) => season.id)); const playerIds = new Set(data.players.map((player) => player.id)); const oppositionIds = new Set(data.opposition.map((opposition) => opposition.id));
-  if (data.games.some((game) => !seasonIds.has(game.seasonId) || !oppositionIds.has(game.oppositionId) || game.squadPlayerIds.some((id) => !playerIds.has(id))) || data.selectedOppositionId && !oppositionIds.has(data.selectedOppositionId)) throw new Error("This backup has broken record references.");
+  const rawData = backup.data as Partial<SetupData>;
+  if (!Array.isArray(rawData.seasons) || !Array.isArray(rawData.players) || !Array.isArray(rawData.opposition) || !Array.isArray(rawData.games)) throw new Error("This backup is incompatible with Natball Insights.");
+  let data: SetupData;
+  try { data = migrateSetup(rawData as SetupData); } catch { throw new Error("This backup is incompatible with Natball Insights."); }
+  if (!Array.isArray(data.teams) || !data.teams.every((team) => hasStrings(team, ["id", "name"])) || !data.seasons.every((season) => hasStrings(season, ["id", "name", "teamId", "status"]) && ["active", "ended"].includes(season.status)) || !data.players.every((player) => hasStrings(player, ["id", "name"]) && (player.nickname === undefined || typeof player.nickname === "string")) || !data.opposition.every((opposition) => hasStrings(opposition, ["id", "name"]) && typeof opposition.archived === "boolean") || !data.games.every(isGame) || (data.selectedOppositionId !== undefined && typeof data.selectedOppositionId !== "string")) throw new Error("This backup is incompatible with Natball Insights.");
+  const seasonIds = new Set(data.seasons.map((season) => season.id)); const teamIds = new Set(data.teams.map((team) => team.id)); const playerIds = new Set(data.players.map((player) => player.id)); const oppositionIds = new Set(data.opposition.map((opposition) => opposition.id));
+  if (data.seasons.some((season) => !teamIds.has(season.teamId)) || data.games.some((game) => !seasonIds.has(game.seasonId) || !oppositionIds.has(game.oppositionId) || game.squadPlayerIds.some((id) => !playerIds.has(id))) || data.selectedOppositionId && !oppositionIds.has(data.selectedOppositionId)) throw new Error("This backup has broken record references.");
   return structuredClone(data as SetupData);
 };
 
@@ -27,6 +47,44 @@ const requireText = (value: string, field: string) => {
     throw new Error(`${field} is required.`);
   }
   return trimmed;
+};
+const nameKey = (name: string) => name.trim().toLocaleLowerCase();
+const isTerminalMatch = (game: Game) => ["finalised", "abandoned", "terminated"].includes(game.status);
+
+const migrateSetup = (stored: SetupData): SetupData => {
+  const legacy = stored as unknown as { teams?: Team[]; seasons: Array<{ id: string; name: string; teamId?: string; teamName?: string; status?: Season["status"] }> };
+  const teams: Team[] = [];
+  const teamsByName = new Map<string, Team>();
+  const canonicalTeamIds = new Map<string, string>();
+  for (const storedTeam of legacy.teams ?? []) {
+    const name = requireText(storedTeam.name, "Team name");
+    let team = teamsByName.get(nameKey(name));
+    if (!team) {
+      team = { id: storedTeam.id, name };
+      teams.push(team);
+      teamsByName.set(nameKey(name), team);
+    }
+    canonicalTeamIds.set(storedTeam.id, team.id);
+  }
+  const legacySeasons = legacy.seasons ?? [];
+  const lastLegacySeason = legacySeasons.reduce((last, season, index) => season.status === undefined ? index : last, -1);
+  const seasons = legacySeasons.map((season, index) => {
+    let teamId = season.teamId ? canonicalTeamIds.get(season.teamId) ?? season.teamId : undefined;
+    if (!teamId) {
+      const name = requireText(season.teamName ?? "", "Team name");
+      let team = teamsByName.get(nameKey(name));
+      if (!team) {
+        team = { id: crypto.randomUUID(), name };
+        teams.push(team);
+        teamsByName.set(nameKey(name), team);
+      }
+      teamId = team.id;
+    }
+    return { id: season.id, name: season.name, teamId, status: season.status ?? (index === lastLegacySeason ? "active" : "ended") };
+  });
+  const activeSeasons = seasons.filter((season) => season.status === "active");
+  for (const season of activeSeasons.slice(0, -1)) season.status = "ended";
+  return { ...structuredClone(stored), teams, seasons };
 };
 
 export class GameSession {
@@ -38,12 +96,19 @@ export class GameSession {
   static async open(store: GameSessionStore): Promise<GameSession> {
     const stored = await store.read();
     if (!stored) return new GameSession(store, emptySetup());
-    return new GameSession(store, {
-      ...stored,
-      games: (stored.games ?? []).map((game) => game.status === "live" && !game.quarters && game.startingLineup
-        ? { ...game, quarters: [{ number: 1, status: "live", startingLineup: structuredClone(game.startingLineup), courtChanges: [], captureActions: [] }] }
-        : game)
-    });
+    const migrated = migrateSetup(stored);
+    const data: SetupData = {
+      ...migrated,
+      games: (migrated.games ?? []).filter((game) => (game as { status: string }).status !== "draft").map((game) => {
+        const legacyGame = game as Game & { startingLineup?: StartingLineup };
+        const { startingLineup, ...withoutSeparateStartingLineup } = legacyGame;
+        return legacyGame.status === "live" && !legacyGame.quarters && startingLineup
+          ? { ...withoutSeparateStartingLineup, quarters: [{ number: 1 as QuarterNumber, status: "live" as const, startingLineup: structuredClone(startingLineup), substitutions: [], captureActions: [] }] }
+          : { ...withoutSeparateStartingLineup, ...(legacyGame.status === "abandoned" ? { outcome: { kind: "abandoned" } } : {}), quarters: legacyGame.quarters?.map((quarter) => migrateQuarter(quarter as Quarter & { courtChanges?: Array<{ lineup: StartingLineup }> })) };
+      })
+    };
+    if (JSON.stringify(stored) !== JSON.stringify(data)) await store.write(data);
+    return new GameSession(store, data);
   }
 
   setup(): SetupSummary {
@@ -55,25 +120,50 @@ export class GameSession {
   }
 
   newSeasonDefaults(): { teamName: string } {
-    return { teamName: this.data.seasons.at(-1)?.teamName ?? "" };
+    return { teamName: this.data.teams.at(-1)?.name ?? "" };
   }
 
-  async createSeason(input: { name: string; teamName: string }): Promise<Season> {
+  async createTeam(input: { name: string }): Promise<Team> {
+    const name = requireText(input.name, "Team name");
+    const existing = this.data.teams.find((team) => nameKey(team.name) === nameKey(name));
+    if (existing) return structuredClone(existing);
+    const team = { id: crypto.randomUUID(), name };
+    this.data.teams.push(team);
+    await this.persist();
+    return structuredClone(team);
+  }
+
+  async createSeason(input: { name: string; teamId?: string; teamName?: string }): Promise<Season> {
+    if (this.data.seasons.some((season) => season.status === "active")) throw new Error("End the active season before creating another.");
+    const team = input.teamId ? this.requireTeam(input.teamId) : input.teamName ? await this.createTeam({ name: input.teamName }) : undefined;
+    if (!team) throw new Error("Select a saved team.");
     const season: Season = {
       id: crypto.randomUUID(),
       name: requireText(input.name, "Season name"),
-      teamName: requireText(input.teamName, "Team name")
+      teamId: team.id,
+      status: "active"
     };
     this.data.seasons.push(season);
     await this.persist();
     return structuredClone(season);
   }
 
+  async endSeason(id: string): Promise<void> {
+    const season = this.requireSeason(id);
+    if (season.status !== "active") throw new Error("Only the active season can be ended.");
+    if (this.data.games.some((game) => game.seasonId === id && !isTerminalMatch(game))) throw new Error("All matches must be terminal before ending a season.");
+    season.status = "ended";
+    await this.persist();
+  }
+
   async addPlayer(input: { name: string; nickname?: string }): Promise<Player> {
     const nickname = input.nickname?.trim();
+    const name = requireText(input.name, "Player name");
+    const existing = this.data.players.find((player) => nameKey(player.name) === nameKey(name));
+    if (existing) return structuredClone(existing);
     const player: Player = {
       id: crypto.randomUUID(),
-      name: requireText(input.name, "Player name"),
+      name,
       ...(nickname ? { nickname } : {})
     };
     this.data.players.push(player);
@@ -82,9 +172,18 @@ export class GameSession {
   }
 
   async addOpposition(input: { name: string }): Promise<Opposition> {
+    const name = requireText(input.name, "Opposition name");
+    const existing = this.data.opposition.find((opposition) => nameKey(opposition.name) === nameKey(name));
+    if (existing) {
+      if (existing.archived) {
+        existing.archived = false;
+        await this.persist();
+      }
+      return structuredClone(existing);
+    }
     const opposition: Opposition = {
       id: crypto.randomUUID(),
-      name: requireText(input.name, "Opposition name"),
+      name,
       archived: false
     };
     this.data.opposition.push(opposition);
@@ -134,6 +233,7 @@ export class GameSession {
     } else {
       const merge = <T extends { id: string }>(current: T[], incoming: T[]) => [...current, ...incoming.filter((candidate) => !current.some((existing) => existing.id === candidate.id || JSON.stringify(existing) === JSON.stringify(candidate)))];
       this.data = {
+        teams: merge(this.data.teams, imported.teams),
         seasons: merge(this.data.seasons, imported.seasons),
         players: merge(this.data.players, imported.players),
         opposition: merge(this.data.opposition, imported.opposition),
@@ -141,6 +241,8 @@ export class GameSession {
         selectedOppositionId: this.data.selectedOppositionId ?? imported.selectedOppositionId
       };
     }
+    this.data = migrateSetup(this.data);
+    this.data.games = this.data.games.filter((game) => (game as { status: string }).status !== "draft").map((game) => ({ ...game, ...(game.status === "abandoned" ? { outcome: { kind: "abandoned" } } : {}), quarters: game.quarters?.map((quarter) => migrateQuarter(quarter as Quarter & { courtChanges?: Array<{ lineup: StartingLineup }> })) }));
     await this.persist();
   }
 
@@ -154,19 +256,19 @@ export class GameSession {
     const game = this.data.games.find((candidate) => candidate.id === id);
     if (!game || (game.status !== "finalised" && game.status !== "abandoned" && game.status !== "terminated") || !game.outcome) throw new Error("Only a terminal match can be reviewed.");
     const playerName = (playerId: string) => this.data.players.find((player) => player.id === playerId)?.name ?? "Unknown player";
-    const lineup = (court: StartingLineup) => POSITIONS.map((position) => ({ position, playerId: court[position], playerName: playerName(court[position]) }));
+    const lineup = (court: StartingLineup) => POSITIONS.flatMap((position) => court[position] ? [{ position, playerId: court[position], playerName: playerName(court[position]) }] : []);
     const quarters = (game.quarters ?? []).map((quarter) => ({
       number: quarter.number,
       ownScore: this.score(quarter.captureActions).own,
       oppositionScore: this.score(quarter.captureActions).opposition,
       startingLineup: lineup(quarter.startingLineup),
-      courtChanges: quarter.courtChanges.map((change) => ({ sequence: change.sequence, lineup: lineup(change.lineup) })),
+      substitutions: quarter.substitutions.map((substitution) => ({ ...substitution, ...(substitution.playerId ? { playerName: playerName(substitution.playerId) } : {}) })),
       playerStatistics: this.statisticTotals(quarter.captureActions).map((statistic) => ({ ...statistic, playerName: playerName(statistic.playerId) }))
     }));
     return structuredClone({
       id: game.id,
       date: game.date,
-      teamName: this.requireSeason(game.seasonId).teamName,
+      teamName: this.requireTeam(this.requireSeason(game.seasonId).teamId).name,
       oppositionName: this.data.opposition.find((opposition) => opposition.id === game.oppositionId)?.name ?? "Unknown opposition",
       status: game.status,
       outcome: game.outcome,
@@ -176,8 +278,9 @@ export class GameSession {
     });
   }
 
-  async createDraft(input: CreateDraftInput): Promise<Game> {
-    this.requireSeason(input.seasonId);
+  async startMatch(input: StartMatchInput): Promise<Game> {
+    if (this.data.games.some((game) => game.status === "live")) throw new Error("Finish the live match before starting another.");
+    if (this.requireSeason(input.seasonId).status !== "active") throw new Error("Select the active season.");
     this.requireActiveOpposition(input.oppositionId);
     const game: Game = {
       id: crypto.randomUUID(),
@@ -185,46 +288,15 @@ export class GameSession {
       oppositionId: input.oppositionId,
       date: this.requireDate(input.date),
       squadPlayerIds: this.validSquad(input.squadPlayerIds),
-      status: "draft"
+      status: "live",
+      activeQuarter: 1,
+      quarters: []
     };
+    this.validateCourt(game, input.startingLineup);
+    game.quarters = [{ number: 1, status: "live", startingLineup: structuredClone(input.startingLineup), substitutions: [], captureActions: [] }];
     this.data.games.push(game);
     await this.persist();
     return structuredClone(game);
-  }
-
-  async updateDraftSquad(id: string, squadPlayerIds: string[]): Promise<void> {
-    const game = this.requireDraft(id, "The squad cannot be changed after Quarter 1 starts.");
-    game.squadPlayerIds = this.validSquad(squadPlayerIds);
-    game.startingLineup = undefined;
-    await this.persist();
-  }
-
-  async setStartingLineup(id: string, lineup: StartingLineup): Promise<void> {
-    const game = this.requireDraft(id, "The starting court cannot be changed after Quarter 1 starts.");
-    this.validateStartingLineup(game, lineup);
-    game.startingLineup = structuredClone(lineup);
-    await this.persist();
-  }
-
-  async startQuarterOne(id: string): Promise<void> {
-    const game = this.requireDraft(id, "Quarter 1 has already started.");
-    if (!game.startingLineup) {
-      throw new Error("Assign every starting position before starting Quarter 1.");
-    }
-    this.validateStartingLineup(game, game.startingLineup);
-    game.status = "live";
-    game.activeQuarter = 1;
-    game.quarters = [{ number: 1, status: "live", startingLineup: structuredClone(game.startingLineup), courtChanges: [], captureActions: [] }];
-    await this.persist();
-  }
-
-  async deleteDraft(id: string): Promise<void> {
-    const game = this.data.games.find((candidate) => candidate.id === id);
-    if (!game || game.status !== "draft") {
-      throw new Error("Only a draft can be deleted.");
-    }
-    this.data.games = this.data.games.filter((candidate) => candidate.id !== id);
-    await this.persist();
   }
 
   async endQuarter(id: string): Promise<void> {
@@ -234,16 +306,31 @@ export class GameSession {
     await this.persist();
   }
 
-  async startNextQuarter(id: string): Promise<void> {
+  async addPlayerToSquad(id: string, playerId: string): Promise<void> {
+    const game = this.requireLiveGame(id);
+    if (game.activeQuarter) throw new Error("End the current quarter before changing the match squad.");
+    if (!this.data.players.some((player) => player.id === playerId)) throw new Error("Choose a saved player for the match squad.");
+    if (game.squadPlayerIds.includes(playerId)) return;
+    game.squadPlayerIds = this.validSquad([...game.squadPlayerIds, playerId]);
+    await this.persist();
+  }
+
+  async startNextQuarter(id: string, startingLineup: StartingLineup): Promise<void> {
     const game = this.requireLiveGame(id);
     if (game.activeQuarter) throw new Error("End the current quarter before starting the next one.");
-    const previous = game.quarters?.at(-1);
-    if (!previous || previous.status !== "ended") throw new Error("End the previous quarter before starting the next one.");
+    const previous = this.previousQuarter(game);
     if (previous.number === 4) throw new Error("All four quarters have ended.");
     const number = (previous.number + 1) as QuarterNumber;
-    game.quarters?.push({ number, status: "live", startingLineup: structuredClone(this.currentLineup(previous)), courtChanges: [], captureActions: [] });
+    this.validateCourt(game, startingLineup);
+    game.quarters?.push({ number, status: "live", startingLineup: structuredClone(this.currentLineup(previous)), substitutions: this.preQuarterSubstitutions(this.currentLineup(previous), startingLineup), captureActions: [] });
     game.activeQuarter = number;
     await this.persist();
+  }
+
+  nextQuarterCourt(id: string): StartingLineup {
+    const game = this.requireLiveGame(id);
+    if (game.activeQuarter) throw new Error("End the current quarter before setting up the next one.");
+    return structuredClone(this.currentLineup(this.previousQuarter(game)));
   }
 
   quarterCapture(id: string, number: QuarterNumber): LiveQuarterCapture {
@@ -284,12 +371,8 @@ export class GameSession {
     await this.persist();
   }
 
-  async abandonGame(id: string, winner: "team" | "opposition"): Promise<void> {
-    await this.endIncompleteGame(id, { kind: "abandoned", winner });
-  }
-
-  async terminateGame(id: string): Promise<void> {
-    await this.endIncompleteGame(id, { kind: "terminated" });
+  async abandonGame(id: string): Promise<void> {
+    await this.endIncompleteGame(id, { kind: "abandoned" });
   }
 
   private async endIncompleteGame(id: string, outcome: Exclude<NonNullable<Game["outcome"]>, { kind: "completed" }>): Promise<void> {
@@ -313,14 +396,14 @@ export class GameSession {
     return {
       number: quarter.number,
       lineup: structuredClone(lineup),
-      courtChanges: structuredClone(quarter.courtChanges),
+      substitutions: structuredClone(quarter.substitutions),
       playerStatistics: this.statisticTotals(quarter.captureActions),
       ownScore: quarterScore.own,
       oppositionScore: quarterScore.opposition,
       ownGameScore: gameScore.own,
       oppositionGameScore: gameScore.opposition,
       captureActions: structuredClone(quarter.captureActions),
-      canUndo: quarter.captureActions.length > 0
+      canUndo: quarter.captureActions.at(-1)?.kind === "player-statistic"
     };
   }
 
@@ -332,8 +415,9 @@ export class GameSession {
     if (SHOOTER_STATISTICS.includes(input.statistic as (typeof SHOOTER_STATISTICS)[number]) && input.position !== "Goal Attack" && input.position !== "Goal Shooter") {
       throw new Error("Goals and Misses can only be recorded for Goal Attack or Goal Shooter.");
     }
-    const lineup = this.currentLineup(quarter);
-    quarter.captureActions.push({ id: crypto.randomUUID(), kind: "player-statistic", playerId: lineup[input.position], position: input.position, statistic: input.statistic });
+    const playerId = this.currentLineup(quarter)[input.position];
+    if (!playerId) throw new Error("Assign a player to this position before recording a statistic.");
+    quarter.captureActions.push({ id: crypto.randomUUID(), kind: "player-statistic", playerId, position: input.position, statistic: input.statistic });
     await this.persist();
   }
 
@@ -345,16 +429,18 @@ export class GameSession {
 
   async undoLastCaptureAction(id: string): Promise<void> {
     const { quarter } = this.requireLiveQuarter(id);
-    if (!quarter.captureActions.pop()) {
-      throw new Error("There is no capture action to undo.");
-    }
+    if (quarter.captureActions.at(-1)?.kind !== "player-statistic") throw new Error("Undo is only available for the latest player event.");
+    quarter.captureActions.pop();
     await this.persist();
   }
 
-  async changeCourt(id: string, lineup: StartingLineup): Promise<void> {
+  async substitutePlayer(id: string, input: { position: Position; playerId: string }): Promise<void> {
     const { game, quarter } = this.requireLiveQuarter(id);
-    this.validateStartingLineup(game, lineup);
-    quarter.courtChanges.push({ sequence: quarter.courtChanges.length + 1, lineup: structuredClone(lineup) });
+    if (!game.squadPlayerIds.includes(input.playerId)) throw new Error("Choose a player from the match squad.");
+    const court = this.currentLineup(quarter);
+    if (court[input.position] === input.playerId) throw new Error("This player already occupies the Position.");
+    if (Object.entries(court).some(([position, playerId]) => position !== input.position && playerId === input.playerId)) throw new Error("A player can occupy only one Position.");
+    quarter.substitutions.push({ sequence: quarter.substitutions.length + 1, ...input });
     await this.persist();
   }
 
@@ -362,6 +448,12 @@ export class GameSession {
     const season = this.data.seasons.find((candidate) => candidate.id === id);
     if (!season) throw new Error("Select a saved season.");
     return season;
+  }
+
+  private requireTeam(id: string): Team {
+    const team = this.data.teams.find((candidate) => candidate.id === id);
+    if (!team) throw new Error("Team was not found.");
+    return team;
   }
 
   private requireActiveOpposition(id: string): Opposition {
@@ -372,7 +464,7 @@ export class GameSession {
 
   private validSquad(playerIds: string[]): string[] {
     const uniqueIds = [...new Set(playerIds)];
-    if (!uniqueIds.length) throw new Error("Choose at least one squad player.");
+    if (uniqueIds.length < 5) throw new Error("Choose at least five squad players.");
     if (uniqueIds.length > 12) throw new Error("A match squad can contain at most 12 players.");
     if (uniqueIds.length !== playerIds.length || uniqueIds.some((id) => !this.data.players.some((player) => player.id === id))) {
       throw new Error("Choose unique saved players for the squad.");
@@ -387,13 +479,6 @@ export class GameSession {
     return value;
   }
 
-  private requireDraft(id: string, liveMessage: string): Game {
-    const game = this.data.games.find((candidate) => candidate.id === id);
-    if (!game) throw new Error("Match draft was not found.");
-    if (game.status !== "draft") throw new Error(liveMessage);
-    return game;
-  }
-
   private requireLiveQuarter(id: string): { game: Game; quarter: NonNullable<Game["quarters"]>[number] } {
     const game = this.data.games.find((candidate) => candidate.id === id);
     const quarter = game?.quarters?.find((candidate) => candidate.number === game.activeQuarter);
@@ -406,7 +491,14 @@ export class GameSession {
   private requireLiveGame(id: string): Game {
     const game = this.data.games.find((candidate) => candidate.id === id);
     if (!game || game.status !== "live") throw new Error("Only a live game can be changed.");
+    this.requireActiveSeason(game.seasonId);
     return game;
+  }
+
+  private requireActiveSeason(id: string): Season {
+    const season = this.requireSeason(id);
+    if (season.status !== "active") throw new Error("This season is read-only.");
+    return season;
   }
 
   private requireUnfinalisedQuarter(game: Game, number: QuarterNumber): Quarter {
@@ -415,8 +507,22 @@ export class GameSession {
     return quarter;
   }
 
+  private previousQuarter(game: Game): Quarter {
+    const previous = game.quarters?.at(-1);
+    if (!previous || previous.status !== "ended") throw new Error("End the previous quarter before starting the next one.");
+    return previous;
+  }
+
   private currentLineup(quarter: Quarter): StartingLineup {
-    return quarter.courtChanges.at(-1)?.lineup ?? quarter.startingLineup;
+    return quarter.substitutions.reduce<StartingLineup>((court, substitution) => {
+      if (substitution.playerId) return { ...court, [substitution.position]: substitution.playerId };
+      const { [substitution.position]: _, ...remaining } = court;
+      return remaining;
+    }, structuredClone(quarter.startingLineup));
+  }
+
+  private preQuarterSubstitutions(previousCourt: StartingLineup, nextCourt: StartingLineup): Quarter["substitutions"] {
+    return POSITIONS.filter((position) => previousCourt[position] !== nextCourt[position]).map((position, index) => ({ sequence: index + 1, position, ...(nextCourt[position] ? { playerId: nextCourt[position] } : {}) }));
   }
 
   private score(actions: CaptureAction[]): { own: number; opposition: number } {
@@ -437,11 +543,11 @@ export class GameSession {
     return [...totals.values()];
   }
 
-  private validateStartingLineup(game: Game, lineup: StartingLineup): void {
-    if (!POSITIONS.every((position) => lineup[position])) {
-      throw new Error("Assign every starting position before starting Quarter 1.");
+  private validateCourt(game: Game, lineup: StartingLineup): void {
+    const playerIds = POSITIONS.flatMap((position) => lineup[position] ? [lineup[position]] : []);
+    if (playerIds.length < 5 || playerIds.length > 7) {
+      throw new Error("Assign five to seven players to the Court.");
     }
-    const playerIds = POSITIONS.map((position) => lineup[position]);
     if (new Set(playerIds).size !== playerIds.length) {
       throw new Error("Assign a unique player to every starting position.");
     }

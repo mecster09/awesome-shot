@@ -1,8 +1,8 @@
 # Natball Insights
 
-Natball Insights is an offline-first progressive web app for netball coaches. It keeps a season's player and opposition setup, supports live quarter-by-quarter statistics capture, and preserves completed or incomplete match records for review and export.
+Natball Insights is an offline-first progressive web app for netball coaches. It guides coaches from Season Setup through just-in-time Match and Quarter Setup into live, quarter-by-quarter statistics capture, then preserves completed and Abandoned Match records for review and export, alongside readable legacy records.
 
-It is for coaches who want to record match statistics quickly at court side, correct them before a match is finalised, and retain a useful history without relying on a network connection.
+It is for coaches who want to record match statistics quickly at court side and retain a useful history without relying on a network connection.
 
 ## Run locally for development
 
@@ -34,7 +34,7 @@ Open the URL printed by the preview server. This exercises the production bundle
 
 ## Coach guide
 
-See [the coach guide](docs/coach-guide.md) for the match-day workflow, corrections, match outcomes, reports, and backups.
+See [the coach guide](docs/coach-guide.md) for the guided match-day workflow, Match Centre controls, outcomes, reports, and recovery controls.
 
 ## Data and privacy
 
