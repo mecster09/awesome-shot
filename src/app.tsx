@@ -6,7 +6,7 @@ import { createMatchCsv, createMatchPdf } from "./reports";
 import "./styles.css";
 
 type AppProps = { store?: GameSessionStore };
-type MatchView = { kind: "team-setup" } | { kind: "season-setup" } | { kind: "match-identity" } | { kind: "match-squad" } | { kind: "settings"; section: "season" | "backup" } | { kind: "history"; returnToGameId?: string } | { kind: "quarter-setup"; input: Omit<StartMatchInput, "startingLineup"> } | { kind: "next-quarter-setup"; gameId: string; startingLineup: StartingLineup } | { kind: "game"; gameId: string };
+type MatchView = { kind: "team-setup" } | { kind: "season-setup" } | { kind: "match-identity" } | { kind: "match-squad" } | { kind: "court-setup" } | { kind: "settings"; section: "season" | "backup" } | { kind: "history"; returnToGameId?: string } | { kind: "quarter-setup"; input: Omit<StartMatchInput, "startingLineup"> } | { kind: "next-quarter-setup"; gameId: string; startingLineup: StartingLineup } | { kind: "game"; gameId: string };
 type MatchActions = {
   recordPlayerStatistic: (position: Position, statistic: PlayerStatistic) => Promise<void>;
   recordOppositionGoal: () => Promise<void>;
@@ -82,7 +82,8 @@ export function App({ store }: AppProps) {
   }
   const activeSeason = setup.seasons.find((season) => season.status === "active");
   const liveMatch = session.matches().find((game) => game.status === "live");
-  const currentView = matchView ?? (liveMatch ? { kind: "game" as const, gameId: liveMatch.id } : activeSeason ? setup.matchSetupDraft?.stage === "match-squad" ? { kind: "match-squad" as const } : { kind: "match-identity" as const } : setup.teams.length > 0 ? { kind: "season-setup" as const } : { kind: "team-setup" as const });
+  const matchSquadDraft = setup.matchSetupDraft?.stage === "match-squad" ? setup.matchSetupDraft : undefined;
+  const currentView = matchView ?? (liveMatch ? { kind: "game" as const, gameId: liveMatch.id } : activeSeason ? setup.matchSetupDraft?.stage === "court-setup" ? { kind: "court-setup" as const } : setup.matchSetupDraft?.stage === "match-squad" ? { kind: "match-squad" as const } : { kind: "match-identity" as const } : setup.teams.length > 0 ? { kind: "season-setup" as const } : { kind: "team-setup" as const });
   const openMenuView = (view: Extract<MatchView, { kind: "settings" | "history" }>) => {
     setMatchView(view);
     setMenuOpen(false);
@@ -140,7 +141,8 @@ export function App({ store }: AppProps) {
         })}
       />
     </section>}
-    {currentView.kind === "match-squad" && setup.matchSetupDraft && <section className="match-area focused-screen" aria-labelledby="match-squad-title"><p className="eyebrow">MATCH SETUP · STAGE 4</p><h2 id="match-squad-title">Match Squad</h2><p>{setup.matchSetupDraft.date} · {setup.opposition.find((opposition) => opposition.id === setup.matchSetupDraft?.oppositionId)?.name}</p><p>Choose the Match Squad next.</p></section>}
+    {currentView.kind === "match-squad" && matchSquadDraft && <section className="match-area focused-screen" aria-labelledby="match-squad-title"><p className="eyebrow">MATCH SETUP · STAGE 4</p><h2 id="match-squad-title">Match Squad</h2><p>{matchSquadDraft.date} · {setup.opposition.find((opposition) => opposition.id === matchSquadDraft.oppositionId)?.name}</p><MatchSquadForm players={setup.players} selectedPlayerIds={matchSquadDraft.squadPlayerIds ?? []} onAddPlayer={async (input) => { const player = await session.addPlayer(input); refresh(); return player; }} onSave={(squadPlayerIds) => perform(async () => { await session.saveMatchSquad({ ...matchSquadDraft, squadPlayerIds }); })} onProceed={(squadPlayerIds) => perform(async () => { await session.advanceToCourtSetup({ ...matchSquadDraft, squadPlayerIds }); setMatchView({ kind: "court-setup" }); })} /></section>}
+    {currentView.kind === "court-setup" && <section className="match-area focused-screen" aria-labelledby="court-setup-title"><p className="eyebrow">MATCH SETUP · STAGE 5</p><h2 id="court-setup-title">Court Setup</h2><p>Choose the Quarter 1 Court next.</p></section>}
     {currentView?.kind === "quarter-setup" && <QuarterSetupCard match={currentView.input} startingLineup={{}} quarterNumber={1} setup={setup} onCancel={() => setMatchView({ kind: "match-identity" })} onStart={(startingLineup) => perform(async () => {
         const game = await session.startMatch({ ...currentView.input, startingLineup });
         setMatchView({ kind: "game", gameId: game.id });
@@ -267,6 +269,26 @@ function MatchIdentityForm({ opposition, draft, onAddOpposition, onSave, onProce
     </div>
     <div className="quick-player"><label>New opposition name<input value={newOppositionName} onChange={(event) => setNewOppositionName(event.target.value)} placeholder="Opposition team" /></label><button type="button" disabled={!newOppositionName.trim()} onClick={() => void addOpposition()}>Add opposition to match</button></div>
     <button type="submit" disabled={!oppositionId || !date}>Continue to Match Squad</button>
+  </form>;
+}
+
+function MatchSquadForm({ players, selectedPlayerIds, onAddPlayer, onSave, onProceed }: { players: SetupSummary["players"]; selectedPlayerIds: string[]; onAddPlayer: (input: { name: string }) => Promise<{ id: string }>; onSave: (playerIds: string[]) => Promise<void>; onProceed: (playerIds: string[]) => Promise<void> }) {
+  const [playerIds, setPlayerIds] = useState(selectedPlayerIds);
+  const [newPlayerName, setNewPlayerName] = useState("");
+  const updatePlayers = (next: string[]) => {
+    setPlayerIds(next);
+    void onSave(next);
+  };
+  const addPlayer = async () => {
+    const player = await onAddPlayer({ name: newPlayerName });
+    const next = playerIds.includes(player.id) ? playerIds : [...playerIds, player.id];
+    updatePlayers(next);
+    setNewPlayerName("");
+  };
+  return <form className="match-form" onSubmit={(event) => { event.preventDefault(); void onProceed(playerIds); }}>
+    <div className="quick-player" aria-label="Add a player to this Match Squad"><label>New player name<input value={newPlayerName} onChange={(event) => setNewPlayerName(event.target.value)} placeholder="Player name" /></label><button type="button" disabled={!newPlayerName.trim() || playerIds.length === 12} onClick={() => void addPlayer()}>Add player to Match Squad</button></div>
+    <fieldset className="squad-picker"><legend>Match Squad <span>{playerIds.length}/12 selected</span></legend><div className="player-checks">{players.map((player) => <label key={player.id} className="player-check"><input type="checkbox" checked={playerIds.includes(player.id)} onChange={() => updatePlayers(playerIds.includes(player.id) ? playerIds.filter((id) => id !== player.id) : [...playerIds, player.id])} disabled={!playerIds.includes(player.id) && playerIds.length === 12} />{playerLabel(player)}</label>)}</div></fieldset>
+    <button type="submit" disabled={playerIds.length < 5}>Continue to Court Setup</button>
   </form>;
 }
 
