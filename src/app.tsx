@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, type ReactNode, useEffect, useState } from "react";
 import { GameSession } from "./game-session/game-session";
 import { IndexedDbGameSessionStore } from "./game-session/indexed-db-game-session-store";
 import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, TOTAL_QUARTERS, type BetweenQuarterStatistics, type CaptureAction, type Game, type GameSessionStore, type LiveQuarterCapture, type PlayerStatistic, type Position, type QuarterNumber, type SetupSummary, type StartMatchInput, type StartingLineup, type TerminalMatchReport } from "./game-session/types";
@@ -225,9 +225,9 @@ function TeamForm({ onSubmit }: { onSubmit: (input: { name: string }) => Promise
     event.preventDefault();
     await onSubmit({ name });
   };
-  return <form onSubmit={(event) => void submit(event)}>
+  return <form className="setup-form" onSubmit={(event) => void submit(event)}>
     <label>Team name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your team" /></label>
-    <button type="submit" disabled={!name.trim()}>Save team</button>
+    <PrimaryActionBar><button type="submit" disabled={!name.trim()}>Save team</button></PrimaryActionBar>
   </form>;
 }
 
@@ -238,10 +238,10 @@ function SeasonForm({ team, onSubmit }: { team: SetupSummary["teams"][number]; o
     await onSubmit({ name, teamId: team.id });
     setName("");
   };
-  return <form onSubmit={(event) => void submit(event)}>
+  return <form className="setup-form" onSubmit={(event) => void submit(event)}>
     <label>Season name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. 2026 Winter" /></label>
     <p><strong>Team:</strong> {team.name}</p>
-    <button type="submit" disabled={!name.trim()}>Create season</button>
+    <PrimaryActionBar><button type="submit" disabled={!name.trim()}>Create season</button></PrimaryActionBar>
   </form>;
 }
 
@@ -278,6 +278,10 @@ function OppositionForm({ onSubmit }: { onSubmit: (name: string) => Promise<void
   </form>;
 }
 
+function PrimaryActionBar({ children }: { children: ReactNode }) {
+  return <div className="primary-action-bar" role="group" aria-label="Primary action">{children}</div>;
+}
+
 function MatchIdentityForm({ opposition, draft, onAddOpposition, onSave, onProceed }: { opposition: SetupSummary["activeOpposition"]; draft?: { oppositionId?: string; date?: string }; onAddOpposition: (input: { name: string }) => Promise<{ id: string }>; onSave: (input: { oppositionId?: string; date?: string }) => Promise<void>; onProceed: (input: { oppositionId: string; date: string }) => Promise<void> }) {
   const [oppositionId, setOppositionId] = useState(draft?.oppositionId ?? "");
   const [date, setDate] = useState(draft?.date ?? localDate());
@@ -292,19 +296,21 @@ function MatchIdentityForm({ opposition, draft, onAddOpposition, onSave, onProce
     setNewOppositionName("");
     await onSave({ oppositionId: opposition.id, date });
   };
-  return <form className="match-form" onSubmit={(event) => void submit(event)}>
+  return <form className="match-form setup-form" onSubmit={(event) => void submit(event)}>
     <div className="field-grid">
       <label>Opponent<select value={oppositionId} onChange={(event) => { setOppositionId(event.target.value); void onSave({ oppositionId: event.target.value || undefined, date }); }}><option value="">Select opponent</option>{opposition.map((opponent) => <option key={opponent.id} value={opponent.id}>{opponent.name}</option>)}</select></label>
       <label>Match date<input type="date" value={date} onChange={(event) => { setDate(event.target.value); void onSave({ oppositionId: oppositionId || undefined, date: event.target.value || undefined }); }} /></label>
     </div>
     <div className="quick-player"><label>New opposition name<input value={newOppositionName} onChange={(event) => setNewOppositionName(event.target.value)} placeholder="Opposition team" /></label><button type="button" disabled={!newOppositionName.trim()} onClick={() => void addOpposition()}>Add opposition to match</button></div>
-    <button type="submit" disabled={!oppositionId || !date}>Continue to Match Squad</button>
+    <PrimaryActionBar><button type="submit" disabled={!oppositionId || !date}>Continue to Match Squad</button></PrimaryActionBar>
   </form>;
 }
 
 function MatchSquadForm({ players, selectedPlayerIds, onAddPlayer, onSave, onProceed }: { players: SetupSummary["players"]; selectedPlayerIds: string[]; onAddPlayer: (input: { name: string }) => Promise<{ id: string }>; onSave: (playerIds: string[]) => Promise<void>; onProceed: (playerIds: string[]) => Promise<void> }) {
   const [playerIds, setPlayerIds] = useState(selectedPlayerIds);
   const [newPlayerName, setNewPlayerName] = useState("");
+  const [playerSearch, setPlayerSearch] = useState("");
+  const matchingPlayers = players.filter((player) => playerLabel(player).toLocaleLowerCase().includes(playerSearch.trim().toLocaleLowerCase()));
   const updatePlayers = (next: string[]) => {
     setPlayerIds(next);
     void onSave(next);
@@ -315,10 +321,10 @@ function MatchSquadForm({ players, selectedPlayerIds, onAddPlayer, onSave, onPro
     updatePlayers(next);
     setNewPlayerName("");
   };
-  return <form className="match-form" onSubmit={(event) => { event.preventDefault(); void onProceed(playerIds); }}>
+  return <form className="match-form setup-form" onSubmit={(event) => { event.preventDefault(); void onProceed(playerIds); }}>
     <div className="quick-player" aria-label="Add a player to this Match Squad"><label>New player name<input value={newPlayerName} onChange={(event) => setNewPlayerName(event.target.value)} placeholder="Player name" /></label><button type="button" disabled={!newPlayerName.trim() || playerIds.length === 12} onClick={() => void addPlayer()}>Add player to Match Squad</button></div>
-    <fieldset className="squad-picker"><legend>Match Squad <span>{playerIds.length}/12 selected</span></legend><div className="player-checks">{players.map((player) => <label key={player.id} className="player-check"><input type="checkbox" checked={playerIds.includes(player.id)} onChange={() => updatePlayers(playerIds.includes(player.id) ? playerIds.filter((id) => id !== player.id) : [...playerIds, player.id])} disabled={!playerIds.includes(player.id) && playerIds.length === 12} />{playerLabel(player)}</label>)}</div></fieldset>
-    <button type="submit" disabled={playerIds.length < 5}>Continue to Court Setup</button>
+    <fieldset className="squad-picker"><legend>Match Squad <span>{playerIds.length}/12 selected</span></legend>{playerIds.length > 0 && <div className="selected-player-chips" aria-label="Selected Match Squad">{players.filter((player) => playerIds.includes(player.id)).map((player) => <button key={player.id} type="button" className="player-chip" onClick={() => updatePlayers(playerIds.filter((id) => id !== player.id))}>Remove {playerLabel(player)} from Match Squad</button>)}</div>}<label className="player-search">Search players<input type="search" value={playerSearch} onChange={(event) => setPlayerSearch(event.target.value)} placeholder="Find a Player" /></label><div className="player-picker-results">{matchingPlayers.map((player) => <label key={player.id} className="player-check"><input type="checkbox" checked={playerIds.includes(player.id)} onChange={() => updatePlayers(playerIds.includes(player.id) ? playerIds.filter((id) => id !== player.id) : [...playerIds, player.id])} disabled={!playerIds.includes(player.id) && playerIds.length === 12} />{playerLabel(player)}</label>)}{matchingPlayers.length === 0 && <p className="picker-empty">No Players match this search.</p>}</div></fieldset>
+    <PrimaryActionBar><button type="submit" disabled={playerIds.length < 5}>Continue to Court Setup</button></PrimaryActionBar>
   </form>;
 }
 
