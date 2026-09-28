@@ -26,3 +26,36 @@ form { display: grid; gap: 13px; margin-top: 20px; }
 .opposition-goal:hover { background: #1d1980; }
 .court-toolbar > div { display: flex; flex-wrap: wrap; gap: 8px; justify-content: end; }
 .overflow-actions { display: flex; justify-content: end; margin: 0 0 14px; }
+
+/* Tablet-native shell */
+:root { color: #1c1c1e; background: #fafafa; }
+body { background: #fafafa; }
+button { border-radius: 16px; background: #ff3b30; box-shadow: 0 2px 5px #1c1c1e1f; }
+button:hover { background: #d92d24; }
+input, select { border-color: #e5e5ea; border-radius: 16px; }
+.app-shell { width: min(1440px, 100%); min-height: 100vh; padding: max(16px, env(safe-area-inset-top)) clamp(16px, 3vw, 40px) calc(104px + env(safe-area-inset-bottom)); }
+.app-content { min-width: 0; }
+.match-area { margin-top: 0; border-color: #e5e5ea; border-radius: 16px; box-shadow: 0 5px 18px #1c1c1e0d; }
+.coach-navigation { position: fixed; z-index: 5; right: 0; bottom: 0; left: 0; display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 80px; padding: 8px max(16px, env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); border-top: 1px solid #e5e5ea; background: rgb(255 255 255 / .96); box-shadow: 0 -5px 20px #1c1c1e0d; backdrop-filter: blur(18px); }
+.app-identity { display: flex; align-items: center; gap: 9px; min-width: 48px; color: #1c1c1e; }
+.app-identity span { display: none; line-height: 1; }
+.app-identity strong, .app-identity small { display: block; }
+.app-identity small { margin-top: 3px; color: #ff3b30; font-size: .68rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.app-mark { width: 42px; height: 42px; fill: none; stroke: #ff3b30; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
+.coach-navigation-items { display: flex; flex: 0 1 560px; justify-content: space-between; gap: 6px; }
+.coach-navigation-item { display: grid; flex: 1 1 0; place-items: center; gap: 2px; min-height: 56px; padding: 5px 10px; border: 0; border-radius: 12px; background: transparent; color: #636366; box-shadow: none; font-size: clamp(.67rem, 1.7vw, .8rem); font-weight: 750; line-height: 1.1; }
+.coach-navigation-item:hover { background: #f2f2f7; color: #1c1c1e; }
+.coach-navigation-item[aria-current="page"] { color: #ff3b30; background: #fff0ef; }
+.coach-navigation-item svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
+.no-match-screen { display: grid; place-content: center; min-height: min(580px, calc(100vh - 150px)); text-align: center; }
+.no-match-screen p { max-width: 410px; margin-inline: auto; color: #636366; line-height: 1.5; }
+.no-match-screen button { justify-self: center; margin-top: 12px; }
+@media (min-width: 1024px) {
+  .app-shell { display: grid; grid-template-columns: 184px minmax(0, 1fr); align-items: start; gap: clamp(28px, 4vw, 56px); padding: 28px clamp(28px, 5vw, 72px); }
+  .coach-navigation { position: sticky; top: 28px; display: grid; justify-content: stretch; align-content: start; width: 184px; min-height: calc(100vh - 56px); padding: 12px; border: 1px solid #e5e5ea; border-radius: 16px; box-shadow: 0 5px 18px #1c1c1e0d; }
+  .app-identity { padding: 10px; }
+  .app-identity span { display: block; }
+  .coach-navigation-items { display: grid; gap: 8px; margin-top: 24px; }
+  .coach-navigation-item { grid-template-columns: 24px 1fr; justify-items: start; min-height: 48px; padding: 10px; font-size: .82rem; text-align: left; }
+  .no-match-screen { min-height: calc(100vh - 56px); }
+}

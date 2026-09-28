@@ -6,7 +6,7 @@ import { createMatchCsv, createMatchPdf } from "./reports";
 import "./styles.css";
 
 type AppProps = { store?: GameSessionStore };
-type MatchView = { kind: "team-setup" } | { kind: "season-setup" } | { kind: "match-identity" } | { kind: "match-squad" } | { kind: "court-setup" } | { kind: "settings"; section: "season" | "backup" } | { kind: "history"; returnToGameId?: string } | { kind: "next-quarter-setup"; gameId: string; startingLineup: StartingLineup } | { kind: "game"; gameId: string };
+type MatchView = { kind: "team-setup" } | { kind: "season-setup" } | { kind: "no-match" } | { kind: "match-identity" } | { kind: "match-squad" } | { kind: "court-setup" } | { kind: "settings"; section: "season" | "backup" } | { kind: "history"; returnToGameId?: string } | { kind: "next-quarter-setup"; gameId: string; startingLineup: StartingLineup } | { kind: "game"; gameId: string };
 type MatchActions = {
   recordPlayerStatistic: (position: Position, statistic: PlayerStatistic) => Promise<void>;
   recordOppositionGoal: () => Promise<void>;
@@ -28,7 +28,8 @@ export const deriveCurrentView = ({ matchView, setup, liveMatch, nextQuarterCour
   if (setup.seasons.some((season) => season.status === "active")) {
     if (setup.matchSetupDraft?.stage === "court-setup") return { kind: "court-setup" };
     if (setup.matchSetupDraft?.stage === "match-squad") return { kind: "match-squad" };
-    return { kind: "match-identity" };
+    if (setup.matchSetupDraft?.stage === "match-identity") return { kind: "match-identity" };
+    return { kind: "no-match" };
   }
   return setup.teams.length > 0 ? { kind: "season-setup" } : { kind: "team-setup" };
 };
@@ -66,7 +67,6 @@ export function App({ store }: AppProps) {
   const [message, setMessage] = useState("Preparing your offline workspace…");
   const [error, setError] = useState<string>();
   const [matchView, setMatchView] = useState<MatchView>();
-  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     void GameSession.open(gameSessionStore)
@@ -100,29 +100,18 @@ export function App({ store }: AppProps) {
   const matchSquadDraft = setup.matchSetupDraft?.stage === "match-squad" ? setup.matchSetupDraft : undefined;
   const courtSetupDraft = setup.matchSetupDraft?.stage === "court-setup" ? setup.matchSetupDraft : undefined;
   const currentView = deriveCurrentView({ matchView, setup, liveMatch, nextQuarterCourt: (gameId) => session.nextQuarterCourt(gameId) });
-  const openMenuView = (view: Extract<MatchView, { kind: "settings" | "history" }>) => {
-    setMatchView(view);
-    setMenuOpen(false);
-  };
+  const primaryNavigationLabel = liveMatch ? "Live Match" : "Setup Match";
+  const navigationView = currentView.kind === "game" || currentView.kind === "next-quarter-setup" ? "match" : currentView.kind === "history" ? "history" : currentView.kind === "settings" ? "settings" : undefined;
 
   return <main className="app-shell">
-    <header className="app-header">
-      <div className="brand-mark" aria-hidden="true">N</div>
-      <div>
-        <p className="eyebrow">OFFLINE MATCH STATS</p>
-        <h1>Natball Insights</h1>
-      </div>
-      <span className="offline-badge">Ready offline</span>
-      <div className="header-menu">
-        <button className="text-button" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}>Open menu</button>
-        {menuOpen && <div className="header-menu-panel" role="menu">
-          {activeSeason && <button type="button" role="menuitem" disabled={Boolean(liveMatch)} onClick={() => openMenuView({ kind: "settings", section: "season" })}>End season</button>}
-          <button type="button" role="menuitem" onClick={() => openMenuView({ kind: "settings", section: "backup" })}>Backup & restore</button>
-          <button type="button" role="menuitem" onClick={() => openMenuView({ kind: "history" })}>Match history</button>
-        </div>}
-      </div>
-    </header>
-
+    <CoachNavigation
+      activeView={navigationView}
+      primaryLabel={primaryNavigationLabel}
+      onOpenMatch={() => setMatchView(undefined)}
+      onOpenHistory={() => setMatchView({ kind: "history" })}
+      onOpenSettings={() => setMatchView({ kind: "settings", section: activeSeason && !liveMatch ? "season" : "backup" })}
+    />
+    <div className="app-content">
     {error && <p className="error" role="alert">{error}</p>}
     {currentView.kind === "team-setup" && <section className="match-area focused-screen" aria-labelledby="team-setup-title">
       <p className="eyebrow">TEAM SETUP</p>
@@ -139,6 +128,8 @@ export function App({ store }: AppProps) {
     </section>}
 
     {currentView.kind === "settings" && <section className="match-area focused-screen" aria-labelledby="settings-title"><div className="section-heading"><h2 id="settings-title">{currentView.section === "season" ? "End season" : "Backup & restore"}</h2><button className="text-button" onClick={() => setMatchView(undefined)}>Back</button></div>{currentView.section === "season" && activeSeason && !liveMatch && <EndSeasonControl season={activeSeason} onConfirm={() => perform(async () => { await session.endSeason(activeSeason.id); setMatchView(undefined); })} />}{currentView.section === "backup" && <BackupCard exportBackup={() => session.exportBackup()} onImport={(serialized, mode, confirmed) => perform(() => session.importBackup(serialized, mode, confirmed))} />}</section>}
+
+    {currentView.kind === "no-match" && <section className="match-area focused-screen no-match-screen" aria-labelledby="no-match-title"><p className="eyebrow">SETUP MATCH</p><h2 id="no-match-title">No Match in progress</h2><p>Start a Match when you are ready to add an Opponent and date.</p><button type="button" onClick={() => setMatchView({ kind: "match-identity" })}>Set up a Match</button></section>}
 
     {currentView.kind === "match-identity" && activeSeason && <section className="match-area focused-screen" aria-labelledby="match-identity-title">
       <p className="eyebrow">MATCH SETUP · STAGE 3</p><h2 id="match-identity-title">Add Opponent</h2><p>{activeSeason.name} · choose the Opposition and Match date.</p>
@@ -196,7 +187,31 @@ export function App({ store }: AppProps) {
         }}
         onOpenHistory={() => setMatchView({ kind: "history", returnToGameId: game.id })}
       />)}
+    </div>
   </main>;
+}
+
+function CoachNavigation({ activeView, primaryLabel, onOpenMatch, onOpenHistory, onOpenSettings }: { activeView?: "match" | "history" | "settings"; primaryLabel: "Setup Match" | "Live Match"; onOpenMatch: () => void; onOpenHistory: () => void; onOpenSettings: () => void }) {
+  const items: Array<{ key: "match" | "history" | "settings"; label: string; icon: "court" | "history" | "settings"; onClick: () => void }> = [
+    { key: "match" as const, label: primaryLabel, icon: "court", onClick: onOpenMatch },
+    { key: "history" as const, label: "Match History", icon: "history", onClick: onOpenHistory },
+    { key: "settings" as const, label: "Settings", icon: "settings", onClick: onOpenSettings }
+  ];
+
+  return <nav className="coach-navigation" aria-label="Coach navigation">
+    <div className="app-identity"><AppMark /><span><strong>Natball</strong><small>Insights</small></span></div>
+    <div className="coach-navigation-items">{items.map((item) => <button key={item.key} type="button" className="coach-navigation-item" aria-current={activeView === item.key ? "page" : undefined} onClick={item.onClick}><NavigationIcon name={item.icon} /><span>{item.label}</span></button>)}</div>
+  </nav>;
+}
+
+function AppMark() {
+  return <svg className="app-mark" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="16" /><path d="M8 24h32M24 8c5 5 8 10 8 16s-3 11-8 16M24 8c-5 5-8 10-8 16s3 11 8 16M10 34l8-8 6 6 12-12" /></svg>;
+}
+
+function NavigationIcon({ name }: { name: "court" | "history" | "settings" }) {
+  if (name === "court") return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="3" /><path d="M8 7h8M12 7v10M8 17h8" /></svg>;
+  if (name === "history") return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.5" /><path d="M4 4v4.5h4.5M12 7v5l3 2" /></svg>;
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a7 7 0 0 0-1.7-1L14.5 3h-5l-.4 3.1a7 7 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.5a7 7 0 0 0 0 2L3 14.5l2 3.4 2.4-1a7 7 0 0 0 1.7 1l.4 3.1h5l.4-3.1a7 7 0 0 0 1.7-1l2.4 1 2-3.4-2-1.5c.1-.3.1-.7.1-1Z" /></svg>;
 }
 
 function MatchHistory({ games, setup, backLabel, onBack, onOpen }: { games: Game[]; setup: SetupSummary; backLabel: string; onBack: () => void; onOpen: (gameId: string) => void }) {
