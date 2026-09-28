@@ -1,4 +1,4 @@
-import { FormEvent, type ReactNode, useEffect, useState } from "react";
+import { FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { GameSession } from "./game-session/game-session";
 import { IndexedDbGameSessionStore } from "./game-session/indexed-db-game-session-store";
 import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, TOTAL_QUARTERS, type BetweenQuarterStatistics, type CaptureAction, type Game, type GameSessionStore, type LiveQuarterCapture, type PlayerStatistic, type Position, type QuarterNumber, type SetupSummary, type StartMatchInput, type StartingLineup, type TerminalMatchReport } from "./game-session/types";
@@ -481,13 +481,40 @@ function captureActionLabel(action: CaptureAction, players: SetupSummary["player
 function ActiveQuarterEventFeed({ capture, players, actions }: { capture: LiveQuarterCapture; players: SetupSummary["players"]; actions: MatchActions }) {
   const [editing, setEditing] = useState<Extract<CaptureAction, { kind: "player-statistic" }>>();
   const [correction, setCorrection] = useState<{ playerId: string; position: Position; statistic: PlayerStatistic }>();
+  const [unreadEventCount, setUnreadEventCount] = useState(0);
+  const scrollArea = useRef<HTMLDivElement>(null);
+  const wasAtLatest = useRef(true);
+  const previousActionCount = useRef(capture.captureActions.length);
+  useEffect(() => {
+    const element = scrollArea.current;
+    if (element) wasAtLatest.current = element.scrollTop + element.clientHeight >= element.scrollHeight - 16;
+  }, []);
+  useEffect(() => {
+    if (capture.captureActions.length <= previousActionCount.current) {
+      previousActionCount.current = capture.captureActions.length;
+      return;
+    }
+    const newEventCount = capture.captureActions.length - previousActionCount.current;
+    previousActionCount.current = capture.captureActions.length;
+    if (wasAtLatest.current && scrollArea.current) {
+      scrollArea.current.scrollTop = scrollArea.current.scrollHeight;
+      setUnreadEventCount(0);
+    } else {
+      setUnreadEventCount((current) => current + newEventCount);
+    }
+  }, [capture.captureActions.length]);
   const beginEditing = (action: Extract<CaptureAction, { kind: "player-statistic" }>) => {
     setEditing(action);
     setCorrection({ playerId: action.playerId, position: action.position, statistic: action.statistic });
   };
   const latest = capture.captureActions.at(-1);
   const latestLabel = latest ? captureActionLabel(latest, players) : "No events recorded yet";
-  return <section className="active-event-feed" aria-labelledby="active-event-feed-title"><details><summary>Event feed · {latestLabel}</summary><div className="event-feed-content"><h3 id="active-event-feed-title">Quarter {capture.number} event feed</h3>{!capture.captureActions.length && <p>No events recorded yet.</p>}<ol>{capture.captureActions.map((action) => <li key={action.id}>{action.kind === "opposition-goal" ? <span>{captureActionLabel(action, players)}</span> : <><span>{captureActionLabel(action, players)}</span><button type="button" className="text-button" onClick={() => beginEditing(action)}>Correct event</button></>}<button type="button" className="text-button" onClick={() => void actions.deleteQuarterAction(capture.number, action.id)}>Remove event</button></li>)}</ol>{editing && correction && <form className="court-change-form" onSubmit={(event) => { event.preventDefault(); void actions.correctQuarterPlayerStatistic(capture.number, editing.id, correction).then(() => setEditing(undefined)); }}><h3>Correct event</h3><label>Player<select aria-label="Event correction player" value={correction.playerId} onChange={(event) => setCorrection({ ...correction, playerId: event.target.value })}>{players.map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label><label>Position<select aria-label="Event correction position" value={correction.position} onChange={(event) => setCorrection({ ...correction, position: event.target.value as Position })}>{POSITIONS.map((position) => <option key={position} value={position}>{positionAbbreviation[position]}</option>)}</select></label><label>Event<select aria-label="Event correction statistic" value={correction.statistic} onChange={(event) => setCorrection({ ...correction, statistic: event.target.value as PlayerStatistic })}>{PLAYER_STATISTICS.map((statistic) => <option key={statistic} value={statistic}>{statistic}</option>)}</select></label><button type="submit">Save event correction</button><button type="button" className="text-button" onClick={() => setEditing(undefined)}>Cancel correction</button></form>}</div></details></section>;
+  const followLatest = () => {
+    if (scrollArea.current) scrollArea.current.scrollTop = scrollArea.current.scrollHeight;
+    wasAtLatest.current = true;
+    setUnreadEventCount(0);
+  };
+  return <section className="active-event-feed" aria-labelledby="active-event-feed-title"><details><summary>Event feed · {latestLabel}</summary><div className="event-feed-content"><h3 id="active-event-feed-title">Quarter {capture.number} event feed</h3>{unreadEventCount > 0 && <button type="button" className="new-events" onClick={followLatest}>{unreadEventCount} new event{unreadEventCount === 1 ? "" : "s"}</button>}<div ref={scrollArea} className="event-feed-scroll" aria-label={`Quarter ${capture.number} Event feed`} onScroll={(event) => { const element = event.currentTarget; wasAtLatest.current = element.scrollTop + element.clientHeight >= element.scrollHeight - 16; }}>{!capture.captureActions.length && <p>No events recorded yet.</p>}<ol>{capture.captureActions.map((action) => <li key={action.id}>{action.kind === "opposition-goal" ? <span>{captureActionLabel(action, players)}</span> : <><span>{captureActionLabel(action, players)}</span><button type="button" className="text-button" onClick={() => beginEditing(action)}>Correct event</button></>}<button type="button" className="text-button" onClick={() => void actions.deleteQuarterAction(capture.number, action.id)}>Remove event</button></li>)}</ol>{editing && correction && <form className="court-change-form" onSubmit={(event) => { event.preventDefault(); void actions.correctQuarterPlayerStatistic(capture.number, editing.id, correction).then(() => setEditing(undefined)); }}><h3>Correct event</h3><label>Player<select aria-label="Event correction player" value={correction.playerId} onChange={(event) => setCorrection({ ...correction, playerId: event.target.value })}>{players.map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label><label>Position<select aria-label="Event correction position" value={correction.position} onChange={(event) => setCorrection({ ...correction, position: event.target.value as Position })}>{POSITIONS.map((position) => <option key={position} value={position}>{positionAbbreviation[position]}</option>)}</select></label><label>Event<select aria-label="Event correction statistic" value={correction.statistic} onChange={(event) => setCorrection({ ...correction, statistic: event.target.value as PlayerStatistic })}>{PLAYER_STATISTICS.map((statistic) => <option key={statistic} value={statistic}>{statistic}</option>)}</select></label><button type="submit">Save event correction</button><button type="button" className="text-button" onClick={() => setEditing(undefined)}>Cancel correction</button></form>}</div></div></details></section>;
 }
 
 function CourtChangeForm({ court, squad, onApply }: { court: StartingLineup; squad: { id: string; name: string; nickname?: string }[]; onApply: (input: { position: Position; playerId: string }) => Promise<void> }) {
