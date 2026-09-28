@@ -234,16 +234,20 @@ function CoachNavigation({ activeView, primaryLabel, onOpenMatch, onOpenHistory,
 
 function useCompactCoachRail() {
   const query = "(min-width: 768px) and (orientation: landscape)";
-  const [compactRail, setCompactRail] = useState(() => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(query).matches);
+  return useMediaQuery(query);
+}
+
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(() => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(query).matches);
   useEffect(() => {
     if (typeof window.matchMedia !== "function") return;
     const media = window.matchMedia(query);
-    const update = () => setCompactRail(media.matches);
+    const update = () => setMatches(media.matches);
     update();
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, []);
-  return compactRail;
+  return matches;
 }
 
 function AppMark() {
@@ -425,10 +429,21 @@ function DestructiveConfirmation({ title, description, cancelLabel, confirmLabel
 function LiveQuarterCard({ game, setup, capture, actions, onOpenHistory }: { game: Game; setup: SetupSummary; capture: LiveQuarterCapture; actions: MatchActions; onOpenHistory: () => void }) {
   const [changingCourt, setChangingCourt] = useState(false);
   const [showOverflow, setShowOverflow] = useState(false);
+  const compactCaptureControls = useCompactCaptureControls();
   const teamName = setup.teams.find((team) => team.id === setup.seasons.find((season) => season.id === game.seasonId)?.teamId)?.name ?? "Our team";
   const oppositionName = setup.opposition.find((opposition) => opposition.id === game.oppositionId)?.name ?? "Opposition";
   const squad = setup.players.filter((player) => game.squadPlayerIds.includes(player.id));
-  return <section className="live-capture" aria-labelledby="live-quarter-title"><div className="score-strip"><div><p className="eyebrow">LIVE MATCH · QUARTER {capture.number}</p><h2 id="live-quarter-title">{teamName} {capture.ownGameScore} — {oppositionName} {capture.oppositionGameScore}</h2><p>Quarter: {teamName} {capture.ownScore} — {oppositionName} {capture.oppositionScore}</p></div><button className="opposition-goal" onClick={() => void actions.recordOppositionGoal()}>Opponent goal</button></div><div className="court-toolbar"><strong>Current Court</strong><div><button className="text-button" disabled={!capture.canUndo} onClick={() => void actions.undoCaptureAction()}>Undo</button><button className="text-button" onClick={onOpenHistory}>History</button><button className="text-button" onClick={() => setChangingCourt((current) => !current)}>{changingCourt ? "Cancel Substitution" : "Record Substitution"}</button><button className="text-button" onClick={() => void actions.endQuarter()}>End quarter</button><button className="text-button" aria-expanded={showOverflow} onClick={() => setShowOverflow((current) => !current)}>More match actions</button></div></div>{showOverflow && <AbandonMatchAction onAbandon={actions.abandon} />}{changingCourt && <CourtChangeForm court={capture.lineup} squad={squad} onApply={async (input) => { await actions.substitutePlayer(input); setChangingCourt(false); }} />}<div className="live-quarter-layout"><div className="current-court" aria-label="Current court event grid">{POSITIONS.map((position) => <PlayerStatCard key={position} position={position} player={setup.players.find((candidate) => candidate.id === capture.lineup[position])} capture={capture} onRecord={actions.recordPlayerStatistic} />)}</div><ActiveQuarterEventFeed capture={capture} players={setup.players} actions={actions} /></div></section>;
+  const openSubstitution = () => {
+    setChangingCourt((current) => !current);
+    setShowOverflow(false);
+  };
+  const secondaryActions = <div className="more-match-actions"><button className="text-button" onClick={onOpenHistory}>History</button><button className="text-button" onClick={openSubstitution}>{changingCourt ? "Cancel Substitution" : "Record Substitution"}</button><button className="text-button" onClick={() => void actions.endQuarter()}>End quarter</button><AbandonMatchAction onAbandon={actions.abandon} /></div>;
+  return <section className="live-capture" aria-labelledby="live-quarter-title"><div className="score-strip"><div><p className="eyebrow">LIVE MATCH · QUARTER {capture.number}</p><h2 id="live-quarter-title">{teamName} {capture.ownGameScore} — {oppositionName} {capture.oppositionGameScore}</h2><p>Quarter: {teamName} {capture.ownScore} — {oppositionName} {capture.oppositionScore}</p></div><button className="opposition-goal" onClick={() => void actions.recordOppositionGoal()}>Opponent goal</button></div><div className="court-toolbar"><strong>Current Court</strong><div><button className="text-button" disabled={!capture.canUndo} onClick={() => void actions.undoCaptureAction()}>Undo</button>{!compactCaptureControls && <><button className="text-button" onClick={onOpenHistory}>History</button><button className="text-button" onClick={openSubstitution}>{changingCourt ? "Cancel Substitution" : "Record Substitution"}</button><button className="text-button" onClick={() => void actions.endQuarter()}>End quarter</button></>}<button className="text-button" aria-expanded={showOverflow} onClick={() => setShowOverflow((current) => !current)}>More</button></div></div>{showOverflow && (compactCaptureControls ? secondaryActions : <AbandonMatchAction onAbandon={actions.abandon} />)}{changingCourt && <CourtChangeForm court={capture.lineup} squad={squad} onApply={async (input) => { await actions.substitutePlayer(input); setChangingCourt(false); }} />}<div className="live-quarter-layout"><div className="current-court" aria-label="Current court event grid">{POSITIONS.map((position) => <PlayerStatCard key={position} position={position} player={setup.players.find((candidate) => candidate.id === capture.lineup[position])} capture={capture} onRecord={actions.recordPlayerStatistic} />)}</div><ActiveQuarterEventFeed capture={capture} players={setup.players} actions={actions} /></div></section>;
+}
+
+function useCompactCaptureControls() {
+  const query = "(min-width: 768px) and (orientation: landscape) and (max-height: 700px)";
+  return useMediaQuery(query);
 }
 
 function AbandonMatchAction({ onAbandon }: { onAbandon: () => Promise<void> }) {
