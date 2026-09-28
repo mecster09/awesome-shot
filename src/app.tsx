@@ -113,14 +113,14 @@ export function App({ store }: AppProps) {
     />
     <div className="app-content">
     {error && <p className="error" role="alert">{error}</p>}
-    {currentView.kind === "team-setup" && <section className="match-area focused-screen" aria-labelledby="team-setup-title">
+    {currentView.kind === "team-setup" && <section className="match-area focused-screen setup-screen" aria-labelledby="team-setup-title">
       <p className="eyebrow">TEAM SETUP</p>
       <h2 id="team-setup-title">Team Setup</h2>
       <p>Save your reusable Team before creating a Season.</p>
       <TeamForm onSubmit={(input) => perform(async () => { await session.createTeam(input); setMatchView({ kind: "season-setup" }); })} />
     </section>}
 
-    {currentView.kind === "season-setup" && <section className="match-area focused-screen" aria-labelledby="season-setup-title">
+    {currentView.kind === "season-setup" && <section className="match-area focused-screen setup-screen" aria-labelledby="season-setup-title">
       <p className="eyebrow">SEASON SETUP</p>
       <h2 id="season-setup-title">Season Setup</h2>
       <p>Create an active Season before preparing a Match.</p>
@@ -132,7 +132,7 @@ export function App({ store }: AppProps) {
 
     {currentView.kind === "no-match" && <section className="match-area focused-screen no-match-screen" aria-labelledby="no-match-title"><p className="eyebrow">SETUP MATCH</p><h2 id="no-match-title">No Match in progress</h2><p>Start a Match when you are ready to add an Opponent and date.</p><button type="button" onClick={() => setMatchView({ kind: "match-identity" })}>Set up a Match</button></section>}
 
-    {currentView.kind === "match-identity" && activeSeason && <section className="match-area focused-screen" aria-labelledby="match-identity-title">
+    {currentView.kind === "match-identity" && activeSeason && <section className="match-area focused-screen setup-screen" aria-labelledby="match-identity-title">
       <p className="eyebrow">MATCH SETUP · STAGE 3</p><h2 id="match-identity-title">Add Opponent</h2><p>{activeSeason.name} · choose the Opposition and Match date.</p>
       <MatchIdentityForm
         opposition={setup.activeOpposition}
@@ -149,7 +149,7 @@ export function App({ store }: AppProps) {
         })}
       />
     </section>}
-    {currentView.kind === "match-squad" && matchSquadDraft && <section className="match-area focused-screen" aria-labelledby="match-squad-title"><p className="eyebrow">MATCH SETUP · STAGE 4</p><h2 id="match-squad-title">Match Squad</h2><p>{matchSquadDraft.date} · {setup.opposition.find((opposition) => opposition.id === matchSquadDraft.oppositionId)?.name}</p><MatchSquadForm players={setup.players} selectedPlayerIds={matchSquadDraft.squadPlayerIds ?? []} onAddPlayer={async (input) => { const player = await session.addPlayer(input); refresh(); return player; }} onSave={(squadPlayerIds) => perform(async () => { await session.saveMatchSquad({ ...matchSquadDraft, squadPlayerIds }); })} onProceed={(squadPlayerIds) => perform(async () => { await session.advanceToCourtSetup({ ...matchSquadDraft, squadPlayerIds }); setMatchView({ kind: "court-setup" }); })} /></section>}
+    {currentView.kind === "match-squad" && matchSquadDraft && <section className="match-area focused-screen setup-screen" aria-labelledby="match-squad-title"><p className="eyebrow">MATCH SETUP · STAGE 4</p><h2 id="match-squad-title">Match Squad</h2><p>{matchSquadDraft.date} · {setup.opposition.find((opposition) => opposition.id === matchSquadDraft.oppositionId)?.name}</p><MatchSquadForm players={setup.players} selectedPlayerIds={matchSquadDraft.squadPlayerIds ?? []} onAddPlayer={async (input) => { const player = await session.addPlayer(input); refresh(); return player; }} onSave={(squadPlayerIds) => perform(async () => { await session.saveMatchSquad({ ...matchSquadDraft, squadPlayerIds }); })} onProceed={(squadPlayerIds) => perform(async () => { await session.advanceToCourtSetup({ ...matchSquadDraft, squadPlayerIds }); setMatchView({ kind: "court-setup" }); })} /></section>}
     {currentView.kind === "court-setup" && courtSetupDraft && <QuarterSetupCard match={courtSetupDraft} startingLineup={{}} quarterNumber={1} setup={setup} onStart={(startingLineup) => perform(async () => {
         const game = await session.startMatch({ ...courtSetupDraft, startingLineup });
         setMatchView({ kind: "game", gameId: game.id });

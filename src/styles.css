@@ -44,6 +44,7 @@ form { display: grid; gap: 13px; margin-top: 20px; }
 .settings-root-actions .text-button { display: flex; align-items: center; width: 100%; min-height: 48px; border: 0; border-radius: 0; border-bottom: 1px solid #e5e5ea; color: #1c1c1e; text-align: left; }
 .settings-root-actions .text-button:last-child { border-bottom: 0; }
 .focused-screen { min-height: min(620px, calc(100vh - 150px)); display: flex; flex-direction: column; }
+.setup-screen { height: min(620px, calc(100vh - 150px)); overflow: hidden; }
 .setup-form { display: flex; flex: 1; flex-direction: column; }
 .primary-action-bar { position: sticky; bottom: calc(88px + env(safe-area-inset-bottom)); z-index: 2; margin-top: auto; padding-top: 16px; background: linear-gradient(to bottom, rgb(255 255 255 / 0), #fff 30%); }
 .primary-action-bar button { width: 100%; min-height: 48px; }
@@ -52,9 +53,12 @@ form { display: grid; gap: 13px; margin-top: 20px; }
 .player-chip { min-height: 48px; padding: 6px 10px; border: 1px solid #ffb5b0; border-radius: 999px; background: #fff0ef; color: #c92920; box-shadow: none; font-size: .8rem; font-weight: 750; }
 .player-search { margin-bottom: 10px; }
 .player-picker-results { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-height: 210px; overflow: auto; padding-right: 4px; }
+.setup-form .squad-picker { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
+.setup-form .selected-player-chips { max-height: 104px; overflow: auto; padding-right: 4px; }
+.setup-form .player-picker-results { flex: 1; min-height: 96px; max-height: none; }
 .player-check { min-height: 48px; border-color: #e5e5ea; border-radius: 16px; background: #fff; }
 .picker-empty { margin: 0; color: #636366; }
-@media (max-width: 760px) { .player-picker-results { grid-template-columns: 1fr; }.focused-screen { min-height: calc(100vh - 150px); } }
+@media (max-width: 760px) { .player-picker-results { grid-template-columns: 1fr; }.focused-screen { min-height: calc(100vh - 150px); }.setup-screen { height: calc(100vh - 150px); } }
 @media (min-width: 1024px) {
   .app-shell { display: grid; grid-template-columns: 184px minmax(0, 1fr); align-items: start; gap: clamp(28px, 4vw, 56px); padding: 28px clamp(28px, 5vw, 72px); }
   .coach-navigation { position: sticky; top: 28px; display: grid; justify-content: stretch; align-content: start; width: 184px; min-height: calc(100vh - 56px); padding: 12px; border: 1px solid #e5e5ea; border-radius: 16px; box-shadow: 0 5px 18px #1c1c1e0d; }
@@ -64,5 +68,6 @@ form { display: grid; gap: 13px; margin-top: 20px; }
   .coach-navigation-item { grid-template-columns: 24px 1fr; justify-items: start; min-height: 48px; padding: 10px; font-size: .82rem; text-align: left; }
   .no-match-screen { min-height: calc(100vh - 56px); }
   .focused-screen { min-height: calc(100vh - 56px); }
+  .setup-screen { height: calc(100vh - 56px); }
   .primary-action-bar { bottom: 16px; }
 }
