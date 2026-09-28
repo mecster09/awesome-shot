@@ -111,6 +111,10 @@ _Avoid_: Long player checklist
 The labeled, touch-first persistent navigation for Setup Match or Live Match, Match History, and Settings. It also carries the app identity in place of a persistent root-screen top bar. It is a bottom tab bar on compact and standard tablets and a slim rail on large tablets.
 _Avoid_: Header menu, browser navigation
 
+**Focused stage**:
+The single-viewport presentation of the current setup or planning task. Its primary action remains available while a deliberately contained surface, such as the Player picker, selected-Squad chips, or statistics panel, scrolls.
+_Avoid_: Long page form, independently scrolling navigation
+
 **App mark**:
 The small original Natball Insights vector identity used in Coach navigation. It is a simple netball/court-line motif that remains legible at 40–48px and may use a wordmark only where the viewport has room.
 _Avoid_: Oversized badge, copied reference logo
