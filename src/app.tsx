@@ -394,7 +394,8 @@ function LiveQuarterCard({ game, setup, capture, actions, onOpenHistory }: { gam
 }
 
 function AbandonMatchAction({ onAbandon }: { onAbandon: () => Promise<void> }) {
-  return <div className="overflow-actions"><button className="secondary-button" onClick={() => void onAbandon()}>Abandon match</button></div>;
+  const [confirming, setConfirming] = useState(false);
+  return <div className="overflow-actions">{confirming ? <div className="destructive-confirmation" role="alertdialog" aria-label="Abandon this Match?"><p>Abandon this Match? Its recorded score and statistics will be kept, but it cannot be resumed.</p><button className="secondary-button" onClick={() => setConfirming(false)}>Keep recording</button><button onClick={() => void onAbandon()}>Confirm abandonment</button></div> : <button className="secondary-button" onClick={() => setConfirming(true)}>Abandon match</button>}</div>;
 }
 
 function QuarterReview({ quarters, players, onDeleteAction, onCorrectAction }: { quarters: { number: QuarterNumber; captureActions: CaptureAction[] }[]; players: { id: string; name: string; nickname?: string }[]; onDeleteAction: (quarter: QuarterNumber, actionId: string) => Promise<void>; onCorrectAction: (quarter: QuarterNumber, actionId: string, correction: { playerId: string; position: Position; statistic: PlayerStatistic }) => Promise<void> }) {

@@ -350,6 +350,30 @@ describe("Natball Insights setup", () => {
     expect(session.match(game.id)?.status).toBe("live");
   });
 
+  it("requires confirmation before abandoning a live Match", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
+    await startLiveMatch(session, season.id, opposition.id, players);
+    const user = userEvent.setup();
+    render(<App store={store} />);
+
+    await user.click(await screen.findByRole("button", { name: "More match actions" }));
+    await user.click(screen.getByRole("button", { name: "Abandon match" }));
+    expect(screen.getByRole("alertdialog", { name: "Abandon this Match?" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Keep recording" }));
+    expect(session.matches().find((game) => game.status === "live")).toBeDefined();
+
+    await user.click(screen.getByRole("button", { name: "Abandon match" }));
+    await user.click(screen.getByRole("button", { name: "Confirm abandonment" }));
+    expect(await screen.findByRole("heading", { name: "No Match in progress" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Match History" }));
+    await user.click(screen.getByRole("button", { name: "View match record" }));
+    expect(await screen.findByText("MATCH RECORD")).toBeInTheDocument();
+  });
+
   it("opens ended Quarter history away from the live Match Centre", async () => {
     const store = new InMemoryGameSessionStore();
     const session = await GameSession.open(store);
