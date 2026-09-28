@@ -1,6 +1,16 @@
 # Coach guide
 
-Natball Insights keeps one coach task on screen at a time. It has one active Season and, within it, one live Match.
+Natball Insights keeps one coach task on screen at a time. It has one active Season and, within it, one live Match. Its tablet-native layout keeps the current task in a single viewport, with Coach navigation always available.
+
+## Coach navigation and root destinations
+
+There is no header menu. Use the persistent **Coach navigation** at the bottom of compact and standard tablets, or the left-hand rail on large tablets, to open the three root destinations:
+
+- **Setup Match** returns to the resumable setup stage before Quarter 1 begins. It becomes **Live Match** as soon as Quarter 1 starts and returns to the active Quarter or the next-Quarter plan.
+- **Match History** opens retained live and terminal Match records without changing the current stage.
+- **Settings** contains the Season lifecycle and **Backup & restore** controls.
+
+The app mark identifies the app in Coach navigation. The highlighted destination is the screen currently open.
 
 ## What opens when you launch the app
 
@@ -10,7 +20,7 @@ Natball Insights keeps one coach task on screen at a time. It has one active Sea
 - If Match setup was interrupted, the app resumes the saved current stage: Add Opponent, **Stage 4 — Match Squad**, or **Stage 5 — Court Setup**.
 - If a Match has an active Quarter, the app opens its **Stage 6 — Match Events** screen, including when you reopen the app mid-Quarter. If Quarter 1, 2, or 3 has ended and the next Quarter has not begun, it opens the prefilled **Stage 5 — Court Setup** with planning statistics instead.
 
-Use the header **Open menu** button for secondary tasks. It contains **End season** (disabled while a Match is live), **Backup & restore**, and **Match history**. Return from a secondary screen to continue the current match-day stage.
+Each setup stage holds its primary action in the bottom **Primary action** bar. It stays visible but disabled until the stage minimum is met. Long, contained surfaces scroll within their panel: the Player picker and selected Match Squad chips, the Stage 5 statistics panel, and—on compact screens—the Event-feed drawer. The main stage and Coach navigation remain stable while using those controls.
 
 ## Prepare a Match
 
@@ -32,14 +42,14 @@ Starting the Match starts Quarter 1 and opens Stage 6.
 
 ## Record Match Events
 
-Stage 6 is the live Match screen. It shows only Players who currently occupy a Court Position, in GK, GD, WD, C, WA, GA, GS order. Each row has the Player, Position abbreviation, and the same ordered event-icon controls with their counts. Goals and misses are enabled only for GA and GS; those controls are visibly unavailable for other Positions.
+Stage 6 is the live Match screen. Its score strip always shows the active Quarter, Match score, Quarter score, and **Opposition-goal action**. It shows only Players who currently occupy a Court Position, in GK, GD, WD, C, WA, GA, GS order. Each row has the Player, Position abbreviation, and the same ordered event-icon controls with their counts. Goals and misses are enabled only for GA and GS; those controls are visibly unavailable for other Positions.
 
 Tap an event icon to record it against the current Match, active Quarter, Player, and Position. The large score is the Match score; the smaller score is the active-Quarter score.
 
 - **Opposition goal** records a distinct event without a Player or Position.
 - **Record Substitution** replaces the actionable row for one Position. The outgoing Player disappears from the current Court immediately, while events already recorded stay attributed to that outgoing Player–Position stint.
 - **Undo last event** reverses the newest active-Quarter event, including an Opposition goal.
-- The **Quarter event feed** is chronological. Player events can be corrected or removed; Opposition goals can be removed. The feed keeps the live screen auditable without leaving it.
+- The **Event feed** is chronological. On compact screens it is an **Event-feed drawer**: its collapsed label shows the latest event, and opening it reveals correction and removal controls. Player events can be corrected or removed; Opposition goals can be removed. The feed keeps the live screen auditable without leaving it.
 - **End quarter** ends the current Quarter.
 
 ## Plan the next Quarter and finish the Match
@@ -54,11 +64,29 @@ If a Match cannot be completed, open **More match actions** during live capture 
 
 ## History, reports, and recovery
 
-Open **Match history** from the header menu to view live or terminal Matches. Terminal Match records show Quarter scores, Courts, substitutions, and Player–Position events. Use **Download CSV** for spreadsheet analysis (see [the CSV schema](reports/csv-schema.md)) or **Download PDF** for a coach-readable record. Legacy terminated records remain readable and exportable.
+Open **Match History** from Coach navigation to view live or terminal Matches. Terminal Match records show Quarter scores, Courts, substitutions, and Player–Position events. Use **Download CSV** for spreadsheet analysis (see [the CSV schema](reports/csv-schema.md)) or **Download PDF** for a coach-readable record. Legacy terminated records remain readable and exportable.
 
-Open **Backup & restore** from the header menu to download all locally stored Team, Season, Match, Court, event, and result data as JSON. To restore, paste backup JSON into **Backup data** and choose:
+Open **Settings**, then **Backup & restore**, to download all locally stored Team, Season, Match, Court, event, and result data as JSON. To restore, paste backup JSON into **Backup data** and choose:
 
 - **Merge - keep current data** to add records that are not already present.
 - **Replace all local data** to replace local records after acknowledging the warning.
 
 Invalid or incompatible backups are rejected without changing the current data.
+
+## Confirming destructive actions
+
+Natball Insights always asks for an explicit confirmation before **Abandon match**, **End season**, or replacing local data through backup restore. On compact and standard tablets this confirmation rises from the bottom; at large-tablet widths it appears as a centered alert. Cancelling keeps the Match, Season, or local data unchanged.
+
+## Responsive acceptance QA record
+
+QA was completed against the integrated workflow at the following viewport widths. At every width, keyboard focus has a visible outline, buttons and fields retain their accessible names, and Coach navigation can be reached and operated with the keyboard.
+
+| Viewport | Result | Contained scrolling checked |
+| --- | --- | --- |
+| 744px | Pass — bottom Coach navigation, focused setup stages, and the compact live feed drawer remain usable. | Match Squad results/chips and the opened event-feed drawer scroll within their own surfaces. |
+| 834px | Pass — bottom Coach navigation remains persistent; Stage 5 keeps Court planning and statistics visible together. | Match Squad results/chips and the Stage 5 statistics panel scroll without moving the primary action bar. |
+| 1024px | Pass — Coach navigation becomes a left rail; the destructive confirmation is centered. | The Stage 5 statistics panel remains the only scrolling planner panel; no horizontal page scrolling is needed. |
+
+Accessible controls verified include **Coach navigation**, **Setup Match**/**Live Match**, **Match History**, **Settings**, the Stage 5 **All Match**/**Previous quarter** switch, **Opponent goal**, event-cell labels such as **Record Goals for Faye**, and destructive-confirmation actions.
+
+Automated verification completed successfully against the integrated implementation: `pnpm test` passed all 49 tests, and `pnpm run build` completed the TypeScript check and production Vite build.
