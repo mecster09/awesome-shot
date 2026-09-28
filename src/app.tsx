@@ -1,4 +1,4 @@
-import { FormEvent, type ReactNode, useEffect, useState } from "react";
+import { FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { GameSession } from "./game-session/game-session";
 import { IndexedDbGameSessionStore } from "./game-session/indexed-db-game-session-store";
 import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, TOTAL_QUARTERS, type BetweenQuarterStatistics, type CaptureAction, type Game, type GameSessionStore, type LiveQuarterCapture, type PlayerStatistic, type Position, type QuarterNumber, type SetupSummary, type StartMatchInput, type StartingLineup, type TerminalMatchReport } from "./game-session/types";
@@ -205,16 +205,49 @@ export function App({ store }: AppProps) {
 }
 
 function CoachNavigation({ activeView, primaryLabel, onOpenMatch, onOpenHistory, onOpenSettings }: { activeView?: "match" | "history" | "settings"; primaryLabel: "Setup Match" | "Live Match"; onOpenMatch: () => void; onOpenHistory: () => void; onOpenSettings: () => void }) {
+  const compactRail = useCompactCoachRail();
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    if (!compactRail) setExpanded(false);
+  }, [compactRail]);
   const items: Array<{ key: "match" | "history" | "settings"; label: string; icon: "court" | "history" | "settings"; onClick: () => void }> = [
     { key: "match" as const, label: primaryLabel, icon: "court", onClick: onOpenMatch },
     { key: "history" as const, label: "Match History", icon: "history", onClick: onOpenHistory },
     { key: "settings" as const, label: "Settings", icon: "settings", onClick: onOpenSettings }
   ];
 
-  return <nav className="coach-navigation" aria-label="Coach navigation">
+  const navigateAndCollapseRail = (action: () => void) => {
+    action();
+    setExpanded(false);
+  };
+
+  return <nav className="coach-navigation" aria-label="Coach navigation" data-layout={compactRail ? "compact-rail" : "labeled-bottom"}>
     <div className="app-identity"><AppMark /><span><strong>Natball</strong><small>Insights</small></span></div>
-    <div className="coach-navigation-items">{items.map((item) => <button key={item.key} type="button" className="coach-navigation-item" aria-current={activeView === item.key ? "page" : undefined} onClick={item.onClick}><NavigationIcon name={item.icon} /><span>{item.label}</span></button>)}</div>
+    <div className="coach-navigation-items">{items.map((item) => <button key={item.key} type="button" className="coach-navigation-item" aria-current={activeView === item.key ? "page" : undefined} onClick={() => navigateAndCollapseRail(item.onClick)}><NavigationIcon name={item.icon} /><span>{item.label}</span></button>)}</div>
+    {compactRail && <button type="button" className="coach-navigation-toggle" aria-label="Expand Coach navigation" aria-expanded={expanded} onClick={() => setExpanded(true)}>☰</button>}
+    {compactRail && expanded && <div className="coach-navigation-overlay" role="dialog" aria-modal="true" aria-label="Coach navigation destinations">
+      <div className="coach-navigation-overlay-header"><strong>Coach navigation</strong><button type="button" className="coach-navigation-close" aria-label="Dismiss Coach navigation" onClick={() => setExpanded(false)}>×</button></div>
+      {items.map((item) => <button key={item.key} type="button" className="coach-navigation-overlay-item" aria-current={activeView === item.key ? "page" : undefined} onClick={() => navigateAndCollapseRail(item.onClick)}><NavigationIcon name={item.icon} /><span>{item.label}</span></button>)}
+    </div>}
   </nav>;
+}
+
+function useCompactCoachRail() {
+  const query = "(min-width: 768px) and (orientation: landscape)";
+  return useMediaQuery(query);
+}
+
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(() => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(query).matches);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia(query);
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  return matches;
 }
 
 function AppMark() {
@@ -396,10 +429,21 @@ function DestructiveConfirmation({ title, description, cancelLabel, confirmLabel
 function LiveQuarterCard({ game, setup, capture, actions, onOpenHistory }: { game: Game; setup: SetupSummary; capture: LiveQuarterCapture; actions: MatchActions; onOpenHistory: () => void }) {
   const [changingCourt, setChangingCourt] = useState(false);
   const [showOverflow, setShowOverflow] = useState(false);
+  const compactCaptureControls = useCompactCaptureControls();
   const teamName = setup.teams.find((team) => team.id === setup.seasons.find((season) => season.id === game.seasonId)?.teamId)?.name ?? "Our team";
   const oppositionName = setup.opposition.find((opposition) => opposition.id === game.oppositionId)?.name ?? "Opposition";
   const squad = setup.players.filter((player) => game.squadPlayerIds.includes(player.id));
-  return <section className="live-capture" aria-labelledby="live-quarter-title"><div className="score-strip"><div><p className="eyebrow">LIVE MATCH · QUARTER {capture.number}</p><h2 id="live-quarter-title">{teamName} {capture.ownGameScore} — {oppositionName} {capture.oppositionGameScore}</h2><p>Quarter: {teamName} {capture.ownScore} — {oppositionName} {capture.oppositionScore}</p></div><button className="opposition-goal" onClick={() => void actions.recordOppositionGoal()}>Opponent goal</button></div><div className="court-toolbar"><strong>Current Court</strong><div><button className="text-button" disabled={!capture.canUndo} onClick={() => void actions.undoCaptureAction()}>Undo</button><button className="text-button" onClick={onOpenHistory}>History</button><button className="text-button" onClick={() => setChangingCourt((current) => !current)}>{changingCourt ? "Cancel Substitution" : "Record Substitution"}</button><button className="text-button" onClick={() => void actions.endQuarter()}>End quarter</button><button className="text-button" aria-expanded={showOverflow} onClick={() => setShowOverflow((current) => !current)}>More match actions</button></div></div>{showOverflow && <AbandonMatchAction onAbandon={actions.abandon} />}{changingCourt && <CourtChangeForm court={capture.lineup} squad={squad} onApply={async (input) => { await actions.substitutePlayer(input); setChangingCourt(false); }} />}<div className="live-quarter-layout"><div className="current-court" aria-label="Current court event grid">{POSITIONS.map((position) => <PlayerStatCard key={position} position={position} player={setup.players.find((candidate) => candidate.id === capture.lineup[position])} capture={capture} onRecord={actions.recordPlayerStatistic} />)}</div><ActiveQuarterEventFeed capture={capture} players={setup.players} actions={actions} /></div></section>;
+  const openSubstitution = () => {
+    setChangingCourt((current) => !current);
+    setShowOverflow(false);
+  };
+  const secondaryActions = <div className="more-match-actions"><button className="text-button" onClick={onOpenHistory}>History</button><button className="text-button" onClick={openSubstitution}>{changingCourt ? "Cancel Substitution" : "Record Substitution"}</button><button className="text-button" onClick={() => void actions.endQuarter()}>End quarter</button><AbandonMatchAction onAbandon={actions.abandon} /></div>;
+  return <section className="live-capture" aria-labelledby="live-quarter-title"><div className="score-strip"><div><p className="eyebrow">LIVE MATCH · QUARTER {capture.number}</p><h2 id="live-quarter-title">{teamName} {capture.ownGameScore} — {oppositionName} {capture.oppositionGameScore}</h2><p>Quarter: {teamName} {capture.ownScore} — {oppositionName} {capture.oppositionScore}</p></div><button className="opposition-goal" onClick={() => void actions.recordOppositionGoal()}>Opponent goal</button></div><div className="court-toolbar"><strong>Current Court</strong><div><button className="text-button" disabled={!capture.canUndo} onClick={() => void actions.undoCaptureAction()}>Undo</button>{!compactCaptureControls && <><button className="text-button" onClick={onOpenHistory}>History</button><button className="text-button" onClick={openSubstitution}>{changingCourt ? "Cancel Substitution" : "Record Substitution"}</button><button className="text-button" onClick={() => void actions.endQuarter()}>End quarter</button></>}<button className="text-button" aria-expanded={showOverflow} onClick={() => setShowOverflow((current) => !current)}>More</button></div></div>{showOverflow && (compactCaptureControls ? secondaryActions : <AbandonMatchAction onAbandon={actions.abandon} />)}{changingCourt && <CourtChangeForm court={capture.lineup} squad={squad} onApply={async (input) => { await actions.substitutePlayer(input); setChangingCourt(false); }} />}<div className="live-quarter-layout"><div className="current-court" aria-label="Current court event grid">{POSITIONS.map((position) => <PlayerStatCard key={position} position={position} player={setup.players.find((candidate) => candidate.id === capture.lineup[position])} capture={capture} onRecord={actions.recordPlayerStatistic} />)}</div><ActiveQuarterEventFeed capture={capture} players={setup.players} actions={actions} /></div></section>;
+}
+
+function useCompactCaptureControls() {
+  const query = "(min-width: 768px) and (orientation: landscape) and (max-height: 700px)";
+  return useMediaQuery(query);
 }
 
 function AbandonMatchAction({ onAbandon }: { onAbandon: () => Promise<void> }) {
@@ -437,13 +481,40 @@ function captureActionLabel(action: CaptureAction, players: SetupSummary["player
 function ActiveQuarterEventFeed({ capture, players, actions }: { capture: LiveQuarterCapture; players: SetupSummary["players"]; actions: MatchActions }) {
   const [editing, setEditing] = useState<Extract<CaptureAction, { kind: "player-statistic" }>>();
   const [correction, setCorrection] = useState<{ playerId: string; position: Position; statistic: PlayerStatistic }>();
+  const [unreadEventCount, setUnreadEventCount] = useState(0);
+  const scrollArea = useRef<HTMLDivElement>(null);
+  const wasAtLatest = useRef(true);
+  const previousActionCount = useRef(capture.captureActions.length);
+  useEffect(() => {
+    const element = scrollArea.current;
+    if (element) wasAtLatest.current = element.scrollTop + element.clientHeight >= element.scrollHeight - 16;
+  }, []);
+  useEffect(() => {
+    if (capture.captureActions.length <= previousActionCount.current) {
+      previousActionCount.current = capture.captureActions.length;
+      return;
+    }
+    const newEventCount = capture.captureActions.length - previousActionCount.current;
+    previousActionCount.current = capture.captureActions.length;
+    if (wasAtLatest.current && scrollArea.current) {
+      scrollArea.current.scrollTop = scrollArea.current.scrollHeight;
+      setUnreadEventCount(0);
+    } else {
+      setUnreadEventCount((current) => current + newEventCount);
+    }
+  }, [capture.captureActions.length]);
   const beginEditing = (action: Extract<CaptureAction, { kind: "player-statistic" }>) => {
     setEditing(action);
     setCorrection({ playerId: action.playerId, position: action.position, statistic: action.statistic });
   };
   const latest = capture.captureActions.at(-1);
   const latestLabel = latest ? captureActionLabel(latest, players) : "No events recorded yet";
-  return <section className="active-event-feed" aria-labelledby="active-event-feed-title"><details><summary>Event feed · {latestLabel}</summary><div className="event-feed-content"><h3 id="active-event-feed-title">Quarter {capture.number} event feed</h3>{!capture.captureActions.length && <p>No events recorded yet.</p>}<ol>{capture.captureActions.map((action) => <li key={action.id}>{action.kind === "opposition-goal" ? <span>{captureActionLabel(action, players)}</span> : <><span>{captureActionLabel(action, players)}</span><button type="button" className="text-button" onClick={() => beginEditing(action)}>Correct event</button></>}<button type="button" className="text-button" onClick={() => void actions.deleteQuarterAction(capture.number, action.id)}>Remove event</button></li>)}</ol>{editing && correction && <form className="court-change-form" onSubmit={(event) => { event.preventDefault(); void actions.correctQuarterPlayerStatistic(capture.number, editing.id, correction).then(() => setEditing(undefined)); }}><h3>Correct event</h3><label>Player<select aria-label="Event correction player" value={correction.playerId} onChange={(event) => setCorrection({ ...correction, playerId: event.target.value })}>{players.map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label><label>Position<select aria-label="Event correction position" value={correction.position} onChange={(event) => setCorrection({ ...correction, position: event.target.value as Position })}>{POSITIONS.map((position) => <option key={position} value={position}>{positionAbbreviation[position]}</option>)}</select></label><label>Event<select aria-label="Event correction statistic" value={correction.statistic} onChange={(event) => setCorrection({ ...correction, statistic: event.target.value as PlayerStatistic })}>{PLAYER_STATISTICS.map((statistic) => <option key={statistic} value={statistic}>{statistic}</option>)}</select></label><button type="submit">Save event correction</button><button type="button" className="text-button" onClick={() => setEditing(undefined)}>Cancel correction</button></form>}</div></details></section>;
+  const followLatest = () => {
+    if (scrollArea.current) scrollArea.current.scrollTop = scrollArea.current.scrollHeight;
+    wasAtLatest.current = true;
+    setUnreadEventCount(0);
+  };
+  return <section className="active-event-feed" aria-labelledby="active-event-feed-title"><details><summary>Event feed · {latestLabel}</summary><div className="event-feed-content"><h3 id="active-event-feed-title">Quarter {capture.number} event feed</h3>{unreadEventCount > 0 && <button type="button" className="new-events" onClick={followLatest}>{unreadEventCount} new event{unreadEventCount === 1 ? "" : "s"}</button>}<div ref={scrollArea} className="event-feed-scroll" aria-label={`Quarter ${capture.number} Event feed`} onScroll={(event) => { const element = event.currentTarget; wasAtLatest.current = element.scrollTop + element.clientHeight >= element.scrollHeight - 16; }}>{!capture.captureActions.length && <p>No events recorded yet.</p>}<ol>{capture.captureActions.map((action) => <li key={action.id}>{action.kind === "opposition-goal" ? <span>{captureActionLabel(action, players)}</span> : <><span>{captureActionLabel(action, players)}</span><button type="button" className="text-button" onClick={() => beginEditing(action)}>Correct event</button></>}<button type="button" className="text-button" onClick={() => void actions.deleteQuarterAction(capture.number, action.id)}>Remove event</button></li>)}</ol>{editing && correction && <form className="court-change-form" onSubmit={(event) => { event.preventDefault(); void actions.correctQuarterPlayerStatistic(capture.number, editing.id, correction).then(() => setEditing(undefined)); }}><h3>Correct event</h3><label>Player<select aria-label="Event correction player" value={correction.playerId} onChange={(event) => setCorrection({ ...correction, playerId: event.target.value })}>{players.map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label><label>Position<select aria-label="Event correction position" value={correction.position} onChange={(event) => setCorrection({ ...correction, position: event.target.value as Position })}>{POSITIONS.map((position) => <option key={position} value={position}>{positionAbbreviation[position]}</option>)}</select></label><label>Event<select aria-label="Event correction statistic" value={correction.statistic} onChange={(event) => setCorrection({ ...correction, statistic: event.target.value as PlayerStatistic })}>{PLAYER_STATISTICS.map((statistic) => <option key={statistic} value={statistic}>{statistic}</option>)}</select></label><button type="submit">Save event correction</button><button type="button" className="text-button" onClick={() => setEditing(undefined)}>Cancel correction</button></form>}</div></div></details></section>;
 }
 
 function CourtChangeForm({ court, squad, onApply }: { court: StartingLineup; squad: { id: string; name: string; nickname?: string }[]; onApply: (input: { position: Position; playerId: string }) => Promise<void> }) {

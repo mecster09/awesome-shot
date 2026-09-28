@@ -74,7 +74,7 @@ The fixed, touch-sized control in a current-Court row that shows one Player-even
 _Avoid_: Stat button, coloured tile
 
 **Event-feed drawer**:
-The compact-tablet presentation of the active-quarter Event feed. It shows the latest event while collapsed and opens before a coach can correct or remove an event.
+The bounded, independently scrollable presentation of the active-quarter Event feed. It may show the latest event while collapsed and opens before a coach can correct or remove an event. It follows new events only while already at the latest entry; while a coach reviews history, it preserves their position and signals new entries.
 _Avoid_: Event modal, activity panel
 
 ## Coach navigation
@@ -108,7 +108,7 @@ The contained searchable selection surface for choosing the Match Squad before t
 _Avoid_: Long player checklist
 
 **Coach navigation**:
-The labeled, touch-first persistent navigation for Setup Match or Live Match, Match History, and Settings. It also carries the app identity in place of a persistent root-screen top bar. It is a bottom tab bar on compact and standard tablets and a slim rail on large tablets.
+The persistent navigation for Setup Match or Live Match, Match History, and Settings. It also carries the app identity in place of a persistent root-screen top bar. It is a labeled bottom tab bar in portrait and an icon-only slim rail in landscape; the rail expands as a temporary overlay to reveal labels without reflowing the active stage.
 _Avoid_: Header menu, browser navigation
 
 **Focused stage**:
