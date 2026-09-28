@@ -72,7 +72,7 @@ describe("Natball Insights setup", () => {
     await user.click(screen.getByRole("button", { name: "Match History" }));
     expect(await screen.findByRole("heading", { name: "Match history" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Live Match" }));
-    expect(await screen.findByText("Quarter 1 is live")).toBeInTheDocument();
+    expect(await screen.findByText("LIVE MATCH · QUARTER 1")).toBeInTheDocument();
   });
 
   it("requires confirmation before ending the active season and then offers its saved team for the next season", async () => {
@@ -179,10 +179,10 @@ describe("Natball Insights setup", () => {
     }
     expect(startMatch).toBeEnabled();
     await user.click(startMatch);
-    expect(await screen.findByText("Quarter 1 is live")).toBeInTheDocument();
+    expect(await screen.findByText("LIVE MATCH · QUARTER 1")).toBeInTheDocument();
     rendered.unmount();
     render(<App store={store} />);
-    expect(await screen.findByText("Quarter 1 is live")).toBeInTheDocument();
+    expect(await screen.findByText("LIVE MATCH · QUARTER 1")).toBeInTheDocument();
   });
 
   it("uses a searchable Player picker with selected Squad chips and a persistent primary action", async () => {
@@ -215,7 +215,7 @@ describe("Natball Insights setup", () => {
     const user = userEvent.setup();
     render(<App store={store} />);
 
-    expect(await screen.findByText("Quarter 1 is live")).toBeInTheDocument();
+    expect(await screen.findByText("LIVE MATCH · QUARTER 1")).toBeInTheDocument();
   });
 
   it("shows switchable previous-quarter and Match statistics beside a prefilled Court", async () => {
@@ -245,7 +245,7 @@ describe("Natball Insights setup", () => {
     expect(screen.getByLabelText("Centre")).toHaveValue("");
     await user.selectOptions(screen.getByLabelText("Centre"), players[3].id);
     await user.click(screen.getByRole("button", { name: "Start Quarter 2" }));
-    expect(await screen.findByText("Quarter 2 is live")).toBeInTheDocument();
+    expect(await screen.findByText("LIVE MATCH · QUARTER 2")).toBeInTheDocument();
     expect(screen.queryByLabelText("Late player name")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add player to squad" })).not.toBeInTheDocument();
   });
@@ -302,9 +302,9 @@ describe("Natball Insights setup", () => {
     const user = userEvent.setup();
     render(<App store={store} />);
 
-    await screen.findByText("Quarter 1 is live");
+    await screen.findByText("LIVE MATCH · QUARTER 1");
     await user.click(screen.getByRole("button", { name: "Record Goals for Faye" }));
-    await user.click(screen.getByRole("button", { name: "Opposition goal" }));
+    await user.click(screen.getByRole("button", { name: "Opponent goal" }));
     await user.click(screen.getByRole("button", { name: "Record Substitution" }));
     await user.selectOptions(screen.getByLabelText("Substitution Position"), "Centre");
     await user.selectOptions(screen.getByLabelText("Substitution Player"), players[7].id);
@@ -313,12 +313,12 @@ describe("Natball Insights setup", () => {
     expect(await screen.findByText("Roses 1 — Thunder 1")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Hana" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Quarter 1 event feed" })).toBeInTheDocument();
-    expect(screen.getAllByText("Opposition goal")).toHaveLength(2);
+    expect(screen.getAllByText("Opponent goal")).toHaveLength(2);
     expect(screen.getByText((_, element) => element?.textContent === "Faye · GA · Goals")).toBeInTheDocument();
     expect(screen.getByText("GA")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Correct event" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Remove event" })).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "Undo last event" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
     expect(await screen.findByText("Roses 1 — Thunder 1")).toBeInTheDocument();
   });
 
@@ -333,7 +333,7 @@ describe("Natball Insights setup", () => {
     render(<App store={store} />);
 
     expect(await screen.findByRole("heading", { name: "Roses 0 — Thunder 0" })).toBeInTheDocument();
-    expect(screen.getByText("Quarter score: Roses 0 — Thunder 0")).toBeInTheDocument();
+    expect(screen.getByText("Quarter: Roses 0 — Thunder 0")).toBeInTheDocument();
     expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(8);
     expect(screen.getByRole("button", { name: "Record Goals for Faye" })).toHaveTextContent("◎");
     expect(screen.queryByText("Quarter 1 review")).not.toBeInTheDocument();
@@ -348,6 +348,26 @@ describe("Natball Insights setup", () => {
     await user.click(screen.getByRole("button", { name: "Live Match" }));
     expect(await screen.findByRole("button", { name: "End quarter" })).toBeInTheDocument();
     expect(session.match(game.id)?.status).toBe("live");
+  });
+
+  it("uses the latest event to open the live event-feed drawer for correction or removal", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
+    const game = await startLiveMatch(session, season.id, opposition.id, players);
+    const user = userEvent.setup();
+    render(<App store={store} />);
+
+    await user.click(await screen.findByRole("button", { name: "Record Goals for Faye" }));
+    await user.click(screen.getByText("Event feed · Faye · GA · Goals"));
+    await user.click(screen.getByRole("button", { name: "Correct event" }));
+    await user.selectOptions(screen.getByLabelText("Event correction statistic"), "Misses");
+    await user.click(screen.getByRole("button", { name: "Save event correction" }));
+
+    expect(await screen.findByText((_, element) => element?.textContent === "Faye · GA · Misses")).toBeInTheDocument();
+    expect(session.liveQuarter(game.id).ownScore).toBe(0);
   });
 
   it("requires confirmation before abandoning a live Match", async () => {
@@ -387,7 +407,7 @@ describe("Natball Insights setup", () => {
     const user = userEvent.setup();
     render(<App store={store} />);
 
-    await screen.findByText("Quarter 2 is live");
+    await screen.findByText("LIVE MATCH · QUARTER 2");
     expect(screen.queryByText("Quarter 1 review")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "History" }));
     expect(await screen.findByRole("heading", { name: "Match history" })).toBeInTheDocument();
