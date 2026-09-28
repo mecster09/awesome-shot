@@ -128,8 +128,8 @@ export function App({ store }: AppProps) {
       <SeasonForm team={setup.teams.at(-1)!} onSubmit={(input) => perform(async () => { await session.createSeason(input); setMatchView(undefined); })} />
     </section>}
 
-    {currentView.kind === "settings" && <section className="match-area focused-screen settings-root" aria-labelledby="settings-title"><p className="eyebrow">COACH SETTINGS</p><h2 id="settings-title">Settings</h2><p>Manage your Season and protect your offline data.</p><div className="settings-root-actions">{activeSeason && <button type="button" className="text-button" disabled={Boolean(liveMatch)} onClick={() => setMatchView({ kind: "settings-section", section: "season" })}>End season</button>}<button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "backup" })}>Backup & restore</button></div></section>}
-    {currentView.kind === "settings-section" && <section className="match-area focused-screen" aria-labelledby="settings-section-title"><div className="section-heading"><h2 id="settings-section-title">{currentView.section === "season" ? "End season" : "Backup & restore"}</h2><button className="text-button" onClick={() => setMatchView({ kind: "settings" })}>Back to Settings</button></div>{currentView.section === "season" && activeSeason && !liveMatch && <EndSeasonControl season={activeSeason} onConfirm={() => perform(async () => { await session.endSeason(activeSeason.id); setMatchView(undefined); })} />}{currentView.section === "backup" && <BackupCard exportBackup={() => session.exportBackup()} onImport={(serialized, mode, confirmed) => perform(() => session.importBackup(serialized, mode, confirmed))} />}</section>}
+    {currentView.kind === "settings" && <section className="match-area focused-screen settings-root" aria-labelledby="settings-title"><p className="eyebrow">COACH SETTINGS</p><h2 id="settings-title">Settings</h2><p>Manage your Season and protect your offline data.</p><section className="settings-group" aria-labelledby="season-settings-title"><h3 id="season-settings-title">Season</h3><div className="settings-root-actions">{activeSeason && <button type="button" className="text-button" disabled={Boolean(liveMatch)} onClick={() => setMatchView({ kind: "settings-section", section: "season" })}>End season</button>}</div></section><section className="settings-group" aria-labelledby="data-settings-title"><h3 id="data-settings-title">Data</h3><div className="settings-root-actions"><button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "backup" })}>Backup & restore</button></div></section></section>}
+    {currentView.kind === "settings-section" && <section className="match-area focused-screen" aria-labelledby="settings-section-title"><div className="section-heading"><h2 id="settings-section-title">{currentView.section === "season" ? "End season" : "Backup & restore"}</h2><button className="text-button" onClick={() => setMatchView({ kind: "settings" })}>Back to Settings</button></div>{currentView.section === "season" && activeSeason && !liveMatch && <EndSeasonControl season={activeSeason} onConfirm={() => perform(async () => { await session.endSeason(activeSeason.id); setMatchView(undefined); })} />}{currentView.section === "backup" && <BackupCard exportBackup={() => session.exportBackup()} onImport={(serialized, mode, confirmed) => perform(async () => { await session.importBackup(serialized, mode, confirmed); if (mode === "replace") setUnsavedCourts({}); })} />}</section>}
 
     {currentView.kind === "no-match" && <section className="match-area focused-screen no-match-screen" aria-labelledby="no-match-title"><p className="eyebrow">SETUP MATCH</p><h2 id="no-match-title">No Match in progress</h2><p>Start a Match when you are ready to add an Opponent and date.</p><button type="button" onClick={() => setMatchView({ kind: "match-identity" })}>Set up a Match</button></section>}
 
@@ -258,8 +258,8 @@ function SeasonForm({ team, onSubmit }: { team: SetupSummary["teams"][number]; o
 }
 
 function EndSeasonControl({ season, onConfirm }: { season: { name: string }; onConfirm: () => Promise<void> }) {
-  const [confirmed, setConfirmed] = useState(false);
-  return <div className="season-ending"><p><strong>{season.name}</strong> is active. End it only after every match is terminal; ended seasons remain readable.</p><label><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /> I understand ending this season makes it read-only.</label><button className="secondary-button" disabled={!confirmed} onClick={() => void onConfirm()}>Confirm end season</button></div>;
+  const [confirming, setConfirming] = useState(false);
+  return <div className="season-ending"><p><strong>{season.name}</strong> is active. End it only after every Match is terminal; ended seasons remain readable.</p>{confirming ? <DestructiveConfirmation title="End this Season?" description={`End ${season.name}? This makes the Season read-only and cannot be undone.`} cancelLabel="Keep season active" confirmLabel="Confirm end season" onCancel={() => setConfirming(false)} onConfirm={onConfirm} /> : <button className="secondary-button" onClick={() => setConfirming(true)}>End season</button>}</div>;
 }
 
 function PlayerForm({ onSubmit }: { onSubmit: (input: { name: string; nickname?: string }) => Promise<void> }) {
@@ -375,13 +375,22 @@ function TerminalMatchCard({ report, onBack }: { report: TerminalMatchReport; on
 function BackupCard({ exportBackup, onImport }: { exportBackup: () => string; onImport: (serialized: string, mode: "merge" | "replace", confirmed: boolean) => Promise<void> }) {
   const [serialized, setSerialized] = useState("");
   const [mode, setMode] = useState<"merge" | "replace">("merge");
-  const [confirmed, setConfirmed] = useState(false);
+  const [confirmingReplacement, setConfirmingReplacement] = useState(false);
+  const completeImport = async (confirmed: boolean) => {
+    await onImport(serialized, mode, confirmed);
+    setSerialized("");
+    setConfirmingReplacement(false);
+  };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    await onImport(serialized, mode, confirmed);
-    setSerialized(""); setConfirmed(false);
+    if (mode === "replace") setConfirmingReplacement(true);
+    else await completeImport(false);
   };
-  return <section className="setup-card" aria-labelledby="backup-title"><div><h2 id="backup-title">Protect your data</h2><p>Download one backup for every saved season, lookup, match, statistic, court, and result.</p></div><button className="secondary-button" onClick={() => download("natball-insights-backup.json", "application/json", exportBackup())}>Download backup</button><form onSubmit={(event) => void submit(event)}><label>Backup data<textarea aria-label="Backup data" value={serialized} onChange={(event) => setSerialized(event.target.value)} placeholder="Paste a Natball Insights backup" /></label><label>Import mode<select aria-label="Import mode" value={mode} onChange={(event) => setMode(event.target.value as "merge" | "replace")}><option value="merge">Merge - keep current data</option><option value="replace">Replace all local data</option></select></label>{mode === "replace" && <label><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /> I understand this permanently replaces local data.</label>}<button type="submit">Import backup</button></form></section>;
+  return <section className="setup-card" aria-labelledby="backup-title"><div><h2 id="backup-title">Protect your data</h2><p>Download one backup for every saved season, lookup, Match, statistic, Court, and result.</p></div><button className="secondary-button" onClick={() => download("natball-insights-backup.json", "application/json", exportBackup())}>Download backup</button><form onSubmit={(event) => void submit(event)}><label>Backup data<textarea aria-label="Backup data" value={serialized} onChange={(event) => setSerialized(event.target.value)} placeholder="Paste a Natball Insights backup" /></label><label>Import mode<select aria-label="Import mode" value={mode} onChange={(event) => setMode(event.target.value as "merge" | "replace")}><option value="merge">Merge - keep current data</option><option value="replace">Replace all local data</option></select></label><button type="submit">Import backup</button></form>{confirmingReplacement && <DestructiveConfirmation title="Replace local data?" description="Replace all local data with this backup? Any unsaved Court selection will be discarded." cancelLabel="Keep local data" confirmLabel="Confirm replacement" onCancel={() => setConfirmingReplacement(false)} onConfirm={() => completeImport(true)} />}</section>;
+}
+
+function DestructiveConfirmation({ title, description, cancelLabel, confirmLabel, onCancel, onConfirm }: { title: string; description: string; cancelLabel: string; confirmLabel: string; onCancel: () => void; onConfirm: () => Promise<void> }) {
+  return <div className="destructive-confirmation" role="alertdialog" aria-modal="true" aria-label={title}><div className="destructive-confirmation-card"><h3>{title}</h3><p>{description}</p><div className="destructive-confirmation-actions"><button type="button" className="secondary-button" onClick={onCancel}>{cancelLabel}</button><button type="button" onClick={() => void onConfirm()}>{confirmLabel}</button></div></div></div>;
 }
 
 function LiveQuarterCard({ game, setup, capture, actions, onOpenHistory }: { game: Game; setup: SetupSummary; capture: LiveQuarterCapture; actions: MatchActions; onOpenHistory: () => void }) {
@@ -395,7 +404,7 @@ function LiveQuarterCard({ game, setup, capture, actions, onOpenHistory }: { gam
 
 function AbandonMatchAction({ onAbandon }: { onAbandon: () => Promise<void> }) {
   const [confirming, setConfirming] = useState(false);
-  return <div className="overflow-actions">{confirming ? <div className="destructive-confirmation" role="alertdialog" aria-label="Abandon this Match?"><p>Abandon this Match? Its recorded score and statistics will be kept, but it cannot be resumed.</p><button className="secondary-button" onClick={() => setConfirming(false)}>Keep recording</button><button onClick={() => void onAbandon()}>Confirm abandonment</button></div> : <button className="secondary-button" onClick={() => setConfirming(true)}>Abandon match</button>}</div>;
+  return <div className="overflow-actions">{confirming ? <DestructiveConfirmation title="Abandon this Match?" description="Its recorded score and statistics will be kept, but it cannot be resumed." cancelLabel="Keep recording" confirmLabel="Confirm abandonment" onCancel={() => setConfirming(false)} onConfirm={onAbandon} /> : <button className="secondary-button" onClick={() => setConfirming(true)}>Abandon match</button>}</div>;
 }
 
 function QuarterReview({ quarters, players, onDeleteAction, onCorrectAction }: { quarters: { number: QuarterNumber; captureActions: CaptureAction[] }[]; players: { id: string; name: string; nickname?: string }[]; onDeleteAction: (quarter: QuarterNumber, actionId: string) => Promise<void>; onCorrectAction: (quarter: QuarterNumber, actionId: string, correction: { playerId: string; position: Position; statistic: PlayerStatistic }) => Promise<void> }) {
