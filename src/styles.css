@@ -45,7 +45,7 @@ form { display: grid; gap: 13px; margin-top: 20px; }
 .settings-root-actions .text-button:last-child { border-bottom: 0; }
 .focused-screen { min-height: min(620px, calc(100vh - 150px)); display: flex; flex-direction: column; }
 .setup-screen { height: min(620px, calc(100vh - 150px)); overflow: hidden; }
-.setup-form { display: flex; flex: 1; flex-direction: column; }
+.setup-form { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 .primary-action-bar { position: sticky; bottom: calc(88px + env(safe-area-inset-bottom)); z-index: 2; margin-top: auto; padding-top: 16px; background: linear-gradient(to bottom, rgb(255 255 255 / 0), #fff 30%); }
 .primary-action-bar button { width: 100%; min-height: 48px; }
 .primary-action-bar button:disabled { cursor: not-allowed; background: #c7c7cc; box-shadow: none; }
