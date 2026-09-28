@@ -15,6 +15,7 @@ describe("Natball Insights setup", () => {
     expect(await screen.findByRole("heading", { name: "Team Setup" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Season Setup" })).not.toBeInTheDocument();
     const saveTeam = screen.getByRole("button", { name: "Save team" });
+    expect(screen.getByRole("group", { name: "Primary action" })).toContainElement(saveTeam);
     expect(saveTeam).toBeDisabled();
 
     await user.type(screen.getByLabelText("Team name"), "Roses");
@@ -182,6 +183,26 @@ describe("Natball Insights setup", () => {
     rendered.unmount();
     render(<App store={store} />);
     expect(await screen.findByText("Quarter 1 is live")).toBeInTheDocument();
+  });
+
+  it("uses a searchable Player picker with selected Squad chips and a persistent primary action", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye"].map((name) => session.addPlayer({ name })));
+    await session.advanceToMatchSquad({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26" });
+    const user = userEvent.setup();
+    render(<App store={store} />);
+
+    const search = await screen.findByRole("searchbox", { name: "Search players" });
+    await user.type(search, "Ava");
+    expect(screen.getByLabelText("Ava")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Bea")).not.toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("Ava"));
+    expect(screen.getByRole("button", { name: "Remove Ava from Match Squad" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Primary action" })).toContainElement(screen.getByRole("button", { name: "Continue to Court Setup" }));
   });
 
   it("reopens a persisted live match after an interruption", async () => {
