@@ -58,13 +58,13 @@ form { display: grid; gap: 13px; margin-top: 20px; }
 .setup-form .player-picker-results { flex: 1; min-height: 96px; max-height: none; }
 .player-check { min-height: 48px; border-color: #e5e5ea; border-radius: 16px; background: #fff; }
 .picker-empty { margin: 0; color: #636366; }
-.quarter-planner { display: flex; flex-direction: column; min-height: min(620px, calc(100vh - 150px)); }
+.quarter-planner { display: flex; flex-direction: column; height: calc(100vh - 150px); min-height: 0; overflow: hidden; }
 .quarter-planner-bento { display: grid; grid-template-columns: minmax(0, 3fr) minmax(260px, 2fr); flex: 1; min-height: 0; gap: 16px; margin-top: 18px; }
 .quarter-court, .quarter-statistics { min-width: 0; padding: 16px; border: 1px solid #e5e5ea; border-radius: 16px; background: #fff; }
 .quarter-court h3, .quarter-statistics h3 { margin-top: 0; }
 .quarter-statistics { overflow: auto; }
 .quarter-planner .primary-action-bar { bottom: calc(88px + env(safe-area-inset-bottom)); }
-@media (max-width: 760px) { .quarter-planner { height: calc(100vh - 150px); min-height: 0; overflow: hidden; }.quarter-planner-bento { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }.quarter-court .lineup-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.quarter-statistics { max-height: none; overflow: auto; } }
+@media (max-width: 760px) { .quarter-planner-bento { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }.quarter-court .lineup-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.quarter-statistics { max-height: none; overflow: auto; } }
 @media (max-width: 760px) { .player-picker-results { grid-template-columns: 1fr; }.focused-screen { min-height: calc(100vh - 150px); }.setup-screen { height: calc(100vh - 150px); } }
 @media (min-width: 1024px) {
   .app-shell { display: grid; grid-template-columns: 184px minmax(0, 1fr); align-items: start; gap: clamp(28px, 4vw, 56px); padding: 28px clamp(28px, 5vw, 72px); }
@@ -76,7 +76,7 @@ form { display: grid; gap: 13px; margin-top: 20px; }
   .no-match-screen { min-height: calc(100vh - 56px); }
   .focused-screen { min-height: calc(100vh - 56px); }
   .setup-screen { height: calc(100vh - 56px); }
-  .quarter-planner { min-height: calc(100vh - 56px); }
+  .quarter-planner { height: calc(100vh - 56px); }
   .quarter-planner .primary-action-bar { bottom: 16px; }
   .primary-action-bar { bottom: 16px; }
 }
