@@ -64,7 +64,7 @@ form { display: grid; gap: 13px; margin-top: 20px; }
 .quarter-court h3, .quarter-statistics h3 { margin-top: 0; }
 .quarter-statistics { overflow: auto; }
 .quarter-planner .primary-action-bar { bottom: calc(88px + env(safe-area-inset-bottom)); }
-@media (max-width: 760px) { .quarter-planner-bento { grid-template-columns: 1fr; overflow: auto; }.quarter-statistics { max-height: 210px; } }
+@media (max-width: 760px) { .quarter-planner-bento { grid-template-columns: 1fr; }.quarter-statistics { max-height: 210px; overflow: auto; } }
 @media (max-width: 760px) { .player-picker-results { grid-template-columns: 1fr; }.focused-screen { min-height: calc(100vh - 150px); }.setup-screen { height: calc(100vh - 150px); } }
 @media (min-width: 1024px) {
   .app-shell { display: grid; grid-template-columns: 184px minmax(0, 1fr); align-items: start; gap: clamp(28px, 4vw, 56px); padding: 28px clamp(28px, 5vw, 72px); }

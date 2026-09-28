@@ -67,6 +67,7 @@ export function App({ store }: AppProps) {
   const [message, setMessage] = useState("Preparing your offline workspace…");
   const [error, setError] = useState<string>();
   const [matchView, setMatchView] = useState<MatchView>();
+  const [unsavedCourts, setUnsavedCourts] = useState<Record<string, StartingLineup>>({});
 
   useEffect(() => {
     void GameSession.open(gameSessionStore)
@@ -150,18 +151,29 @@ export function App({ store }: AppProps) {
       />
     </section>}
     {currentView.kind === "match-squad" && matchSquadDraft && <section className="match-area focused-screen setup-screen" aria-labelledby="match-squad-title"><p className="eyebrow">MATCH SETUP · STAGE 4</p><h2 id="match-squad-title">Match Squad</h2><p>{matchSquadDraft.date} · {setup.opposition.find((opposition) => opposition.id === matchSquadDraft.oppositionId)?.name}</p><MatchSquadForm players={setup.players} selectedPlayerIds={matchSquadDraft.squadPlayerIds ?? []} onAddPlayer={async (input) => { const player = await session.addPlayer(input); refresh(); return player; }} onSave={(squadPlayerIds) => perform(async () => { await session.saveMatchSquad({ ...matchSquadDraft, squadPlayerIds }); })} onProceed={(squadPlayerIds) => perform(async () => { await session.advanceToCourtSetup({ ...matchSquadDraft, squadPlayerIds }); setMatchView({ kind: "court-setup" }); })} /></section>}
-    {currentView.kind === "court-setup" && courtSetupDraft && <QuarterSetupCard match={courtSetupDraft} startingLineup={{}} quarterNumber={1} setup={setup} onStart={(startingLineup) => perform(async () => {
-        const game = await session.startMatch({ ...courtSetupDraft, startingLineup });
-        setMatchView({ kind: "game", gameId: game.id });
-      })} />}
+    {currentView.kind === "court-setup" && courtSetupDraft && <QuarterSetupCard match={courtSetupDraft} startingLineup={unsavedCourts["court-setup"] ?? {}} quarterNumber={1} setup={setup} onLineupChange={(lineup) => setUnsavedCourts((courts) => ({ ...courts, "court-setup": lineup }))} onStart={async (startingLineup) => {
+        let started = false;
+        await perform(async () => {
+          const game = await session.startMatch({ ...courtSetupDraft, startingLineup });
+          started = true;
+          setMatchView({ kind: "game", gameId: game.id });
+        });
+        if (started) setUnsavedCourts((courts) => { const { "court-setup": _, ...remaining } = courts; return remaining; });
+      }} />}
       {currentView?.kind === "next-quarter-setup" && (() => {
         const game = session.match(currentView.gameId);
         if (!game) return null;
         const quarterNumber = (game.quarters?.length ?? 0) + 1;
-        return <QuarterSetupCard match={game} startingLineup={currentView.startingLineup} quarterNumber={quarterNumber} setup={setup} statistics={session.betweenQuarterStatistics(game.id)} onStart={(startingLineup) => perform(async () => {
-          await session.startNextQuarter(game.id, startingLineup);
-          setMatchView({ kind: "game", gameId: game.id });
-        })} />;
+        const courtKey = `${game.id}:${quarterNumber}`;
+        return <QuarterSetupCard match={game} startingLineup={unsavedCourts[courtKey] ?? currentView.startingLineup} quarterNumber={quarterNumber} setup={setup} statistics={session.betweenQuarterStatistics(game.id)} onLineupChange={(lineup) => setUnsavedCourts((courts) => ({ ...courts, [courtKey]: lineup }))} onStart={async (startingLineup) => {
+          let started = false;
+          await perform(async () => {
+            await session.startNextQuarter(game.id, startingLineup);
+            started = true;
+            setMatchView({ kind: "game", gameId: game.id });
+          });
+          if (started) setUnsavedCourts((courts) => { const { [courtKey]: _, ...remaining } = courts; return remaining; });
+        }} />;
       })()}
       {currentView?.kind === "history" && <MatchHistory games={session.matches()} setup={setup} onOpen={(gameId) => setMatchView({ kind: "game", gameId })} />}
       {session.matches().map((game) => currentView?.kind === "game" && currentView.gameId === game.id && <MatchCard
@@ -328,15 +340,15 @@ function MatchSquadForm({ players, selectedPlayerIds, onAddPlayer, onSave, onPro
   </form>;
 }
 
-function QuarterSetupCard({ match, startingLineup, quarterNumber, setup, statistics, onStart }: { match: Pick<StartMatchInput, "date" | "oppositionId" | "squadPlayerIds">; startingLineup: StartingLineup; quarterNumber: number; setup: SetupSummary; statistics?: BetweenQuarterStatistics; onStart: (startingLineup: StartingLineup) => Promise<void> }) {
+function QuarterSetupCard({ match, startingLineup, quarterNumber, setup, statistics, onLineupChange, onStart }: { match: Pick<StartMatchInput, "date" | "oppositionId" | "squadPlayerIds">; startingLineup: StartingLineup; quarterNumber: number; setup: SetupSummary; statistics?: BetweenQuarterStatistics; onLineupChange: (lineup: StartingLineup) => void; onStart: (startingLineup: StartingLineup) => Promise<void> }) {
   const [lineup, setLineup] = useState<StartingLineup>(startingLineup);
   const squad = setup.players.filter((player) => match.squadPlayerIds.includes(player.id));
   const canStart = Object.values(lineup).filter(Boolean).length >= 5 && new Set(Object.values(lineup).filter(Boolean)).size === Object.values(lineup).filter(Boolean).length;
-  const updatePosition = (position: Position, playerId: string) => setLineup((current) => {
-    if (playerId) return { ...current, [position]: playerId };
-    const { [position]: _, ...remaining } = current;
-    return remaining;
-  });
+  const updatePosition = (position: Position, playerId: string) => {
+    const next = playerId ? { ...lineup, [position]: playerId } : (() => { const { [position]: _, ...remaining } = lineup; return remaining; })();
+    setLineup(next);
+    onLineupChange(next);
+  };
   const availablePlayers = (position: Position) => squad.filter((player) => !Object.entries(lineup).some(([assignedPosition, playerId]) => assignedPosition !== position && playerId === player.id));
   return <section className="draft-card quarter-planner" aria-labelledby="quarter-setup-title"><div className="draft-heading"><div><p className="eyebrow">QUARTER SETUP</p><h2 id="quarter-setup-title">Set up Quarter {quarterNumber} Court</h2><p>{match.date} · {setup.opposition.find((opposition) => opposition.id === match.oppositionId)?.name}</p></div></div><div className="quarter-planner-bento"><div className="quarter-court"><h3>Next Court</h3><div className="lineup-grid">{POSITIONS.map((position) => <label key={position}>{position}<select aria-label={position} value={lineup[position] ?? ""} onChange={(event) => updatePosition(position, event.target.value)}><option value="">Vacant position</option>{availablePlayers(position).map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label>)}</div></div><aside className="quarter-statistics">{statistics ? <BetweenQuarterStatisticsPanel statistics={statistics} players={setup.players} /> : <><h3>Previous quarter statistics</h3><p>Statistics will be available after Quarter 1.</p></>}</aside></div><PrimaryActionBar><button disabled={!canStart} onClick={() => void onStart(lineup)}>{quarterNumber === 1 ? "Start Match" : `Start Quarter ${quarterNumber}`}</button></PrimaryActionBar></section>;
 }
