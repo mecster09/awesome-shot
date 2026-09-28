@@ -87,10 +87,8 @@ describe("Natball Insights setup", () => {
     await user.click(screen.getByRole("button", { name: "Settings" }));
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "End season" }));
-    const endSeason = screen.getByRole("button", { name: "Confirm end season" });
-    expect(endSeason).toBeDisabled();
-    await user.click(screen.getByLabelText("I understand ending this season makes it read-only."));
-    await user.click(endSeason);
+    await user.click(screen.getByRole("button", { name: "End season" }));
+    await user.click(screen.getByRole("button", { name: "Confirm end season" }));
 
     await user.click(await screen.findByRole("button", { name: "Match History" }));
     await user.click(screen.getByRole("button", { name: "Setup Match" }));
@@ -98,6 +96,31 @@ describe("Natball Insights setup", () => {
     expect(screen.getByText("Roses")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Create season" }));
     expect(await screen.findByRole("heading", { name: "No Match in progress" })).toBeInTheDocument();
+  });
+
+  it("uses explicit destructive confirmations for ending a Season and replacing local data", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const user = userEvent.setup();
+    render(<App store={store} />);
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "End season" }));
+    await user.click(screen.getByRole("button", { name: "End season" }));
+    expect(screen.getByRole("alertdialog", { name: "End this Season?" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Keep season active" }));
+    expect(session.setup().seasons[0].status).toBe("active");
+
+    await user.click(screen.getByRole("button", { name: "Back to Settings" }));
+    await user.click(screen.getByRole("button", { name: "Backup & restore" }));
+    await user.selectOptions(screen.getByLabelText("Import mode"), "replace");
+    await user.click(screen.getByLabelText("Backup data"));
+    await user.paste(session.exportBackup());
+    await user.click(screen.getByRole("button", { name: "Import backup" }));
+    expect(screen.getByRole("alertdialog", { name: "Replace local data?" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Keep local data" }));
+    expect(session.setup().seasons).toHaveLength(1);
   });
 
   it("keeps secondary lifecycle and recovery actions in Coach navigation", async () => {
