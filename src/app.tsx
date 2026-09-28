@@ -6,7 +6,7 @@ import { createMatchCsv, createMatchPdf } from "./reports";
 import "./styles.css";
 
 type AppProps = { store?: GameSessionStore };
-type MatchView = { kind: "team-setup" } | { kind: "season-setup" } | { kind: "no-match" } | { kind: "match-identity" } | { kind: "match-squad" } | { kind: "court-setup" } | { kind: "settings"; section: "season" | "backup" } | { kind: "history"; returnToGameId?: string } | { kind: "next-quarter-setup"; gameId: string; startingLineup: StartingLineup } | { kind: "game"; gameId: string };
+type MatchView = { kind: "team-setup" } | { kind: "season-setup" } | { kind: "no-match" } | { kind: "match-identity" } | { kind: "match-squad" } | { kind: "court-setup" } | { kind: "settings" } | { kind: "settings-section"; section: "season" | "backup" } | { kind: "history" } | { kind: "next-quarter-setup"; gameId: string; startingLineup: StartingLineup } | { kind: "game"; gameId: string };
 type MatchActions = {
   recordPlayerStatistic: (position: Position, statistic: PlayerStatistic) => Promise<void>;
   recordOppositionGoal: () => Promise<void>;
@@ -101,7 +101,7 @@ export function App({ store }: AppProps) {
   const courtSetupDraft = setup.matchSetupDraft?.stage === "court-setup" ? setup.matchSetupDraft : undefined;
   const currentView = deriveCurrentView({ matchView, setup, liveMatch, nextQuarterCourt: (gameId) => session.nextQuarterCourt(gameId) });
   const primaryNavigationLabel = liveMatch ? "Live Match" : "Setup Match";
-  const navigationView = currentView.kind === "game" || currentView.kind === "next-quarter-setup" ? "match" : currentView.kind === "history" ? "history" : currentView.kind === "settings" ? "settings" : undefined;
+  const navigationView = currentView.kind === "game" || currentView.kind === "next-quarter-setup" ? "match" : currentView.kind === "history" ? "history" : currentView.kind === "settings" || currentView.kind === "settings-section" ? "settings" : undefined;
 
   return <main className="app-shell">
     <CoachNavigation
@@ -109,7 +109,7 @@ export function App({ store }: AppProps) {
       primaryLabel={primaryNavigationLabel}
       onOpenMatch={() => setMatchView(undefined)}
       onOpenHistory={() => setMatchView({ kind: "history" })}
-      onOpenSettings={() => setMatchView({ kind: "settings", section: activeSeason && !liveMatch ? "season" : "backup" })}
+      onOpenSettings={() => setMatchView({ kind: "settings" })}
     />
     <div className="app-content">
     {error && <p className="error" role="alert">{error}</p>}
@@ -127,7 +127,8 @@ export function App({ store }: AppProps) {
       <SeasonForm team={setup.teams.at(-1)!} onSubmit={(input) => perform(async () => { await session.createSeason(input); setMatchView(undefined); })} />
     </section>}
 
-    {currentView.kind === "settings" && <section className="match-area focused-screen" aria-labelledby="settings-title"><div className="section-heading"><h2 id="settings-title">{currentView.section === "season" ? "End season" : "Backup & restore"}</h2><button className="text-button" onClick={() => setMatchView(undefined)}>Back</button></div>{currentView.section === "season" && activeSeason && !liveMatch && <EndSeasonControl season={activeSeason} onConfirm={() => perform(async () => { await session.endSeason(activeSeason.id); setMatchView(undefined); })} />}{currentView.section === "backup" && <BackupCard exportBackup={() => session.exportBackup()} onImport={(serialized, mode, confirmed) => perform(() => session.importBackup(serialized, mode, confirmed))} />}</section>}
+    {currentView.kind === "settings" && <section className="match-area focused-screen settings-root" aria-labelledby="settings-title"><p className="eyebrow">COACH SETTINGS</p><h2 id="settings-title">Settings</h2><p>Manage your Season and protect your offline data.</p><div className="settings-root-actions">{activeSeason && <button type="button" className="text-button" disabled={Boolean(liveMatch)} onClick={() => setMatchView({ kind: "settings-section", section: "season" })}>End season</button>}<button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "backup" })}>Backup & restore</button></div></section>}
+    {currentView.kind === "settings-section" && <section className="match-area focused-screen" aria-labelledby="settings-section-title"><div className="section-heading"><h2 id="settings-section-title">{currentView.section === "season" ? "End season" : "Backup & restore"}</h2><button className="text-button" onClick={() => setMatchView({ kind: "settings" })}>Back to Settings</button></div>{currentView.section === "season" && activeSeason && !liveMatch && <EndSeasonControl season={activeSeason} onConfirm={() => perform(async () => { await session.endSeason(activeSeason.id); setMatchView(undefined); })} />}{currentView.section === "backup" && <BackupCard exportBackup={() => session.exportBackup()} onImport={(serialized, mode, confirmed) => perform(() => session.importBackup(serialized, mode, confirmed))} />}</section>}
 
     {currentView.kind === "no-match" && <section className="match-area focused-screen no-match-screen" aria-labelledby="no-match-title"><p className="eyebrow">SETUP MATCH</p><h2 id="no-match-title">No Match in progress</h2><p>Start a Match when you are ready to add an Opponent and date.</p><button type="button" onClick={() => setMatchView({ kind: "match-identity" })}>Set up a Match</button></section>}
 
@@ -162,7 +163,7 @@ export function App({ store }: AppProps) {
           setMatchView({ kind: "game", gameId: game.id });
         })} />;
       })()}
-      {currentView?.kind === "history" && <MatchHistory games={session.matches()} setup={setup} backLabel={currentView.returnToGameId ? "Back to Match Centre" : activeSeason ? "Back to Match Setup" : "Back to Season Setup"} onBack={() => setMatchView(currentView.returnToGameId ? { kind: "game", gameId: currentView.returnToGameId } : undefined)} onOpen={(gameId) => setMatchView({ kind: "game", gameId })} />}
+      {currentView?.kind === "history" && <MatchHistory games={session.matches()} setup={setup} onOpen={(gameId) => setMatchView({ kind: "game", gameId })} />}
       {session.matches().map((game) => currentView?.kind === "game" && currentView.gameId === game.id && <MatchCard
         key={game.id}
         game={game}
@@ -185,7 +186,7 @@ export function App({ store }: AppProps) {
           deleteQuarterAction: (quarter, actionId) => perform(() => session.deleteCaptureAction(game.id, quarter, actionId)),
           correctQuarterPlayerStatistic: (quarter, actionId, correction) => perform(() => session.correctPlayerStatistic(game.id, quarter, actionId, correction))
         }}
-        onOpenHistory={() => setMatchView({ kind: "history", returnToGameId: game.id })}
+        onOpenHistory={() => setMatchView({ kind: "history" })}
       />)}
     </div>
   </main>;
@@ -214,8 +215,8 @@ function NavigationIcon({ name }: { name: "court" | "history" | "settings" }) {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a7 7 0 0 0-1.7-1L14.5 3h-5l-.4 3.1a7 7 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.5a7 7 0 0 0 0 2L3 14.5l2 3.4 2.4-1a7 7 0 0 0 1.7 1l.4 3.1h5l.4-3.1a7 7 0 0 0 1.7-1l2.4 1 2-3.4-2-1.5c.1-.3.1-.7.1-1Z" /></svg>;
 }
 
-function MatchHistory({ games, setup, backLabel, onBack, onOpen }: { games: Game[]; setup: SetupSummary; backLabel: string; onBack: () => void; onOpen: (gameId: string) => void }) {
-  return <section className="match-area focused-screen" aria-labelledby="match-history-title"><div className="section-heading"><div><p className="eyebrow">MATCH HISTORY</p><h2 id="match-history-title">Match history</h2></div><button className="text-button" onClick={onBack}>{backLabel}</button></div><ul className="match-list" aria-label="Saved matches">{games.map((game) => <li key={game.id}><span><strong>{game.date}</strong> · {setup.opposition.find((opposition) => opposition.id === game.oppositionId)?.name}</span><button className="text-button" onClick={() => onOpen(game.id)}>{game.status === "live" ? "View live match" : "View match record"}</button></li>)}</ul></section>;
+function MatchHistory({ games, setup, onOpen }: { games: Game[]; setup: SetupSummary; onOpen: (gameId: string) => void }) {
+  return <section className="match-area focused-screen" aria-labelledby="match-history-title"><div className="section-heading"><div><p className="eyebrow">MATCH HISTORY</p><h2 id="match-history-title">Match history</h2></div></div><ul className="match-list" aria-label="Saved matches">{games.map((game) => <li key={game.id}><span><strong>{game.date}</strong> · {setup.opposition.find((opposition) => opposition.id === game.oppositionId)?.name}</span><button className="text-button" onClick={() => onOpen(game.id)}>{game.status === "live" ? "View live match" : "View match record"}</button></li>)}</ul></section>;
 }
 
 function TeamForm({ onSubmit }: { onSubmit: (input: { name: string }) => Promise<void> }) {

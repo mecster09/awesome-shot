@@ -84,13 +84,15 @@ describe("Natball Insights setup", () => {
     await user.click(screen.getByRole("button", { name: "Create season" }));
 
     await user.click(screen.getByRole("button", { name: "Settings" }));
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "End season" }));
     const endSeason = screen.getByRole("button", { name: "Confirm end season" });
     expect(endSeason).toBeDisabled();
     await user.click(screen.getByLabelText("I understand ending this season makes it read-only."));
     await user.click(endSeason);
 
     await user.click(await screen.findByRole("button", { name: "Match History" }));
-    await user.click(screen.getByRole("button", { name: "Back to Season Setup" }));
+    await user.click(screen.getByRole("button", { name: "Setup Match" }));
     await user.type(await screen.findByLabelText("Season name"), "2027 Winter");
     expect(screen.getByText("Roses")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Create season" }));
@@ -108,6 +110,8 @@ describe("Natball Insights setup", () => {
     render(<App store={store} />);
 
     await user.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Backup & restore" }));
     expect(screen.getByRole("heading", { name: "Backup & restore" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Match History" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open menu" })).not.toBeInTheDocument();
@@ -297,7 +301,7 @@ describe("Natball Insights setup", () => {
     await user.click(screen.getByRole("button", { name: "History" }));
     expect(await screen.findByRole("heading", { name: "Match history" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "End quarter" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Back to Match Centre" }));
+    await user.click(screen.getByRole("button", { name: "Live Match" }));
     expect(await screen.findByRole("button", { name: "End quarter" })).toBeInTheDocument();
     expect(session.match(game.id)?.status).toBe("live");
   });
