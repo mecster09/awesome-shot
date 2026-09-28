@@ -1,11 +1,13 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./app";
 import { GameSession } from "./game-session/game-session";
 import { InMemoryGameSessionStore } from "./game-session/in-memory-game-session-store";
 
 const startLiveMatch = (session: GameSession, seasonId: string, oppositionId: string, players: Array<{ id: string }>) => session.startMatch({ seasonId, oppositionId, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id), startingLineup: { "Goal Keeper": players[0].id, "Goal Defence": players[1].id, "Wing Defence": players[2].id, Centre: players[3].id, "Wing Attack": players[4].id, "Goal Attack": players[5].id, "Goal Shooter": players[6].id } });
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("Natball Insights setup", () => {
   it("shows only Team Setup on first launch and advances to Season Setup after saving a Team", async () => {
@@ -49,7 +51,7 @@ describe("Natball Insights setup", () => {
 
     expect(await screen.findByRole("heading", { name: "No Match in progress" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open menu" })).not.toBeInTheDocument();
-    expect(screen.getByRole("navigation", { name: "Coach navigation" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Coach navigation" })).toHaveAttribute("data-layout", "labeled-bottom");
     expect(screen.getByRole("button", { name: "Setup Match" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Match History" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Settings" })).toBeInTheDocument();
@@ -71,6 +73,39 @@ describe("Natball Insights setup", () => {
     expect(await screen.findByRole("button", { name: "Live Match" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Match History" }));
     expect(await screen.findByRole("heading", { name: "Match history" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Live Match" }));
+    expect(await screen.findByText("LIVE MATCH · QUARTER 1")).toBeInTheDocument();
+  });
+
+  it("uses a compact landscape Coach navigation rail whose labels overlay without changing the live Match", async () => {
+    vi.stubGlobal("matchMedia", vi.fn().mockImplementation(() => ({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn()
+    })));
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
+    await startLiveMatch(session, season.id, opposition.id, players);
+    const user = userEvent.setup();
+    render(<App store={store} />);
+
+    const navigation = await screen.findByRole("navigation", { name: "Coach navigation" });
+    expect(navigation).toHaveAttribute("data-layout", "compact-rail");
+    await user.click(screen.getByRole("button", { name: "Expand Coach navigation" }));
+    const destinations = screen.getByRole("dialog", { name: "Coach navigation destinations" });
+    expect(destinations).toHaveTextContent("Live Match");
+    await user.click(within(destinations).getByRole("button", { name: "Dismiss Coach navigation" }));
+    expect(screen.queryByRole("dialog", { name: "Coach navigation destinations" })).not.toBeInTheDocument();
+    expect(screen.getByText("LIVE MATCH · QUARTER 1")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Expand Coach navigation" }));
+    const expandedDestinations = screen.getByRole("dialog", { name: "Coach navigation destinations" });
+    await user.click(within(expandedDestinations).getByRole("button", { name: "Match History" }));
+
+    expect(await screen.findByRole("heading", { name: "Match history" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Coach navigation destinations" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Live Match" }));
     expect(await screen.findByText("LIVE MATCH · QUARTER 1")).toBeInTheDocument();
   });

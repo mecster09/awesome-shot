@@ -205,16 +205,45 @@ export function App({ store }: AppProps) {
 }
 
 function CoachNavigation({ activeView, primaryLabel, onOpenMatch, onOpenHistory, onOpenSettings }: { activeView?: "match" | "history" | "settings"; primaryLabel: "Setup Match" | "Live Match"; onOpenMatch: () => void; onOpenHistory: () => void; onOpenSettings: () => void }) {
+  const compactRail = useCompactCoachRail();
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    if (!compactRail) setExpanded(false);
+  }, [compactRail]);
   const items: Array<{ key: "match" | "history" | "settings"; label: string; icon: "court" | "history" | "settings"; onClick: () => void }> = [
     { key: "match" as const, label: primaryLabel, icon: "court", onClick: onOpenMatch },
     { key: "history" as const, label: "Match History", icon: "history", onClick: onOpenHistory },
     { key: "settings" as const, label: "Settings", icon: "settings", onClick: onOpenSettings }
   ];
 
-  return <nav className="coach-navigation" aria-label="Coach navigation">
+  const navigateAndCollapseRail = (action: () => void) => {
+    action();
+    setExpanded(false);
+  };
+
+  return <nav className="coach-navigation" aria-label="Coach navigation" data-layout={compactRail ? "compact-rail" : "labeled-bottom"}>
     <div className="app-identity"><AppMark /><span><strong>Natball</strong><small>Insights</small></span></div>
-    <div className="coach-navigation-items">{items.map((item) => <button key={item.key} type="button" className="coach-navigation-item" aria-current={activeView === item.key ? "page" : undefined} onClick={item.onClick}><NavigationIcon name={item.icon} /><span>{item.label}</span></button>)}</div>
+    <div className="coach-navigation-items">{items.map((item) => <button key={item.key} type="button" className="coach-navigation-item" aria-current={activeView === item.key ? "page" : undefined} onClick={() => navigateAndCollapseRail(item.onClick)}><NavigationIcon name={item.icon} /><span>{item.label}</span></button>)}</div>
+    {compactRail && <button type="button" className="coach-navigation-toggle" aria-label="Expand Coach navigation" aria-expanded={expanded} onClick={() => setExpanded(true)}>☰</button>}
+    {compactRail && expanded && <div className="coach-navigation-overlay" role="dialog" aria-modal="true" aria-label="Coach navigation destinations">
+      <div className="coach-navigation-overlay-header"><strong>Coach navigation</strong><button type="button" className="coach-navigation-close" aria-label="Dismiss Coach navigation" onClick={() => setExpanded(false)}>×</button></div>
+      {items.map((item) => <button key={item.key} type="button" className="coach-navigation-overlay-item" aria-current={activeView === item.key ? "page" : undefined} onClick={() => navigateAndCollapseRail(item.onClick)}><NavigationIcon name={item.icon} /><span>{item.label}</span></button>)}
+    </div>}
   </nav>;
+}
+
+function useCompactCoachRail() {
+  const query = "(min-width: 768px) and (orientation: landscape)";
+  const [compactRail, setCompactRail] = useState(() => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(query).matches);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia(query);
+    const update = () => setCompactRail(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  return compactRail;
 }
 
 function AppMark() {
