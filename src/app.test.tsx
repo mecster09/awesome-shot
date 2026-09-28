@@ -343,6 +343,8 @@ describe("Natball Insights setup", () => {
     expect(await screen.findByText("MATCH RECORD")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download CSV" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download PDF" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Back to Match History" }));
+    expect(await screen.findByRole("heading", { name: "Match history" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "End quarter" })).not.toBeInTheDocument();
   });
 });
