@@ -120,6 +120,49 @@ describe("GameSession setup", () => {
 });
 
 describe("GameSession match drafts", () => {
+  it("persists a selected Match identity until advancing to Match Squad", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+
+    await session.saveMatchIdentity({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26" });
+
+    const reopened = await GameSession.open(store);
+    expect(reopened.setup().matchSetupDraft).toEqual({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", stage: "match-identity" });
+  });
+
+  it("clears an incomplete Match identity when its Season ends", async () => {
+    const session = await GameSession.open(new InMemoryGameSessionStore());
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    await session.saveMatchIdentity({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26" });
+
+    await session.endSeason(season.id);
+
+    expect(session.setup().matchSetupDraft).toBeUndefined();
+  });
+
+  it("rejects impossible Match identity dates", async () => {
+    const session = await GameSession.open(new InMemoryGameSessionStore());
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+
+    await expect(session.saveMatchIdentity({ seasonId: season.id, oppositionId: opposition.id, date: "2026-02-31" })).rejects.toThrow("valid match date");
+  });
+
+  it("persists an incomplete Match Squad but requires five Players for Court Setup", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi"].map((name) => session.addPlayer({ name })));
+
+    await session.saveMatchSquad({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id) });
+    expect((await GameSession.open(store)).setup().matchSetupDraft).toMatchObject({ stage: "match-squad", squadPlayerIds: players.map((player) => player.id) });
+    await expect(session.advanceToCourtSetup({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id) })).rejects.toThrow("at least five");
+  });
+
   it("persists a live match only when Match Setup starts Quarter 1", async () => {
     const session = await GameSession.open(new InMemoryGameSessionStore());
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
@@ -200,17 +243,17 @@ describe("GameSession live quarter capture", () => {
     await expect(session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Misses" })).rejects.toThrow("Goals and Misses can only be recorded");
   });
 
-  it("undos only the latest player event, never an opposition goal or Substitution", async () => {
+  it("undos the latest event, including an opposition goal", async () => {
     const { session, game } = await startLiveMatch();
     await session.recordPlayerStatistic(game.id, { position: "Goal Attack", statistic: "Goals" });
     await session.recordOppositionGoal(game.id);
 
-    await expect(session.undoLastCaptureAction(game.id)).rejects.toThrow("latest player event");
-    expect(session.liveQuarter(game.id)).toMatchObject({ ownScore: 1, oppositionScore: 1, ownGameScore: 1, oppositionGameScore: 1 });
+    await session.undoLastCaptureAction(game.id);
+    expect(session.liveQuarter(game.id)).toMatchObject({ ownScore: 1, oppositionScore: 0, ownGameScore: 1, oppositionGameScore: 0 });
 
     await session.recordPlayerStatistic(game.id, { position: "Goal Attack", statistic: "Goals" });
     await session.undoLastCaptureAction(game.id);
-    expect(session.liveQuarter(game.id)).toMatchObject({ ownScore: 1, oppositionScore: 1 });
+    expect(session.liveQuarter(game.id)).toMatchObject({ ownScore: 1, oppositionScore: 0 });
   });
 
   it("records a single-position Substitution and retains event attribution", async () => {
@@ -235,17 +278,43 @@ describe("GameSession live quarter capture", () => {
     expect(session.liveQuarter(game.id).lineup.Centre).toBe(players[7].id);
   });
 
-  it("confirms five-to-seven-player courts and a later quarter court explicitly", async () => {
+  it("reports separate Player-Position stints for between-Quarter planning", async () => {
+    const { session, players, game } = await startLiveMatch();
+    await session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Tip" });
+    await session.recordPlayerStatistic(game.id, { position: "Goal Keeper", statistic: "Tip" });
+    await session.endQuarter(game.id);
+    await session.startNextQuarter(game.id, {
+      "Goal Keeper": players[0].id,
+      "Goal Defence": players[1].id,
+      "Wing Defence": players[2].id,
+      Centre: players[4].id,
+      "Wing Attack": players[3].id,
+      "Goal Attack": players[5].id,
+      "Goal Shooter": players[6].id
+    });
+    await session.recordPlayerStatistic(game.id, { position: "Wing Attack", statistic: "Tip" });
+    await session.recordPlayerStatistic(game.id, { position: "Goal Keeper", statistic: "Tip" });
+    await session.endQuarter(game.id);
+
+    const statistics = session.betweenQuarterStatistics(game.id);
+
+    expect(statistics.previousQuarterStints).toContainEqual({ playerId: players[3].id, position: "Wing Attack", playerStatistics: [{ playerId: players[3].id, position: "Wing Attack", statistic: "Tip", count: 1 }] });
+    expect(statistics.matchStints).toContainEqual({ playerId: players[3].id, position: "Centre", playerStatistics: [{ playerId: players[3].id, position: "Centre", statistic: "Tip", count: 1 }] });
+    expect(statistics.matchStints).toContainEqual({ playerId: players[3].id, position: "Wing Attack", playerStatistics: [{ playerId: players[3].id, position: "Wing Attack", statistic: "Tip", count: 1 }] });
+    expect(statistics.matchStints).toContainEqual({ playerId: players[0].id, position: "Goal Keeper", playerStatistics: [{ playerId: players[0].id, position: "Goal Keeper", statistic: "Tip", count: 2 }] });
+  });
+
+  it("confirms five-to-seven-player courts and keeps the Match Squad fixed after Match start", async () => {
     const { session, players, game } = await startLiveMatch();
     const latePlayer = await session.addPlayer({ name: "Ivy" });
     await session.endQuarter(game.id);
-    await session.addPlayerToSquad(game.id, latePlayer.id);
+    await expect(session.addPlayerToSquad(game.id, latePlayer.id)).rejects.toThrow("Match Squad is fixed");
 
     await session.startNextQuarter(game.id, {
       "Goal Keeper": players[0].id,
       "Goal Defence": players[1].id,
       "Wing Defence": players[2].id,
-      Centre: latePlayer.id,
+      Centre: players[3].id,
       "Wing Attack": players[4].id
     });
 
@@ -253,10 +322,10 @@ describe("GameSession live quarter capture", () => {
       "Goal Keeper": players[0].id,
       "Goal Defence": players[1].id,
       "Wing Defence": players[2].id,
-      Centre: latePlayer.id,
+      Centre: players[3].id,
       "Wing Attack": players[4].id
     });
-    expect(session.liveQuarter(game.id).substitutions).toContainEqual({ sequence: 1, position: "Centre", playerId: latePlayer.id });
+    expect(session.liveQuarter(game.id).substitutions).not.toContainEqual({ position: "Centre", playerId: latePlayer.id });
     await session.endQuarter(game.id);
     await expect(session.startNextQuarter(game.id, {
       "Goal Keeper": players[0].id,

@@ -33,6 +33,7 @@ export const POSITIONS = [
 ] as const;
 
 export type Position = (typeof POSITIONS)[number];
+export const TOTAL_QUARTERS = 4;
 export type Court = Partial<Record<Position, string>>;
 export type StartingLineup = Court;
 
@@ -63,6 +64,8 @@ export type Quarter = {
 };
 
 export type PlayerStatisticTotal = { playerId: string; position: Position; statistic: PlayerStatistic; count: number };
+export type PlayerPositionStint = { playerId: string; position: Position; playerStatistics: PlayerStatisticTotal[] };
+export type BetweenQuarterStatistics = { previousQuarter: QuarterNumber; previousQuarterStints: PlayerPositionStint[]; matchStints: PlayerPositionStint[] };
 export type ReportPlayerStatisticTotal = PlayerStatisticTotal & { playerName: string };
 export type TerminalMatchReport = {
   id: string;
@@ -115,6 +118,27 @@ export type Game = {
 };
 
 export type StartMatchInput = Pick<Game, "seasonId" | "oppositionId" | "date" | "squadPlayerIds"> & { startingLineup: StartingLineup };
+export type MatchIdentityDraft = {
+  seasonId: string;
+  oppositionId?: string;
+  date?: string;
+  stage: "match-identity";
+};
+export type MatchSquadDraft = {
+  seasonId: string;
+  oppositionId: string;
+  date: string;
+  stage: "match-squad";
+  squadPlayerIds?: string[];
+};
+export type CourtSetupDraft = {
+  seasonId: string;
+  oppositionId: string;
+  date: string;
+  squadPlayerIds: string[];
+  stage: "court-setup";
+};
+export type MatchSetupDraft = MatchIdentityDraft | MatchSquadDraft | CourtSetupDraft;
 
 export type SetupData = {
   teams: Team[];
@@ -122,6 +146,7 @@ export type SetupData = {
   players: Player[];
   opposition: Opposition[];
   selectedOppositionId?: string;
+  matchSetupDraft?: MatchSetupDraft;
   games: Game[];
 };
 

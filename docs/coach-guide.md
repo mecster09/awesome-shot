@@ -1,59 +1,92 @@
 # Coach guide
 
-## The normal journey
+Natball Insights keeps one coach task on screen at a time. It has one active Season and, within it, one live Match. Its tablet-native layout keeps the current task in a single viewport, with Coach navigation always available.
 
-Natball Insights keeps the match-day journey focused: **Season Setup**, **Match Setup**, **Quarter Setup**, then the live **Match Centre**. Only one active Season and one live Match can exist at a time.
+## Coach navigation and root destinations
 
-### 1. Set up a Season
+There is no header menu. Use the persistent **Coach navigation** at the bottom of compact and standard tablets, or the left-hand rail on large tablets, to open the three root destinations:
 
-When there is no active Season, the app opens **Season Setup**. Give the Season a name, then select a saved Team or create a reusable Team. Once created, the Season is active and the app moves directly to **Match Setup**.
+- **Setup Match** returns to the resumable setup stage before Quarter 1 begins. It becomes **Live Match** as soon as Quarter 1 starts and returns to the active Quarter or the next-Quarter plan.
+- **Match History** opens retained live and terminal Match records without changing the current stage.
+- **Settings** contains the Season lifecycle and **Backup & restore** controls.
 
-Use **Season settings** only when you need to end a Season or recover data. Ending a Season requires confirmation and is available only when all of its Matches are terminal. Ended Seasons remain available through retained Match history.
+The app mark identifies the app in Coach navigation. The highlighted destination is the screen currently open.
 
-### 2. Set up a Match
+## What opens when you launch the app
 
-Choose an active Opposition or add one inline. Then select the Match date and a Squad of five to twelve unique players. You can add a late or new player while making the Squad selection.
+- **Stage 1 — Team Setup** opens only when no reusable Team has been saved. Enter a Team name and save it. That Team is reused in later Seasons, so Stage 1 is then skipped.
+- **Stage 2 — Season Setup** opens when there is a saved Team but no active Season. Enter a Season name to create the active Season. It remains active until you end it yourself.
+- **Stage 3 — Add Opponent** opens when an active Season has no saved Match setup. Choose an earlier Opposition or add one, then confirm the Match date.
+- If Match setup was interrupted, the app resumes the saved current stage: Add Opponent, **Stage 4 — Match Squad**, or **Stage 5 — Court Setup**.
+- If a Match has an active Quarter, the app opens its **Stage 6 — Match Events** screen, including when you reopen the app mid-Quarter. If Quarter 1, 2, or 3 has ended and the next Quarter has not begun, it opens the prefilled **Stage 5 — Court Setup** with planning statistics instead.
 
-There is no saved Match draft: selecting **Continue to Quarter Setup** keeps the setup in memory, and the Match is persisted only when you confirm the Quarter 1 Court.
+Each setup stage holds its primary action in the bottom **Primary action** bar. It stays visible but disabled until the stage minimum is met. Long, contained surfaces scroll within their panel: the Player picker and selected Match Squad chips, the Stage 5 statistics panel, and—on compact screens—the Event-feed drawer. The main stage and Coach navigation remain stable while using those controls.
 
-### 3. Confirm each Quarter Court
+## Prepare a Match
 
-Assign five, six, or seven Squad players to Positions. A Court may have up to two vacant Positions, but no player can occupy more than one Position. Select **Start Quarter 1** to begin live recording.
+### Stage 3 — Add Opponent
 
-After each ended Quarter from 1 to 3, confirm the next Quarter's Court before recording resumes. The previous Court is pre-filled, so you can reposition players or add a late-arriving player to the Squad. Changes between Courts are retained as pre-quarter Substitutions. After Quarter 4, confirm and finalise the displayed Match score instead of setting up another Court.
+Choose an existing Opposition or enter a new one, and choose the Match date. **Continue to Match Squad** is available only once both are present. Your partial selection is saved, so it can be resumed.
 
-## Record in the Match Centre
+### Stage 4 — Match Squad
 
-The Match Centre shows only the current Court, with at most seven player rows. Its large score is the cumulative **Match score**; the smaller **Quarter score** covers the current Quarter only.
+Select existing Players or add Players to the Match Squad. At least five and at most twelve unique Players are required before **Continue to Court Setup** becomes available. The selection is saved while you work.
 
-- Use a player's accessible event icons to record player events. Goals and misses are available only for Goal Attack and Goal Shooter. A goal recorded this way updates both the player event total and your Match score.
-- Use the visually separate **Opposition goal** control for opposition scoring.
-- Select **Record Substitution** to replace the player in one Position or fill a vacant Position. The player picker excludes people already on the Court.
-- **Undo last player event** applies only to the latest player event in the active Quarter. It does not undo an opposition goal or a Substitution.
-- Select **History** to leave the live recording surface and view retained Matches. Use **Back to Match Centre** to resume the live Match.
-- Select **End quarter** when the Quarter finishes. Recording resumes only after the next Quarter Court is confirmed.
+The Match Squad becomes fixed as soon as the Match starts. You cannot add Players during a live Match or between Quarters; later Court changes choose only from this Squad.
 
-## Complete or abandon a Match
+### Stage 5 — Court Setup
 
-After Quarter 4 ends, check the displayed score and select **Confirm and finalise**. A completed Match is read-only and retains its Quarter history, scores, player events, and Substitutions.
+Set the Quarter 1 Court in the fixed Position order: Goal Keeper, Goal Defence, Wing Defence, Centre, Wing Attack, Goal Attack, Goal Shooter. Assign five to seven unique Squad Players; unfilled Positions are allowed. **Start Match** is disabled until that minimum is met.
 
-If a live Match cannot be completed, select **Abandon match**. During live recording, open **More match actions** first; after a Quarter has ended, the action is available on the Quarter-complete screen. An Abandoned Match is terminal, has no winner, and retains its score at abandonment and all captured statistics.
+Starting the Match starts Quarter 1 and opens Stage 6.
 
-## Review and export retained Matches
+## Record Match Events
 
-Open **Match history** to select a completed or Abandoned Match. Its read-only record includes the final score, Quarter scores, Courts, player-position events, and Substitutions.
+Stage 6 is the live Match screen. Its score strip always shows the active Quarter, Match score, Quarter score, and **Opposition-goal action**. It shows only Players who currently occupy a Court Position, in GK, GD, WD, C, WA, GA, GS order. Each row has the Player, Position abbreviation, and the same ordered event-icon controls with their counts. Goals and misses are enabled only for GA and GS; those controls are visibly unavailable for other Positions.
 
-Use **Download CSV** for spreadsheet analysis; the columns are documented in [the CSV schema](reports/csv-schema.md). Use **Download PDF** for a coach-readable record.
+Tap an event icon to record it against the current Match, active Quarter, Player, and Position. The large score is the Match score; the smaller score is the active-Quarter score.
 
-New Matches cannot be terminated. If an older backup contains a terminated record, it remains readable, exportable, and restorable as a no-winner legacy record.
+- **Opposition goal** records a distinct event without a Player or Position.
+- **Record Substitution** replaces the actionable row for one Position. The outgoing Player disappears from the current Court immediately, while events already recorded stay attributed to that outgoing Player–Position stint.
+- **Undo last event** reverses the newest active-Quarter event, including an Opposition goal.
+- The **Event feed** is chronological. On compact screens it is an **Event-feed drawer**: its collapsed label shows the latest event, and opening it reveals correction and removal controls. Player events can be corrected or removed; Opposition goals can be removed. The feed keeps the live screen auditable without leaving it.
+- **End quarter** ends the current Quarter.
 
-## Back up or restore data
+## Plan the next Quarter and finish the Match
 
-Backup and restore are recovery controls, not match-day actions. Open **Season settings** and select **Download backup** to save locally held Season, Team, Match, Quarter, player event, Substitution, and result history as JSON.
+After Quarter 1, 2, or 3 ends, the next Quarter Court screen opens with the final Court prefilled. Reposition Squad Players as needed; no new Players can be added.
 
-To restore a backup, paste its contents into **Backup data** and choose an import mode:
+The same screen includes a compact statistics panel. It starts on **Previous quarter statistics** and can switch to **All Match statistics**. The switch changes only the statistics panel: current Court selectors and unsaved selections remain visible and usable. Statistics are grouped by Player–Position stint, so one Player may have more than one row after playing different Positions.
 
-- **Merge - keep current data** adds records that are not already present.
-- **Replace all local data** replaces every local record after you acknowledge the warning.
+When five to seven unique Players are assigned, select **Start Quarter** to return directly to Stage 6. After Quarter 4, there is no next-Court screen: check the displayed score and select **Confirm and finalise**. Finalised Matches are read-only.
+
+If a Match cannot be completed, open **More match actions** during live capture and choose **Abandon match**. An abandoned Match is terminal and retains its score and recorded events.
+
+## History, reports, and recovery
+
+Open **Match History** from Coach navigation to view live or terminal Matches. Terminal Match records show Quarter scores, Courts, substitutions, and Player–Position events. Use **Download CSV** for spreadsheet analysis (see [the CSV schema](reports/csv-schema.md)) or **Download PDF** for a coach-readable record. Legacy terminated records remain readable and exportable.
+
+Open **Settings**, then **Backup & restore**, to download all locally stored Team, Season, Match, Court, event, and result data as JSON. To restore, paste backup JSON into **Backup data** and choose:
+
+- **Merge - keep current data** to add records that are not already present.
+- **Replace all local data** to replace local records after acknowledging the warning.
 
 Invalid or incompatible backups are rejected without changing the current data.
+
+## Confirming destructive actions
+
+Natball Insights always asks for an explicit confirmation before **Abandon match**, **End season**, or replacing local data through backup restore. On compact and standard tablets this confirmation rises from the bottom; at large-tablet widths it appears as a centered alert. Cancelling keeps the Match, Season, or local data unchanged.
+
+## Responsive acceptance QA record
+
+QA was completed against the integrated workflow at the following viewport widths. At every width, keyboard focus has a visible outline, buttons and fields retain their accessible names, and Coach navigation can be reached and operated with the keyboard.
+
+| Viewport | Result | Contained scrolling checked |
+| --- | --- | --- |
+| 744px | Pass — bottom Coach navigation, focused setup stages, and the compact live feed drawer remain usable. | Match Squad results/chips and the opened event-feed drawer scroll within their own surfaces. |
+| 834px | Pass — bottom Coach navigation remains persistent; Stage 5 keeps Court planning and statistics visible together. | Match Squad results/chips and the Stage 5 statistics panel scroll without moving the primary action bar. |
+| 1024px | Pass — Coach navigation becomes a left rail; the destructive confirmation is centered. | The Stage 5 statistics panel remains the only scrolling planner panel; no horizontal page scrolling is needed. |
+
+Accessible controls verified include **Coach navigation**, **Setup Match**/**Live Match**, **Match History**, **Settings**, the Stage 5 **All Match**/**Previous quarter** switch, **Opponent goal**, event-cell labels such as **Record Goals for Faye**, and destructive-confirmation actions.
+
+Automated verification completed successfully against the integrated implementation: `pnpm test` passed all 49 tests, and `pnpm run build` completed the TypeScript check and production Vite build.

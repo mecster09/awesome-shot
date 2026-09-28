@@ -1,4 +1,4 @@
-import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, type CaptureAction, type Game, type GameSessionStore, type LiveQuarterCapture, type Opposition, type Player, type PlayerStatistic, type PlayerStatisticTotal, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartMatchInput, type StartingLineup, type Team, type TerminalMatchReport } from "./types";
+import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, TOTAL_QUARTERS, type BetweenQuarterStatistics, type CaptureAction, type CourtSetupDraft, type Game, type GameSessionStore, type LiveQuarterCapture, type MatchIdentityDraft, type MatchSetupDraft, type MatchSquadDraft, type Opposition, type Player, type PlayerPositionStint, type PlayerStatistic, type PlayerStatisticTotal, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartMatchInput, type StartingLineup, type Team, type TerminalMatchReport } from "./types";
 
 const emptySetup = (): SetupData => ({ teams: [], seasons: [], players: [], opposition: [], games: [] });
 const backupFormat = "natball-insights-backup";
@@ -25,6 +25,12 @@ const migrateQuarter = (quarter: Quarter & { courtChanges?: Array<{ lineup: Star
   return { ...migrated, substitutions };
 };
 const isGame = (value: unknown) => hasStrings(value, ["id", "seasonId", "oppositionId", "date", "status"]) && isObject(value) && ["draft", "live", "finalised", "abandoned", "terminated"].includes(value.status as string) && Array.isArray(value.squadPlayerIds) && value.squadPlayerIds.every((id) => typeof id === "string") && (value.startingLineup === undefined || isLineup(value.startingLineup)) && (value.quarters === undefined || Array.isArray(value.quarters) && value.quarters.every((quarter) => isQuarter(quarter) || isLegacyQuarter(quarter)));
+const isMatchSetupDraft = (value: unknown): value is MatchSetupDraft => {
+  if (!isObject(value) || typeof value.seasonId !== "string") return false;
+  if (value.stage === "match-identity") return (value.oppositionId === undefined || typeof value.oppositionId === "string") && (value.date === undefined || typeof value.date === "string");
+  if (value.stage === "match-squad") return typeof value.oppositionId === "string" && typeof value.date === "string" && (value.squadPlayerIds === undefined || Array.isArray(value.squadPlayerIds) && value.squadPlayerIds.every((id) => typeof id === "string"));
+  return value.stage === "court-setup" && typeof value.oppositionId === "string" && typeof value.date === "string" && Array.isArray(value.squadPlayerIds) && value.squadPlayerIds.every((id) => typeof id === "string");
+};
 const parseBackup = (serialized: string): SetupData => {
   let parsed: unknown;
   try { parsed = JSON.parse(serialized); } catch { throw new Error("Choose a valid Natball Insights backup file."); }
@@ -35,9 +41,9 @@ const parseBackup = (serialized: string): SetupData => {
   if (!Array.isArray(rawData.seasons) || !Array.isArray(rawData.players) || !Array.isArray(rawData.opposition) || !Array.isArray(rawData.games)) throw new Error("This backup is incompatible with Natball Insights.");
   let data: SetupData;
   try { data = migrateSetup(rawData as SetupData); } catch { throw new Error("This backup is incompatible with Natball Insights."); }
-  if (!Array.isArray(data.teams) || !data.teams.every((team) => hasStrings(team, ["id", "name"])) || !data.seasons.every((season) => hasStrings(season, ["id", "name", "teamId", "status"]) && ["active", "ended"].includes(season.status)) || !data.players.every((player) => hasStrings(player, ["id", "name"]) && (player.nickname === undefined || typeof player.nickname === "string")) || !data.opposition.every((opposition) => hasStrings(opposition, ["id", "name"]) && typeof opposition.archived === "boolean") || !data.games.every(isGame) || (data.selectedOppositionId !== undefined && typeof data.selectedOppositionId !== "string")) throw new Error("This backup is incompatible with Natball Insights.");
+  if (!Array.isArray(data.teams) || !data.teams.every((team) => hasStrings(team, ["id", "name"])) || !data.seasons.every((season) => hasStrings(season, ["id", "name", "teamId", "status"]) && ["active", "ended"].includes(season.status)) || !data.players.every((player) => hasStrings(player, ["id", "name"]) && (player.nickname === undefined || typeof player.nickname === "string")) || !data.opposition.every((opposition) => hasStrings(opposition, ["id", "name"]) && typeof opposition.archived === "boolean") || !data.games.every(isGame) || (data.selectedOppositionId !== undefined && typeof data.selectedOppositionId !== "string") || (data.matchSetupDraft !== undefined && !isMatchSetupDraft(data.matchSetupDraft))) throw new Error("This backup is incompatible with Natball Insights.");
   const seasonIds = new Set(data.seasons.map((season) => season.id)); const teamIds = new Set(data.teams.map((team) => team.id)); const playerIds = new Set(data.players.map((player) => player.id)); const oppositionIds = new Set(data.opposition.map((opposition) => opposition.id));
-  if (data.seasons.some((season) => !teamIds.has(season.teamId)) || data.games.some((game) => !seasonIds.has(game.seasonId) || !oppositionIds.has(game.oppositionId) || game.squadPlayerIds.some((id) => !playerIds.has(id))) || data.selectedOppositionId && !oppositionIds.has(data.selectedOppositionId)) throw new Error("This backup has broken record references.");
+  if (data.seasons.some((season) => !teamIds.has(season.teamId)) || data.games.some((game) => !seasonIds.has(game.seasonId) || !oppositionIds.has(game.oppositionId) || game.squadPlayerIds.some((id) => !playerIds.has(id))) || data.selectedOppositionId && !oppositionIds.has(data.selectedOppositionId) || data.matchSetupDraft && (!seasonIds.has(data.matchSetupDraft.seasonId) || data.matchSetupDraft.oppositionId && !oppositionIds.has(data.matchSetupDraft.oppositionId))) throw new Error("This backup has broken record references.");
   return structuredClone(data as SetupData);
 };
 
@@ -153,6 +159,7 @@ export class GameSession {
     if (season.status !== "active") throw new Error("Only the active season can be ended.");
     if (this.data.games.some((game) => game.seasonId === id && !isTerminalMatch(game))) throw new Error("All matches must be terminal before ending a season.");
     season.status = "ended";
+    if (this.data.matchSetupDraft?.seasonId === id) this.data.matchSetupDraft = undefined;
     await this.persist();
   }
 
@@ -278,6 +285,64 @@ export class GameSession {
     });
   }
 
+  async saveMatchIdentity(input: Pick<MatchIdentityDraft, "seasonId" | "oppositionId" | "date">): Promise<MatchIdentityDraft> {
+    this.requireActiveSeason(input.seasonId);
+    if (input.oppositionId) this.requireActiveOpposition(input.oppositionId);
+    const draft: MatchIdentityDraft = {
+      seasonId: input.seasonId,
+      ...(input.oppositionId ? { oppositionId: input.oppositionId } : {}),
+      ...(input.date ? { date: this.requireDate(input.date) } : {}),
+      stage: "match-identity"
+    };
+    this.data.matchSetupDraft = draft;
+    await this.persist();
+    return structuredClone(draft);
+  }
+
+  async advanceToMatchSquad(input: Pick<MatchSquadDraft, "seasonId" | "oppositionId" | "date">): Promise<MatchSquadDraft> {
+    this.requireActiveSeason(input.seasonId);
+    this.requireActiveOpposition(input.oppositionId);
+    const draft: MatchSquadDraft = {
+      seasonId: input.seasonId,
+      oppositionId: input.oppositionId,
+      date: this.requireDate(input.date),
+      stage: "match-squad"
+    };
+    this.data.matchSetupDraft = draft;
+    await this.persist();
+    return structuredClone(draft);
+  }
+
+  async saveMatchSquad(input: Pick<MatchSquadDraft, "seasonId" | "oppositionId" | "date"> & { squadPlayerIds: string[] }): Promise<MatchSquadDraft> {
+    this.requireActiveSeason(input.seasonId);
+    this.requireActiveOpposition(input.oppositionId);
+    const draft: MatchSquadDraft = {
+      seasonId: input.seasonId,
+      oppositionId: input.oppositionId,
+      date: this.requireDate(input.date),
+      squadPlayerIds: this.validPartialMatchSquad(input.squadPlayerIds),
+      stage: "match-squad"
+    };
+    this.data.matchSetupDraft = draft;
+    await this.persist();
+    return structuredClone(draft);
+  }
+
+  async advanceToCourtSetup(input: Pick<CourtSetupDraft, "seasonId" | "oppositionId" | "date" | "squadPlayerIds">): Promise<CourtSetupDraft> {
+    this.requireActiveSeason(input.seasonId);
+    this.requireActiveOpposition(input.oppositionId);
+    const draft: CourtSetupDraft = {
+      seasonId: input.seasonId,
+      oppositionId: input.oppositionId,
+      date: this.requireDate(input.date),
+      squadPlayerIds: this.validReadyMatchSquad(input.squadPlayerIds),
+      stage: "court-setup"
+    };
+    this.data.matchSetupDraft = draft;
+    await this.persist();
+    return structuredClone(draft);
+  }
+
   async startMatch(input: StartMatchInput): Promise<Game> {
     if (this.data.games.some((game) => game.status === "live")) throw new Error("Finish the live match before starting another.");
     if (this.requireSeason(input.seasonId).status !== "active") throw new Error("Select the active season.");
@@ -287,7 +352,7 @@ export class GameSession {
       seasonId: input.seasonId,
       oppositionId: input.oppositionId,
       date: this.requireDate(input.date),
-      squadPlayerIds: this.validSquad(input.squadPlayerIds),
+      squadPlayerIds: this.validReadyMatchSquad(input.squadPlayerIds),
       status: "live",
       activeQuarter: 1,
       quarters: []
@@ -295,6 +360,7 @@ export class GameSession {
     this.validateCourt(game, input.startingLineup);
     game.quarters = [{ number: 1, status: "live", startingLineup: structuredClone(input.startingLineup), substitutions: [], captureActions: [] }];
     this.data.games.push(game);
+    this.data.matchSetupDraft = undefined;
     await this.persist();
     return structuredClone(game);
   }
@@ -307,19 +373,16 @@ export class GameSession {
   }
 
   async addPlayerToSquad(id: string, playerId: string): Promise<void> {
-    const game = this.requireLiveGame(id);
-    if (game.activeQuarter) throw new Error("End the current quarter before changing the match squad.");
-    if (!this.data.players.some((player) => player.id === playerId)) throw new Error("Choose a saved player for the match squad.");
-    if (game.squadPlayerIds.includes(playerId)) return;
-    game.squadPlayerIds = this.validSquad([...game.squadPlayerIds, playerId]);
-    await this.persist();
+    this.requireLiveGame(id);
+    void playerId;
+    throw new Error("The Match Squad is fixed once the Match begins.");
   }
 
   async startNextQuarter(id: string, startingLineup: StartingLineup): Promise<void> {
     const game = this.requireLiveGame(id);
     if (game.activeQuarter) throw new Error("End the current quarter before starting the next one.");
     const previous = this.previousQuarter(game);
-    if (previous.number === 4) throw new Error("All four quarters have ended.");
+    if (previous.number === TOTAL_QUARTERS) throw new Error("All four quarters have ended.");
     const number = (previous.number + 1) as QuarterNumber;
     this.validateCourt(game, startingLineup);
     game.quarters?.push({ number, status: "live", startingLineup: structuredClone(this.currentLineup(previous)), substitutions: this.preQuarterSubstitutions(this.currentLineup(previous), startingLineup), captureActions: [] });
@@ -331,6 +394,18 @@ export class GameSession {
     const game = this.requireLiveGame(id);
     if (game.activeQuarter) throw new Error("End the current quarter before setting up the next one.");
     return structuredClone(this.currentLineup(this.previousQuarter(game)));
+  }
+
+  betweenQuarterStatistics(id: string): BetweenQuarterStatistics {
+    const game = this.requireLiveGame(id);
+    if (game.activeQuarter) throw new Error("End the current quarter before reviewing statistics.");
+    const previousQuarter = this.previousQuarter(game);
+    const quarters = game.quarters ?? [];
+    return structuredClone({
+      previousQuarter: previousQuarter.number,
+      previousQuarterStints: this.playerPositionStints(game, [previousQuarter]),
+      matchStints: this.playerPositionStints(game, quarters)
+    });
   }
 
   quarterCapture(id: string, number: QuarterNumber): LiveQuarterCapture {
@@ -362,7 +437,7 @@ export class GameSession {
 
   async finaliseGame(id: string, confirmedScore: { own: number; opposition: number }): Promise<void> {
     const game = this.requireLiveGame(id);
-    if (game.activeQuarter || game.quarters?.length !== 4 || game.quarters.some((quarter) => quarter.status !== "ended")) throw new Error("End all four quarters before finalising.");
+    if (game.activeQuarter || game.quarters?.length !== TOTAL_QUARTERS || game.quarters.some((quarter) => quarter.status !== "ended")) throw new Error("End all four quarters before finalising.");
     const score = this.gameScore(id);
     if (score.own !== confirmedScore.own || score.opposition !== confirmedScore.opposition) throw new Error("Confirm the displayed final score before finalising.");
     game.status = "finalised";
@@ -403,7 +478,7 @@ export class GameSession {
       ownGameScore: gameScore.own,
       oppositionGameScore: gameScore.opposition,
       captureActions: structuredClone(quarter.captureActions),
-      canUndo: quarter.captureActions.at(-1)?.kind === "player-statistic"
+      canUndo: quarter.captureActions.length > 0
     };
   }
 
@@ -429,7 +504,7 @@ export class GameSession {
 
   async undoLastCaptureAction(id: string): Promise<void> {
     const { quarter } = this.requireLiveQuarter(id);
-    if (quarter.captureActions.at(-1)?.kind !== "player-statistic") throw new Error("Undo is only available for the latest player event.");
+    if (!quarter.captureActions.length) throw new Error("No event is available to undo.");
     quarter.captureActions.pop();
     await this.persist();
   }
@@ -462,7 +537,7 @@ export class GameSession {
     return opposition;
   }
 
-  private validSquad(playerIds: string[]): string[] {
+  private validReadyMatchSquad(playerIds: string[]): string[] {
     const uniqueIds = [...new Set(playerIds)];
     if (uniqueIds.length < 5) throw new Error("Choose at least five squad players.");
     if (uniqueIds.length > 12) throw new Error("A match squad can contain at most 12 players.");
@@ -472,10 +547,20 @@ export class GameSession {
     return uniqueIds;
   }
 
+  private validPartialMatchSquad(playerIds: string[]): string[] {
+    const uniqueIds = [...new Set(playerIds)];
+    if (uniqueIds.length > 12 || uniqueIds.length !== playerIds.length || uniqueIds.some((id) => !this.data.players.some((player) => player.id === id))) throw new Error("Choose up to 12 unique saved players for the Match Squad.");
+    return uniqueIds;
+  }
+
   private requireDate(value: string): string {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(new Date(`${value}T00:00:00`).valueOf())) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (!match) {
       throw new Error("Enter a valid match date.");
     }
+    const [year, month, day] = match.slice(1).map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) throw new Error("Enter a valid match date.");
     return value;
   }
 
@@ -530,6 +615,30 @@ export class GameSession {
       if (action.kind === "opposition-goal") return { ...score, opposition: score.opposition + 1 };
       return action.statistic === "Goals" ? { ...score, own: score.own + 1 } : score;
     }, { own: 0, opposition: 0 });
+  }
+
+  private playerPositionStints(game: Game, quarters: Quarter[]): PlayerPositionStint[] {
+    const stints = new Map<string, PlayerPositionStint>();
+    const addStint = (playerId: string, position: Position) => {
+      if (!game.squadPlayerIds.includes(playerId)) return;
+      const key = `${playerId}:${position}`;
+      if (!stints.has(key)) stints.set(key, { playerId, position, playerStatistics: [] });
+    };
+    for (const quarter of quarters) {
+      for (const position of POSITIONS) {
+        const playerId = quarter.startingLineup[position];
+        if (playerId) addStint(playerId, position);
+      }
+      for (const substitution of quarter.substitutions) {
+        if (substitution.playerId) addStint(substitution.playerId, substitution.position);
+      }
+    }
+    for (const statistic of this.statisticTotals(quarters.flatMap((quarter) => quarter.captureActions))) {
+      addStint(statistic.playerId, statistic.position);
+      const stint = stints.get(`${statistic.playerId}:${statistic.position}`);
+      if (stint) stint.playerStatistics.push(statistic);
+    }
+    return [...stints.values()].sort((left, right) => POSITIONS.indexOf(left.position) - POSITIONS.indexOf(right.position));
   }
 
   private statisticTotals(actions: CaptureAction[]): PlayerStatisticTotal[] {
