@@ -257,10 +257,12 @@ describe("Natball Insights setup", () => {
     expect(await screen.findByRole("heading", { name: "Set up Quarter 1 Court" })).toBeInTheDocument();
     const startMatch = screen.getByRole("button", { name: "Start Match" });
     expect(startMatch).toBeDisabled();
+    expect(screen.getByText("Assign 5 more Players to start Quarter 1.")).toBeInTheDocument();
     for (const [position, playerName] of [["Goal Keeper", "Ava"], ["Goal Defence", "Bea"], ["Wing Defence", "Cora"], ["Centre", "Demi"], ["Wing Attack", "Eve"]] as const) {
       await user.selectOptions(screen.getByLabelText(position), playerName);
     }
     expect(startMatch).toBeEnabled();
+    expect(screen.getByText("Court ready — 5 Players assigned. You can start Quarter 1.")).toBeInTheDocument();
     await user.click(startMatch);
     expect(await screen.findByText("LIVE MATCH · QUARTER 1")).toBeInTheDocument();
     rendered.unmount();
@@ -318,8 +320,10 @@ describe("Natball Insights setup", () => {
     expect(screen.getByRole("option", { name: "Ava" })).toBeInTheDocument();
     expect(screen.getAllByRole("option", { name: "Ava" })).toHaveLength(1);
     expect(screen.getByRole("heading", { name: "Previous quarter statistics" })).toBeInTheDocument();
+    expect(screen.getByText("Court ready — 7 Players assigned. You can start Quarter 2.")).toBeInTheDocument();
     expect(screen.getByText((_, element) => element?.tagName === "LI" && element.textContent === "Demi · Centre · Tip: 1")).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("Centre"), "");
+    expect(screen.getByText("Court ready — 6 Players assigned. You can start Quarter 2.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "All Match" }));
     expect(screen.getByRole("heading", { name: "All Match statistics" })).toBeInTheDocument();
     expect(screen.getByLabelText("Centre")).toHaveValue("");
