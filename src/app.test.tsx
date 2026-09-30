@@ -450,6 +450,34 @@ describe("Natball Insights setup", () => {
     expect(screen.queryByRole("button", { name: /new event/ })).not.toBeInTheDocument();
   });
 
+  it("keeps the Event feed open in standard landscape and makes its compact drawer discoverable", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
+    const game = await startLiveMatch(session, season.id, opposition.id, players);
+    await session.recordPlayerStatistic(game.id, { position: "Goal Attack", statistic: "Goals" });
+    const user = userEvent.setup();
+    const compactLandscape = (query: string) => ({ matches: query.includes("max-height: 700px"), media: query, onchange: null, addEventListener: vi.fn(), removeEventListener: vi.fn(), addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn() });
+
+    const standard = render(<App store={store} />);
+    const standardFeed = await screen.findByLabelText("Quarter 1 Event feed");
+    expect(standardFeed.closest("details")).toHaveAttribute("open");
+    expect(screen.getByRole("button", { name: "Correct event" })).toBeInTheDocument();
+    standard.unmount();
+
+    vi.stubGlobal("matchMedia", compactLandscape);
+    render(<App store={store} />);
+    expect(await screen.findByText("Event feed · Faye · GA · Goals")).toBeInTheDocument();
+    const compactFeed = screen.getByLabelText("Quarter 1 Event feed");
+    expect(compactFeed.closest("details")).not.toHaveAttribute("open");
+
+    await user.click(screen.getByText("Event feed · Faye · GA · Goals"));
+    expect(await screen.findByRole("button", { name: "Correct event" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove event" })).toBeInTheDocument();
+  });
+
   it("preserves Event-feed review position and keeps correction and removal available", async () => {
     const store = new InMemoryGameSessionStore();
     const session = await GameSession.open(store);
