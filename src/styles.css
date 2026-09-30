@@ -50,6 +50,7 @@ form { display: grid; gap: 13px; margin-top: 20px; }
 .settings-root-actions .text-button:last-child { border-bottom: 0; }
 .focused-screen { min-height: min(620px, calc(100vh - 150px)); display: flex; flex-direction: column; }
 .setup-screen { height: min(620px, calc(100vh - 150px)); overflow: hidden; }
+.match-setup-progress { margin-bottom: 16px; }.match-setup-progress ol { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }.match-setup-progress li { min-width: 0; padding: 7px 8px; border-radius: 10px; background: #f2f2f7; color: #636366; font-size: .72rem; font-weight: 750; line-height: 1.2; }.match-setup-progress li[data-state="current"] { background: #fff0ef; color: #c92920; }.match-setup-progress li[data-state="complete"] { background: #e9f7ec; color: #246b35; }
 .setup-form { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 .primary-action-bar { position: sticky; bottom: calc(88px + env(safe-area-inset-bottom)); z-index: 2; margin-top: auto; padding-top: 16px; background: linear-gradient(to bottom, rgb(255 255 255 / 0), #fff 30%); }
 .primary-action-bar button { width: 100%; min-height: 48px; }
