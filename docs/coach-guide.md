@@ -86,7 +86,9 @@ QA was completed against the integrated workflow at the following viewport width
 | 744px | Pass — bottom Coach navigation, focused setup stages, and the compact live feed drawer remain usable. | Match Squad results/chips and the opened event-feed drawer scroll within their own surfaces. |
 | 834px | Pass — bottom Coach navigation remains persistent; Stage 5 keeps Court planning and statistics visible together. | Match Squad results/chips and the Stage 5 statistics panel scroll without moving the primary action bar. |
 | 1024px | Pass — Coach navigation becomes a left rail; the destructive confirmation is centered. | The Stage 5 statistics panel remains the only scrolling planner panel; no horizontal page scrolling is needed. |
+| 1024 × 768px landscape | Pass — the active Quarter Event feed is open on first render, showing its heading, latest event, correction, and removal controls without an empty panel. | The Event feed remains independently scrollable beside the current Court. |
+| 1024 × 600px landscape | Pass — the compact Event-feed drawer shows its label and latest event while collapsed; opening it reveals correction and removal controls. | The opened drawer is the contained scrolling surface and leaves the Event grid usable. |
 
 Accessible controls verified include **Coach navigation**, **Setup Match**/**Live Match**, **Match History**, **Settings**, the Stage 5 **All Match**/**Previous quarter** switch, **Opponent goal**, event-cell labels such as **Record Goals for Faye**, and destructive-confirmation actions.
 
-Automated verification completed successfully against the integrated implementation: `pnpm test` passed all 49 tests, and `pnpm run build` completed the TypeScript check and production Vite build.
+Automated verification completed successfully against the integrated implementation: `pnpm test` passed all 52 tests, and `pnpm run build` completed the TypeScript check and production Vite build.
