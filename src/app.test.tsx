@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./app";
@@ -77,7 +77,7 @@ describe("Natball Insights setup", () => {
     expect(await screen.findByText("LIVE MATCH · QUARTER 1")).toBeInTheDocument();
   });
 
-  it("uses a compact landscape Coach navigation rail whose labels overlay without changing the live Match", async () => {
+  it("expands compact Coach navigation labels without covering the live Match", async () => {
     vi.stubGlobal("matchMedia", vi.fn().mockImplementation(() => ({
       matches: true,
       addEventListener: vi.fn(),
@@ -95,17 +95,14 @@ describe("Natball Insights setup", () => {
     const navigation = await screen.findByRole("navigation", { name: "Coach navigation" });
     expect(navigation).toHaveAttribute("data-layout", "compact-rail");
     await user.click(screen.getByRole("button", { name: "Expand Coach navigation" }));
-    const destinations = screen.getByRole("dialog", { name: "Coach navigation destinations" });
-    expect(destinations).toHaveTextContent("Live Match");
-    await user.click(within(destinations).getByRole("button", { name: "Dismiss Coach navigation" }));
-    expect(screen.queryByRole("dialog", { name: "Coach navigation destinations" })).not.toBeInTheDocument();
+    expect(navigation).toHaveAttribute("data-expanded", "true");
     expect(screen.getByText("LIVE MATCH · QUARTER 1")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Collapse Coach navigation" }));
+    expect(navigation).toHaveAttribute("data-expanded", "false");
     await user.click(screen.getByRole("button", { name: "Expand Coach navigation" }));
-    const expandedDestinations = screen.getByRole("dialog", { name: "Coach navigation destinations" });
-    await user.click(within(expandedDestinations).getByRole("button", { name: "Match History" }));
+    await user.click(screen.getAllByRole("button", { name: "Match History" }).at(-1)!);
 
     expect(await screen.findByRole("heading", { name: "Match history" })).toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "Coach navigation destinations" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Live Match" }));
     expect(await screen.findByText("LIVE MATCH · QUARTER 1")).toBeInTheDocument();
   });
@@ -380,7 +377,7 @@ describe("Natball Insights setup", () => {
     expect(await screen.findByText("Roses 1 — Thunder 1")).toBeInTheDocument();
   });
 
-  it("keeps Match Centre recording compact and secondary actions separate", async () => {
+  it("keeps compact Match capture actions reachable without an overlay", async () => {
     vi.stubGlobal("matchMedia", vi.fn().mockImplementation(() => ({
       matches: true,
       addEventListener: vi.fn(),
@@ -400,11 +397,10 @@ describe("Natball Insights setup", () => {
     expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(8);
     expect(screen.getByRole("button", { name: "Record Goals for Faye" })).toHaveTextContent("◎");
     expect(screen.queryByText("Quarter 1 review")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Abandon match" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Terminate game" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "History" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Record Substitution" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "End quarter" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Record Substitution" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "End quarter" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Abandon match" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "More" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Opponent goal" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
 
@@ -414,17 +410,12 @@ describe("Natball Insights setup", () => {
     expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
     await waitFor(async () => expect((await GameSession.open(store)).gameScore(game.id)).toEqual({ own: 1, opposition: 1 }));
 
-    await user.click(screen.getByRole("button", { name: "More" }));
-    expect(screen.getByRole("button", { name: "Abandon match" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "History" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Record Substitution" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "End quarter" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "History" }));
-    expect(await screen.findByRole("heading", { name: "Match history" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "End quarter" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Live Match" }));
-    await user.click(await screen.findByRole("button", { name: "More" }));
-    expect(await screen.findByRole("button", { name: "End quarter" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Record Substitution" }));
+    expect(screen.getByLabelText("Substitution Position")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel Substitution" }));
+    expect(screen.queryByLabelText("Substitution Position")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "End quarter" }));
+    expect(await screen.findByRole("heading", { name: "Set up Quarter 2 Court" })).toBeInTheDocument();
     const persistedSession = await GameSession.open(store);
     expect(persistedSession.match(game.id)?.status).toBe("live");
     expect(persistedSession.gameScore(game.id)).toEqual({ own: 1, opposition: 1 });

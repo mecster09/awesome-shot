@@ -108,7 +108,7 @@ The contained searchable selection surface for choosing the Match Squad before t
 _Avoid_: Long player checklist
 
 **Coach navigation**:
-The persistent navigation for Setup Match or Live Match, Match History, and Settings. It also carries the app identity in place of a persistent root-screen top bar. It is a labeled bottom tab bar in portrait and an icon-only slim rail in landscape; the rail expands as a temporary overlay to reveal labels without reflowing the active stage.
+The persistent navigation for Setup Match or Live Match, Match History, and Settings. It also carries the app identity in place of a persistent root-screen top bar. It is a labeled bottom tab bar in portrait and an icon-only slim rail in landscape; the rail temporarily reveals labels in place without obscuring the active stage.
 _Avoid_: Header menu, browser navigation
 
 **Focused stage**:
