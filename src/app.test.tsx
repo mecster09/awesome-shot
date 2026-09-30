@@ -105,6 +105,28 @@ describe("Natball Insights setup", () => {
     expect(await screen.findByText("LIVE MATCH · QUARTER 1")).toBeInTheDocument();
   });
 
+  it("distinguishes a live Match from a terminal Match in Match History", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
+    const terminalMatch = await startLiveMatch(session, season.id, opposition.id, players);
+    await session.abandonGame(terminalMatch.id);
+    await startLiveMatch(session, season.id, opposition.id, players);
+    const backup = JSON.parse(session.exportBackup());
+    backup.data.games[0].status = "terminated";
+    backup.data.games[0].outcome = { kind: "terminated" };
+    await session.importBackup(JSON.stringify(backup), "replace", true);
+    const user = userEvent.setup();
+    render(<App store={store} />);
+
+    await user.click(await screen.findByRole("button", { name: "Match History" }));
+
+    expect(screen.getByText("Live Match · Quarter 1 · 0 – 0")).toBeInTheDocument();
+    expect(screen.getByText("Terminated Match · 0 – 0")).toBeInTheDocument();
+  });
+
   it("expands compact Coach navigation labels without covering the live Match", async () => {
     vi.stubGlobal("matchMedia", vi.fn().mockImplementation(() => ({
       matches: true,
@@ -181,6 +203,60 @@ describe("Natball Insights setup", () => {
     expect(screen.getByRole("alertdialog", { name: "Replace local data?" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Keep local data" }));
     expect(session.setup().seasons).toHaveLength(1);
+  });
+
+  it("explains why Season lifecycle controls are unavailable during a live Match", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
+    await startLiveMatch(session, season.id, opposition.id, players);
+    const user = userEvent.setup();
+    render(<App store={store} />);
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+
+    expect(screen.getByRole("button", { name: "End season" })).toBeDisabled();
+    expect(screen.getByText("End season is unavailable while a live Match is in progress.")).toBeInTheDocument();
+  });
+
+  it("separates safe backup from destructive data replacement", async () => {
+    const user = userEvent.setup();
+    render(<App store={new InMemoryGameSessionStore()} />);
+
+    await user.type(await screen.findByLabelText("Team name"), "Roses");
+    await user.click(screen.getByRole("button", { name: "Save team" }));
+    await user.type(screen.getByLabelText("Season name"), "2026 Winter");
+    await user.click(screen.getByRole("button", { name: "Create season" }));
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "Backup & restore" }));
+
+    expect(screen.getByRole("heading", { name: "Create a safe backup" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Restore data" })).toBeInTheDocument();
+    expect(screen.getByText("Replace all local data is destructive and requires confirmation.")).toBeInTheDocument();
+  });
+
+  it("keeps the compact landscape rail beside the dense Backup and restore surface", async () => {
+    vi.stubGlobal("matchMedia", vi.fn().mockImplementation(() => ({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn()
+    })));
+    const user = userEvent.setup();
+    render(<App store={new InMemoryGameSessionStore()} />);
+
+    await user.type(await screen.findByLabelText("Team name"), "Roses");
+    await user.click(screen.getByRole("button", { name: "Save team" }));
+    await user.type(screen.getByLabelText("Season name"), "2026 Winter");
+    await user.click(screen.getByRole("button", { name: "Create season" }));
+    expect(screen.getByRole("navigation", { name: "Coach navigation" })).toHaveAttribute("data-layout", "compact-rail");
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "Backup & restore" }));
+
+    expect(screen.getByRole("heading", { name: "Backup & restore" }).closest("section")).toHaveClass("management-screen");
+    expect(screen.getByRole("heading", { name: "Create a safe backup" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Restore data" })).toBeInTheDocument();
   });
 
   it("keeps secondary lifecycle and recovery actions in Coach navigation", async () => {
