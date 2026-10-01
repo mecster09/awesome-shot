@@ -60,7 +60,7 @@ form { display: grid; gap: 13px; margin-top: 20px; }
 .player-search { margin-bottom: 10px; }
 .player-picker-results { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-height: 210px; overflow: auto; padding-right: 4px; }
 .setup-form .squad-picker { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
-.setup-form .selected-player-chips { max-height: 104px; overflow: auto; padding-right: 4px; }
+.setup-form .selected-player-chips { max-height: none; }
 .setup-form .player-picker-results { flex: 1; min-height: 96px; max-height: none; }
 .player-check { min-height: 48px; border-color: #e5e5ea; border-radius: 16px; background: #fff; }
 .picker-empty { margin: 0; color: #636366; }

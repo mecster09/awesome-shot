@@ -6,7 +6,7 @@ import { createMatchCsv, createMatchPdf } from "./reports";
 import "./styles.css";
 
 type AppProps = { store?: GameSessionStore };
-type MatchView = { kind: "team-setup" } | { kind: "season-setup" } | { kind: "no-match" } | { kind: "match-identity" } | { kind: "match-squad" } | { kind: "court-setup" } | { kind: "settings" } | { kind: "settings-section"; section: "team" | "season" | "backup" } | { kind: "history" } | { kind: "next-quarter-setup"; gameId: string; startingLineup: StartingLineup } | { kind: "game"; gameId: string };
+type MatchView = { kind: "team-setup" } | { kind: "season-setup" } | { kind: "no-match" } | { kind: "match-setup" } | { kind: "court-setup" } | { kind: "settings" } | { kind: "settings-section"; section: "team" | "season" | "backup" } | { kind: "history" } | { kind: "next-quarter-setup"; gameId: string; startingLineup: StartingLineup } | { kind: "game"; gameId: string };
 type MatchActions = {
   recordPlayerStatistic: (position: Position, statistic: PlayerStatistic) => Promise<void>;
   recordOppositionGoal: () => Promise<void>;
@@ -27,8 +27,7 @@ export const deriveCurrentView = ({ matchView, setup, liveMatch, nextQuarterCour
   }
   if (setup.seasons.some((season) => season.status === "active")) {
     if (setup.matchSetupDraft?.stage === "court-setup") return { kind: "court-setup" };
-    if (setup.matchSetupDraft?.stage === "match-squad") return { kind: "match-squad" };
-    if (setup.matchSetupDraft?.stage === "match-identity") return { kind: "match-identity" };
+    if (setup.matchSetupDraft?.stage === "match-squad" || setup.matchSetupDraft?.stage === "match-identity") return { kind: "match-setup" };
     return { kind: "no-match" };
   }
   return setup.teams.length > 0 ? { kind: "season-setup" } : { kind: "team-setup" };
@@ -99,7 +98,7 @@ export function App({ store }: AppProps) {
   const activeSeason = setup.seasons.find((season) => season.status === "active");
   const editableTeam = activeSeason ? setup.teams.find((team) => team.id === activeSeason.teamId) : setup.teams.at(-1);
   const liveMatch = session.matches().find((game) => game.status === "live");
-  const matchSquadDraft = setup.matchSetupDraft?.stage === "match-squad" ? setup.matchSetupDraft : undefined;
+  const matchSetupDraft = setup.matchSetupDraft?.stage === "match-squad" || setup.matchSetupDraft?.stage === "match-identity" ? setup.matchSetupDraft : undefined;
   const courtSetupDraft = setup.matchSetupDraft?.stage === "court-setup" ? setup.matchSetupDraft : undefined;
   const currentView = deriveCurrentView({ matchView, setup, liveMatch, nextQuarterCourt: (gameId) => session.nextQuarterCourt(gameId) });
   const navigationView = currentView.kind === "history" ? "history" : currentView.kind === "settings" || currentView.kind === "settings-section" ? "settings" : "match";
@@ -130,26 +129,9 @@ export function App({ store }: AppProps) {
     {currentView.kind === "settings" && <section className="match-area focused-screen management-screen settings-root" aria-labelledby="settings-title"><p className="eyebrow">COACH SETTINGS</p><h2 id="settings-title">Settings</h2><p>Manage your Team, Season, and offline data.</p><section className="settings-group" aria-labelledby="team-settings-title"><h3 id="team-settings-title">Team</h3><div className="settings-root-actions">{editableTeam && <button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "team" })}>Edit team</button>}</div></section><section className="settings-group" aria-labelledby="season-settings-title"><h3 id="season-settings-title">Season</h3><div className="settings-root-actions">{activeSeason && <button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "season" })}>Edit season</button>}{activeSeason && <button type="button" className="text-button" disabled={Boolean(liveMatch)} onClick={() => setMatchView({ kind: "settings-section", section: "season" })}>End season</button>}</div>{liveMatch && <p className="settings-guidance">End season is unavailable while a live Match is in progress.</p>}</section><section className="settings-group" aria-labelledby="data-settings-title"><h3 id="data-settings-title">Data</h3><div className="settings-root-actions"><button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "backup" })}>Backup & restore</button></div></section></section>}
     {currentView.kind === "settings-section" && <section className="match-area focused-screen management-screen" aria-labelledby="settings-section-title"><div className="section-heading"><h2 id="settings-section-title">{currentView.section === "team" ? "Team Setup" : currentView.section === "season" ? "Season Setup" : "Backup & restore"}</h2><button className="text-button" onClick={() => setMatchView({ kind: "settings" })}>Back to Settings</button></div>{currentView.section === "team" && editableTeam && <TeamForm initialName={editableTeam.name} submitLabel="Save changes" cancelLabel="Cancel" onCancel={() => setMatchView({ kind: "settings" })} onSubmit={(input) => perform(async () => { await session.renameTeam(editableTeam.id, input); setMatchView({ kind: "settings" }); })} />}{currentView.section === "season" && activeSeason && <><SeasonForm team={setup.teams.find((team) => team.id === activeSeason.teamId)!} initialName={activeSeason.name} submitLabel="Save changes" cancelLabel="Cancel" onCancel={() => setMatchView({ kind: "settings" })} onSubmit={(input) => perform(async () => { await session.renameSeason(activeSeason.id, input); setMatchView({ kind: "settings" }); })} />{!liveMatch && <EndSeasonControl season={activeSeason} onConfirm={() => perform(async () => { await session.endSeason(activeSeason.id); setMatchView(undefined); })} />}</>}{currentView.section === "backup" && <BackupCard exportBackup={() => session.exportBackup()} onImport={(serialized, mode, confirmed) => perform(async () => { await session.importBackup(serialized, mode, confirmed); if (mode === "replace") setUnsavedCourts({}); })} />}</section>}
 
-    {currentView.kind === "no-match" && activeSeason && <section className="match-area focused-screen no-match-screen" aria-labelledby="no-match-title"><p className="eyebrow">SETUP MATCH</p><h2 id="no-match-title">No Match in progress</h2><p><strong>{activeSeason.name} is the active Season.</strong> Add an Opposition and date when you are ready to prepare a Match.</p><button type="button" aria-label="Set up a Match" onClick={() => setMatchView({ kind: "match-identity" })}>Add Opposition</button></section>}
+    {currentView.kind === "no-match" && activeSeason && <section className="match-area focused-screen no-match-screen" aria-labelledby="no-match-title"><p className="eyebrow">SETUP MATCH</p><h2 id="no-match-title">No Match in progress</h2><p><strong>{activeSeason.name} is the active Season.</strong> Add an Opposition and date when you are ready to prepare a Match.</p><button type="button" aria-label="Set up a Match" onClick={() => setMatchView({ kind: "match-setup" })}>Add Opposition</button></section>}
 
-    {currentView.kind === "match-identity" && activeSeason && <section className="match-area focused-screen setup-screen" aria-labelledby="match-identity-title">
-      <MatchSetupProgress current="identity" /><h2 id="match-identity-title">Add Opposition</h2><p>{activeSeason.name} · choose the Opposition and Match date.</p>
-      <MatchIdentityForm
-        opposition={setup.activeOpposition}
-        draft={setup.matchSetupDraft?.stage === "match-identity" ? setup.matchSetupDraft : undefined}
-        onAddOpposition={async (input) => {
-          const opposition = await session.addOpposition(input);
-          refresh();
-          return opposition;
-        }}
-        onSave={(input) => perform(async () => { await session.saveMatchIdentity({ seasonId: activeSeason.id, ...input }); })}
-        onProceed={(input) => perform(async () => {
-          await session.advanceToMatchSquad({ seasonId: activeSeason.id, ...input });
-          setMatchView({ kind: "match-squad" });
-        })}
-      />
-    </section>}
-    {currentView.kind === "match-squad" && matchSquadDraft && <section className="match-area focused-screen setup-screen" aria-labelledby="match-squad-title"><MatchSetupProgress current="squad" /><h2 id="match-squad-title">Match Squad</h2><p>{matchSquadDraft.date} · {setup.opposition.find((opposition) => opposition.id === matchSquadDraft.oppositionId)?.name}</p><MatchSquadForm players={setup.players} selectedPlayerIds={matchSquadDraft.squadPlayerIds ?? []} onAddPlayer={async (input) => { const player = await session.addPlayer(input); refresh(); return player; }} onSave={(squadPlayerIds) => perform(async () => { await session.saveMatchSquad({ ...matchSquadDraft, squadPlayerIds }); })} onProceed={(squadPlayerIds) => perform(async () => { await session.advanceToCourtSetup({ ...matchSquadDraft, squadPlayerIds }); setMatchView({ kind: "court-setup" }); })} /></section>}
+    {currentView.kind === "match-setup" && activeSeason && <section className="match-area focused-screen setup-screen" aria-labelledby="match-setup-title"><MatchSetupProgress current="setup" /><h2 id="match-setup-title">Setup Match</h2><p>{activeSeason.name} · choose the Opposition, date, and Match Squad.</p><MatchSetupForm opposition={setup.activeOpposition} players={setup.players} draft={matchSetupDraft} onAddOpposition={async (input) => { const opponent = await session.addOpposition(input); refresh(); return opponent; }} onAddPlayer={async (input) => { const player = await session.addPlayer(input); refresh(); return player; }} onSave={(input) => perform(async () => { if (input.oppositionId && input.date) await session.saveMatchSquad({ seasonId: activeSeason.id, oppositionId: input.oppositionId, date: input.date, squadPlayerIds: input.squadPlayerIds }); else await session.saveMatchIdentity({ seasonId: activeSeason.id, oppositionId: input.oppositionId, date: input.date }); })} onProceed={(input) => perform(async () => { await session.advanceToCourtSetup({ seasonId: activeSeason.id, ...input }); setMatchView({ kind: "court-setup" }); })} /></section>}
     {currentView.kind === "court-setup" && courtSetupDraft && <QuarterSetupCard match={courtSetupDraft} startingLineup={unsavedCourts["court-setup"] ?? {}} quarterNumber={1} setup={setup} onLineupChange={(lineup) => setUnsavedCourts((courts) => ({ ...courts, "court-setup": lineup }))} onStart={async (startingLineup) => {
         let started = false;
         await perform(async () => {
@@ -316,55 +298,47 @@ function PrimaryActionBar({ children }: { children: ReactNode }) {
   return <div className="primary-action-bar" role="group" aria-label="Primary action">{children}</div>;
 }
 
-function MatchSetupProgress({ current }: { current: "identity" | "squad" | "court" }) {
-  const steps = [{ key: "identity", label: "Match details" }, { key: "squad", label: "Match Squad" }, { key: "court", label: "Court setup" }] as const;
+function MatchSetupProgress({ current }: { current: "setup" | "court" }) {
+  const steps = [{ key: "setup", label: "Setup Match" }, { key: "court", label: "Court setup" }] as const;
   const currentIndex = steps.findIndex((step) => step.key === current);
   return <div className="match-setup-progress" role="group" aria-label="Match setup progress"><p className="eyebrow">MATCH SETUP · {currentIndex + 1} OF {steps.length}</p><ol>{steps.map((step, index) => <li key={step.key} data-state={index < currentIndex ? "complete" : index === currentIndex ? "current" : "upcoming"}>{step.label}</li>)}</ol></div>;
 }
 
-function MatchIdentityForm({ opposition, draft, onAddOpposition, onSave, onProceed }: { opposition: SetupSummary["activeOpposition"]; draft?: { oppositionId?: string; date?: string }; onAddOpposition: (input: { name: string }) => Promise<{ id: string }>; onSave: (input: { oppositionId?: string; date?: string }) => Promise<void>; onProceed: (input: { oppositionId: string; date: string }) => Promise<void> }) {
+function MatchSetupForm({ opposition, players, draft, onAddOpposition, onAddPlayer, onSave, onProceed }: { opposition: SetupSummary["activeOpposition"]; players: SetupSummary["players"]; draft?: { oppositionId?: string; date?: string; squadPlayerIds?: string[] }; onAddOpposition: (input: { name: string }) => Promise<{ id: string }>; onAddPlayer: (input: { name: string }) => Promise<{ id: string }>; onSave: (input: { oppositionId?: string; date?: string; squadPlayerIds: string[] }) => Promise<void>; onProceed: (input: { oppositionId: string; date: string; squadPlayerIds: string[] }) => Promise<void> }) {
   const [oppositionId, setOppositionId] = useState(draft?.oppositionId ?? "");
+  const [oppositionSearch, setOppositionSearch] = useState("");
   const [date, setDate] = useState(draft?.date ?? localDate());
   const [newOppositionName, setNewOppositionName] = useState("");
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    await onProceed({ oppositionId, date });
-  };
+  const [playerIds, setPlayerIds] = useState(draft?.squadPlayerIds ?? []);
+  const [newPlayerName, setNewPlayerName] = useState("");
+  const [playerSearch, setPlayerSearch] = useState("");
+  const matchingOpposition = opposition.filter((opponent) => opponent.name.toLocaleLowerCase().includes(oppositionSearch.trim().toLocaleLowerCase()));
+  const matchingPlayers = players.filter((player) => playerLabel(player).toLocaleLowerCase().includes(playerSearch.trim().toLocaleLowerCase()));
+  const saveDraft = (next: { oppositionId?: string; date?: string; squadPlayerIds?: string[] }) => void onSave({ oppositionId, date, squadPlayerIds: playerIds, ...next });
   const addOpposition = async () => {
     const opposition = await onAddOpposition({ name: newOppositionName });
     setOppositionId(opposition.id);
+    setOppositionSearch("");
     setNewOppositionName("");
-    await onSave({ oppositionId: opposition.id, date });
+    await onSave({ oppositionId: opposition.id, date, squadPlayerIds: playerIds });
   };
-  return <form className="match-form setup-form" onSubmit={(event) => void submit(event)}>
-    <div className="field-grid" role="group" aria-label="Saved Oppositions">
-      <label>Opposition<select value={oppositionId} onChange={(event) => { setOppositionId(event.target.value); void onSave({ oppositionId: event.target.value || undefined, date }); }}><option value="">Select Opposition</option>{opposition.map((opponent) => <option key={opponent.id} value={opponent.id}>{opponent.name}</option>)}</select></label>
-      <label>Match date<input type="date" value={date} onChange={(event) => { setDate(event.target.value); void onSave({ oppositionId: oppositionId || undefined, date: event.target.value || undefined }); }} /></label>
-    </div>
-    <div className="quick-player" role="group" aria-label="Add a new Opposition"><label>New opposition name<input value={newOppositionName} onChange={(event) => setNewOppositionName(event.target.value)} placeholder="Opposition team" /></label><button type="button" disabled={!newOppositionName.trim()} onClick={() => void addOpposition()}>Add opposition to match</button></div>
-    <PrimaryActionBar><button type="submit" disabled={!oppositionId || !date}>Continue to Match Squad</button></PrimaryActionBar>
-  </form>;
-}
-
-function MatchSquadForm({ players, selectedPlayerIds, onAddPlayer, onSave, onProceed }: { players: SetupSummary["players"]; selectedPlayerIds: string[]; onAddPlayer: (input: { name: string }) => Promise<{ id: string }>; onSave: (playerIds: string[]) => Promise<void>; onProceed: (playerIds: string[]) => Promise<void> }) {
-  const [playerIds, setPlayerIds] = useState(selectedPlayerIds);
-  const [newPlayerName, setNewPlayerName] = useState("");
-  const [playerSearch, setPlayerSearch] = useState("");
-  const matchingPlayers = players.filter((player) => playerLabel(player).toLocaleLowerCase().includes(playerSearch.trim().toLocaleLowerCase()));
-  const updatePlayers = (next: string[]) => {
-    setPlayerIds(next);
-    void onSave(next);
-  };
+  const updatePlayers = (next: string[]) => { setPlayerIds(next); saveDraft({ squadPlayerIds: next }); };
   const addPlayer = async () => {
     const player = await onAddPlayer({ name: newPlayerName });
     const next = playerIds.includes(player.id) ? playerIds : [...playerIds, player.id];
     updatePlayers(next);
     setNewPlayerName("");
   };
-  return <form className="match-form setup-form" onSubmit={(event) => { event.preventDefault(); void onProceed(playerIds); }}>
+  return <form className="match-form setup-form" onSubmit={(event) => { event.preventDefault(); if (oppositionId && date && playerIds.length >= 5) void onProceed({ oppositionId, date, squadPlayerIds: playerIds }); }}>
+    <div className="field-grid" role="group" aria-label="Saved Oppositions">
+      <label>Search opposition history<input type="search" value={oppositionSearch} onChange={(event) => setOppositionSearch(event.target.value)} placeholder="Find an Opposition" /></label>
+      <label>Opposition<select value={oppositionId} onChange={(event) => { const next = event.target.value; setOppositionId(next); saveDraft({ oppositionId: next || undefined }); }}><option value="">Select Opposition</option>{matchingOpposition.map((opponent) => <option key={opponent.id} value={opponent.id}>{opponent.name}</option>)}</select></label>
+      <label>Match date<input type="date" value={date} onChange={(event) => { const next = event.target.value; setDate(next); saveDraft({ date: next || undefined }); }} /></label>
+    </div>
+    <div className="quick-player" role="group" aria-label="Add a new Opposition"><label>New opposition name<input value={newOppositionName} onChange={(event) => setNewOppositionName(event.target.value)} placeholder="Opposition team" /></label><button type="button" disabled={!newOppositionName.trim()} onClick={() => void addOpposition()}>Add opposition to match</button></div>
     <div className="quick-player" aria-label="Add a player to this Match Squad"><label>New player name<input value={newPlayerName} onChange={(event) => setNewPlayerName(event.target.value)} placeholder="Player name" /></label><button type="button" disabled={!newPlayerName.trim() || playerIds.length === 12} onClick={() => void addPlayer()}>Add player to Match Squad</button></div>
     <fieldset className="squad-picker"><legend>Match Squad <span>{playerIds.length}/12 selected</span></legend>{playerIds.length > 0 && <div className="selected-player-chips" role="group" aria-label="Selected Match Squad">{players.filter((player) => playerIds.includes(player.id)).map((player) => <button key={player.id} type="button" className="player-chip" onClick={() => updatePlayers(playerIds.filter((id) => id !== player.id))}>Remove {playerLabel(player)} from Match Squad</button>)}</div>}<label className="player-search">Search players<input type="search" value={playerSearch} onChange={(event) => setPlayerSearch(event.target.value)} placeholder="Find a Player" /></label><div className="player-picker-results">{matchingPlayers.map((player) => <label key={player.id} className="player-check"><input type="checkbox" checked={playerIds.includes(player.id)} onChange={() => updatePlayers(playerIds.includes(player.id) ? playerIds.filter((id) => id !== player.id) : [...playerIds, player.id])} disabled={!playerIds.includes(player.id) && playerIds.length === 12} />{playerLabel(player)}</label>)}{matchingPlayers.length === 0 && <p className="picker-empty">No Players match this search.</p>}</div></fieldset>
-    <PrimaryActionBar><button type="submit" disabled={playerIds.length < 5}>Continue to Court Setup</button></PrimaryActionBar>
+    <PrimaryActionBar><button type="submit" disabled={!oppositionId || !date || playerIds.length < 5}>Continue to Court Setup</button></PrimaryActionBar>
   </form>;
 }
 
