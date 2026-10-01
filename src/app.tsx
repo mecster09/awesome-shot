@@ -1,7 +1,7 @@
 import { FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { GameSession } from "./game-session/game-session";
 import { IndexedDbGameSessionStore } from "./game-session/indexed-db-game-session-store";
-import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, TOTAL_QUARTERS, type BetweenQuarterStatistics, type CaptureAction, type Game, type GameSessionStore, type LiveQuarterCapture, type PlayerStatistic, type Position, type QuarterNumber, type SetupSummary, type StartMatchInput, type StartingLineup, type TerminalMatchReport } from "./game-session/types";
+import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, TOTAL_QUARTERS, type BetweenQuarterStatistics, type CaptureAction, type Game, type GameSessionStore, type LiveQuarterCapture, type StatisticsSummary, type PlayerStatistic, type Position, type QuarterNumber, type SetupSummary, type StartMatchInput, type StartingLineup, type TerminalMatchReport } from "./game-session/types";
 import { createMatchCsv, createMatchPdf } from "./reports";
 import "./styles.css";
 
@@ -46,15 +46,15 @@ const localDate = () => {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 };
-const statisticIcon: Record<PlayerStatistic, string> = {
-  "Successful Centre Pass Received": "↗",
-  Tip: "⌁",
-  Intercept: "↯",
-  "Unforced Errors": "!",
-  "Contact Conceded": "×",
-  "Obstruction Conceded": "⊘",
-  Goals: "◎",
-  Misses: "○"
+const statisticHeader: Record<PlayerStatistic, string> = {
+  "Successful Centre Pass Received": "CPR",
+  Tip: "Tip",
+  Intercept: "Int",
+  "Unforced Errors": "UE",
+  "Contact Conceded": "Con",
+  "Obstruction Conceded": "Obs",
+  Goals: "Goal",
+  Misses: "Miss"
 };
 const positionAbbreviation: Record<Position, string> = { "Goal Keeper": "GK", "Goal Defence": "GD", "Wing Defence": "WD", Centre: "C", "Wing Attack": "WA", "Goal Attack": "GA", "Goal Shooter": "GS" };
 const browserStore = new IndexedDbGameSessionStore();
@@ -164,6 +164,7 @@ export function App({ store }: AppProps) {
         capture={game.status === "live" && game.activeQuarter ? session.liveQuarter(game.id) : undefined}
         score={game.status === "live" ? session.gameScore(game.id) : undefined}
         report={game.status === "finalised" || game.status === "abandoned" || game.status === "terminated" ? session.terminalMatchReport(game.id) : undefined}
+        summary={(selection) => session.statisticsSummary(game.id, selection)}
         actions={{
           recordPlayerStatistic: (position, statistic) => perform(() => session.recordPlayerStatistic(game.id, { position, statistic })),
           recordOppositionGoal: () => perform(() => session.recordOppositionGoal(game.id)),
@@ -368,11 +369,18 @@ function BetweenQuarterStatisticsPanel({ statistics, players }: { statistics: Be
   return <section className="between-quarter-statistics" aria-labelledby="between-quarter-statistics-title"><div className="section-heading"><h3 id="between-quarter-statistics-title">{title}</h3><button type="button" className="text-button" onClick={() => setView(view === "previous" ? "match" : "previous")}>{view === "previous" ? "All Match" : "Previous quarter"}</button></div><p>{view === "previous" ? `Quarter ${statistics.previousQuarter}` : "All completed quarters"}</p><ul>{stints.map((stint) => <li key={`${stint.playerId}:${stint.position}`}><strong>{playerLabel(players.find((player) => player.id === stint.playerId) ?? { name: "Unknown player" })}</strong> · {stint.position} · {stint.playerStatistics.length ? stint.playerStatistics.map((statistic) => `${statistic.statistic}: ${statistic.count}`).join(" · ") : "No events"}</li>)}</ul></section>;
 }
 
-function MatchCard({ game, setup, capture, score, report, actions, onOpenHistory }: { game: Game; setup: SetupSummary; capture?: LiveQuarterCapture; score?: { own: number; opposition: number }; report?: TerminalMatchReport; actions: MatchActions; onOpenHistory: () => void }) {
-  if (game.status === "live" && capture) return <LiveQuarterCard game={game} setup={setup} capture={capture} actions={actions} onOpenHistory={onOpenHistory} />;
-  if (game.status === "live") return <section className="draft-card live-card"><p className="eyebrow">QUARTER COMPLETE</p><h2>Quarter {game.quarters?.at(-1)?.number} has ended</h2><p>Review the final Court, reposition players, and confirm before the next Quarter starts.</p>{game.quarters?.length === TOTAL_QUARTERS && <><p>Final score: {score?.own} — {score?.opposition}</p><button onClick={() => score && void actions.finalise(score)}>Confirm and finalise</button></>}<AbandonMatchAction onAbandon={actions.abandon} /></section>;
-  if (report) return <TerminalMatchCard report={report} onBack={onOpenHistory} />;
-  return null;
+function MatchCard({ game, setup, capture, score, report, summary, actions, onOpenHistory }: { game: Game; setup: SetupSummary; capture?: LiveQuarterCapture; score?: { own: number; opposition: number }; report?: TerminalMatchReport; summary: (selection: { scope: "match" } | { scope: "quarter"; quarter: QuarterNumber }) => StatisticsSummary; actions: MatchActions; onOpenHistory: () => void }) {
+  const defaultTab = report ? "match" : game.activeQuarter ?? game.quarters?.at(-1)?.number ?? "match";
+  const [tab, setTab] = useState<QuarterNumber | "match">(defaultTab);
+  useEffect(() => setTab(defaultTab), [defaultTab]);
+  const availableTabs = summary({ scope: "match" }).availableTabs;
+  const selectedSummary = tab === "match" ? summary({ scope: "match" }) : summary({ scope: "quarter", quarter: tab });
+  const selectedIsLive = game.status === "live" && tab === game.activeQuarter && capture;
+  return <section className="match-events" aria-labelledby="match-events-title"><div className="section-heading"><div><p className="eyebrow">MATCH EVENTS</p><h2 id="match-events-title">Match Events</h2></div></div><div className="match-event-tabs" role="tablist" aria-label="Match Events tabs">{([1, 2, 3, 4] as QuarterNumber[]).map((quarter) => <button key={quarter} type="button" role="tab" aria-selected={tab === quarter} disabled={!availableTabs.includes(quarter)} onClick={() => setTab(quarter)}>Q{quarter}</button>)}<button type="button" role="tab" aria-selected={tab === "match"} disabled={!availableTabs.includes("match")} onClick={() => setTab("match")}>Match</button></div>{selectedIsLive ? <LiveQuarterCard game={game} setup={setup} capture={capture} actions={actions} onOpenHistory={onOpenHistory} /> : report && tab === "match" ? <><TerminalMatchCard report={report} onBack={onOpenHistory} /><MatchEventSummaryTable summary={selectedSummary} players={setup.players} label="Match" /></> : <MatchEventSummaryTable summary={selectedSummary} players={setup.players} label={tab === "match" ? "Match" : `Quarter ${tab}`} />}{game.status === "live" && !game.activeQuarter && tab !== "match" && <section className="draft-card live-card"><p className="eyebrow">QUARTER COMPLETE</p><h2>Quarter {game.quarters?.at(-1)?.number} has ended</h2><p>Review the final Court, reposition players, and confirm before the next Quarter starts.</p>{game.quarters?.length === TOTAL_QUARTERS && <><p>Final score: {score?.own} — {score?.opposition}</p><button onClick={() => score && void actions.finalise(score)}>Confirm and finalise</button></>}<AbandonMatchAction onAbandon={actions.abandon} /></section>}</section>;
+}
+
+function MatchEventSummaryTable({ summary, players, label }: { summary: StatisticsSummary; players: SetupSummary["players"]; label: string }) {
+  return <section className="match-event-summary" aria-label={`${label} statistics`}><p>{summary.readOnly ? "This Match is read-only." : "Completed event summary"}</p><div className="match-event-summary-scroll"><table><thead><tr><th>Player</th><th>Position</th><th>Events</th></tr></thead><tbody>{summary.stints.map((stint) => <tr key={`${stint.playerId}:${stint.position}`}><td>{playerLabel(players.find((player) => player.id === stint.playerId) ?? { name: "Unknown player" })}</td><td>{stint.position}</td><td>{stint.playerStatistics.length ? stint.playerStatistics.map((statistic) => `${statistic.statistic}: ${statistic.count}`).join(" · ") : "No events"}</td></tr>)}</tbody></table></div></section>;
 }
 
 function TerminalMatchCard({ report, onBack }: { report: TerminalMatchReport; onBack: () => void }) {
@@ -444,7 +452,7 @@ function PlayerStatCard({ position, player, capture, onRecord }: { position: Pos
     window.setTimeout(() => setFeedbackCell((current) => current === statistic ? undefined : current), 500);
     void onRecord(position, statistic);
   };
-  return <article className="player-stat-card"><h3>{playerLabel(player)}</h3><p className="eyebrow">{positionAbbreviation[position]}</p><div className="stat-buttons">{statistics.map((statistic) => { const count = capture.playerStatistics.find((total) => total.playerId === player.id && total.position === position && total.statistic === statistic)?.count ?? 0; const available = !SHOOTER_STATISTICS.includes(statistic as (typeof SHOOTER_STATISTICS)[number]) || position === "Goal Attack" || position === "Goal Shooter"; return <button key={statistic} className={`event-cell ${statistic === "Goals" ? "goal-event" : statistic === "Misses" ? "miss-event" : ""} ${feedbackCell === statistic ? "event-feedback" : ""}`} disabled={!available} onClick={() => record(statistic)} aria-label={available ? `Record ${statistic} for ${player.name}` : `${statistic} is unavailable for ${player.name}`}><span aria-hidden="true">{statisticIcon[statistic]}</span><span>{available ? count : "—"}</span></button>; })}</div></article>;
+  return <article className="player-stat-card"><h3>{playerLabel(player)}</h3><p className="eyebrow">{positionAbbreviation[position]}</p><div className="stat-buttons">{statistics.map((statistic) => { const count = capture.playerStatistics.find((total) => total.playerId === player.id && total.position === position && total.statistic === statistic)?.count ?? 0; const available = !SHOOTER_STATISTICS.includes(statistic as (typeof SHOOTER_STATISTICS)[number]) || position === "Goal Attack" || position === "Goal Shooter"; return <button key={statistic} className={`event-cell ${statistic === "Goals" ? "goal-event" : statistic === "Misses" ? "miss-event" : ""} ${feedbackCell === statistic ? "event-feedback" : ""}`} disabled={!available} onClick={() => record(statistic)} aria-label={available ? `Record ${statistic} for ${player.name}` : `${statistic} is unavailable for ${player.name}`}><span aria-hidden="true">{statisticHeader[statistic]}</span><span>{available ? count : "—"}</span></button>; })}</div></article>;
 }
 
 function captureActionLabel(action: CaptureAction, players: SetupSummary["players"]) {

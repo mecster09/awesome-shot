@@ -583,6 +583,32 @@ describe("Natball Insights setup", () => {
     expect(await screen.findByText("Roses 1 — Thunder 1")).toBeInTheDocument();
   });
 
+  it("keeps five Match Events tabs available and reviews completed Quarter statistics while a later Quarter is live", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia", "Hana"].map((name) => session.addPlayer({ name })));
+    const game = await startLiveMatch(session, season.id, opposition.id, players);
+    await session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Tip" });
+    await session.substitutePlayer(game.id, { position: "Centre", playerId: players[7].id });
+    await session.endQuarter(game.id);
+    await session.startNextQuarter(game.id, session.nextQuarterCourt(game.id));
+    const user = userEvent.setup();
+    render(<App store={store} />);
+
+    const tabs = await screen.findByRole("tablist", { name: "Match Events tabs" });
+    expect(within(tabs).getByRole("tab", { name: "Q1" })).toBeEnabled();
+    expect(within(tabs).getByRole("tab", { name: "Q2" })).toBeEnabled();
+    expect(within(tabs).getByRole("tab", { name: "Q3" })).toBeDisabled();
+    expect(within(tabs).getByRole("tab", { name: "Q4" })).toBeDisabled();
+    expect(within(tabs).getByRole("tab", { name: "Match" })).toBeEnabled();
+    await user.click(within(tabs).getByRole("tab", { name: "Q1" }));
+    expect(await screen.findByLabelText("Quarter 1 statistics")).toHaveTextContent("Demi");
+    expect(screen.getByLabelText("Quarter 1 statistics")).toHaveTextContent("Hana");
+    expect(screen.getByLabelText("Quarter 1 statistics")).toHaveTextContent("No events");
+  });
+
   it("keeps compact Match capture actions reachable without an overlay", async () => {
     vi.stubGlobal("matchMedia", vi.fn().mockImplementation(() => ({
       matches: true,
@@ -601,7 +627,7 @@ describe("Natball Insights setup", () => {
     expect(await screen.findByRole("heading", { name: "Roses 0 — Thunder 0" })).toBeInTheDocument();
     expect(screen.getByText("Quarter: Roses 0 — Thunder 0")).toBeInTheDocument();
     expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(8);
-    expect(screen.getByRole("button", { name: "Record Goals for Faye" })).toHaveTextContent("◎");
+    expect(screen.getByRole("button", { name: "Record Goals for Faye" })).toHaveTextContent("Goal");
     expect(screen.queryByText("Quarter 1 review")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Record Substitution" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "End quarter" })).toBeInTheDocument();
@@ -765,6 +791,8 @@ describe("Natball Insights setup", () => {
     await user.click(coachNavigation().getByRole("button", { name: "History" }));
     await user.click(screen.getByRole("button", { name: "View match record" }));
     expect(await screen.findByText("MATCH RECORD")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Match" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("This Match is read-only.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download CSV" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download PDF" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Back to Match History" }));
