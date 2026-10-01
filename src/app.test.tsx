@@ -594,7 +594,8 @@ describe("Natball Insights setup", () => {
     expect(await screen.findByText("Roses 1 — Thunder 1")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Hana" })).toBeInTheDocument();
     expect((await GameSession.open(store)).match(game.id)?.quarters?.[0].substitutions).toHaveLength(1);
-    expect(screen.getByRole("heading", { name: "Quarter 1 event feed" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Open Event feed/ }));
+    expect(screen.getByRole("heading", { name: "Quarter 1 events" })).toBeInTheDocument();
     expect(screen.getAllByText("Opponent goal")).toHaveLength(2);
     expect(screen.getByText((_, element) => element?.textContent === "Faye · GA · Goals")).toBeInTheDocument();
     expect(screen.getByText("GA")).toBeInTheDocument();
@@ -647,7 +648,7 @@ describe("Natball Insights setup", () => {
 
     expect(await screen.findByRole("heading", { name: "Roses 0 — Thunder 0" })).toBeInTheDocument();
     expect(screen.getByText("Quarter: Roses 0 — Thunder 0")).toBeInTheDocument();
-    expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(8);
+    expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(7);
     expect(screen.getByRole("button", { name: "Record Goals for Faye" })).toHaveTextContent("Goal");
     expect(screen.queryByText("Quarter 1 review")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Record Substitution" })).toBeInTheDocument();
@@ -677,7 +678,7 @@ describe("Natball Insights setup", () => {
     expect(persistedSession.gameScore(game.id)).toEqual({ own: 1, opposition: 1 });
   });
 
-  it("follows the latest live event when the Event feed is already at its newest entry", async () => {
+  it("keeps the Event-feed drawer closed until the coach opens it, without moving the capture grid", async () => {
     const store = new InMemoryGameSessionStore();
     const session = await GameSession.open(store);
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
@@ -687,72 +688,51 @@ describe("Natball Insights setup", () => {
     await session.recordPlayerStatistic(game.id, { position: "Goal Attack", statistic: "Goals" });
     const user = userEvent.setup();
     render(<App store={store} />);
-
-    const feed = await screen.findByLabelText("Quarter 1 Event feed");
-    Object.defineProperties(feed, { clientHeight: { configurable: true, value: 100 }, scrollHeight: { configurable: true, value: 300 }, scrollTop: { configurable: true, writable: true, value: 200 } });
-    fireEvent.scroll(feed);
+    const grid = await screen.findByLabelText("Current court event grid");
+    expect(screen.queryByRole("dialog", { name: "Event feed" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Open Event feed/ }));
+    expect(screen.getByRole("dialog", { name: "Event feed" })).toBeInTheDocument();
+    expect(screen.getByText("Faye · GA · Goals")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close Event feed" }));
+    expect(screen.queryByRole("dialog", { name: "Event feed" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Current court event grid")).toBe(grid);
     await user.click(screen.getByRole("button", { name: "Record Goals for Faye" }));
-
-    await waitFor(() => expect(feed.scrollTop).toBe(300));
-    expect(screen.queryByRole("button", { name: /new event/ })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Open Event feed, 1 new event" })).toBeInTheDocument();
   });
 
-  it("keeps the Event feed open in standard landscape and makes its compact drawer discoverable", async () => {
+  it("scopes drawer events to its selected tab and corrects or deletes them with confirmation", async () => {
     const store = new InMemoryGameSessionStore();
     const session = await GameSession.open(store);
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
     const opposition = await session.addOpposition({ name: "Thunder" });
     const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
     const game = await startLiveMatch(session, season.id, opposition.id, players);
+    const user = userEvent.setup();
     await session.recordPlayerStatistic(game.id, { position: "Goal Attack", statistic: "Goals" });
-    const user = userEvent.setup();
-    const compactLandscape = (query: string) => ({ matches: query.includes("max-height: 700px"), media: query, onchange: null, addEventListener: vi.fn(), removeEventListener: vi.fn(), addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn() });
-
-    const standard = render(<App store={store} />);
-    const standardFeed = await screen.findByLabelText("Quarter 1 Event feed");
-    expect(standardFeed.closest("details")).toHaveAttribute("open");
-    expect(screen.getByRole("button", { name: "Correct event" })).toBeInTheDocument();
-    standard.unmount();
-
-    vi.stubGlobal("matchMedia", compactLandscape);
-    render(<App store={store} />);
-    expect(await screen.findByText("Event feed · Faye · GA · Goals")).toBeInTheDocument();
-    const compactFeed = screen.getByLabelText("Quarter 1 Event feed");
-    expect(compactFeed.closest("details")).not.toHaveAttribute("open");
-
-    await user.click(screen.getByText("Event feed · Faye · GA · Goals"));
-    expect(await screen.findByRole("button", { name: "Correct event" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Remove event" })).toBeInTheDocument();
-  });
-
-  it("preserves Event-feed review position and keeps correction and removal available", async () => {
-    const store = new InMemoryGameSessionStore();
-    const session = await GameSession.open(store);
-    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
-    const opposition = await session.addOpposition({ name: "Thunder" });
-    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
-    const game = await startLiveMatch(session, season.id, opposition.id, players);
-    const user = userEvent.setup();
+    await session.endQuarter(game.id);
+    await session.startNextQuarter(game.id, session.nextQuarterCourt(game.id));
+    await session.recordPlayerStatistic(game.id, { position: "Goal Attack", statistic: "Misses" });
     render(<App store={store} />);
 
-    await user.click(await screen.findByRole("button", { name: "Record Goals for Faye" }));
-    const feed = screen.getByLabelText("Quarter 1 Event feed");
-    Object.defineProperties(feed, { clientHeight: { configurable: true, value: 100 }, scrollHeight: { configurable: true, value: 300 }, scrollTop: { configurable: true, writable: true, value: 40 } });
-    fireEvent.scroll(feed);
-    await user.click(screen.getByRole("button", { name: "Record Misses for Faye" }));
-
-    expect(feed.scrollTop).toBe(40);
-    expect(await screen.findByRole("button", { name: "1 new event" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "1 new event" }));
-    expect(feed.scrollTop).toBe(300);
+    const tabs = await screen.findByRole("tablist", { name: "Match Events tabs" });
+    await user.click(within(tabs).getByRole("tab", { name: "Q1" }));
+    await user.click(screen.getByRole("button", { name: /Open Event feed/ }));
+    expect(screen.getByText("Faye · GA · Goals")).toBeInTheDocument();
+    expect(screen.queryByText("Faye · GA · Misses")).not.toBeInTheDocument();
+    await user.click(within(tabs).getByRole("tab", { name: "Match" }));
+    expect(screen.getByText("Faye · GA · Goals")).toBeInTheDocument();
+    expect(screen.getByText("Faye · GA · Misses")).toBeInTheDocument();
     await user.click(screen.getAllByRole("button", { name: "Correct event" })[0]);
+    expect(screen.getByRole("dialog", { name: "Correct event" })).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("Event correction statistic"), "Misses");
     await user.click(screen.getByRole("button", { name: "Save event correction" }));
-
-    expect(await screen.findAllByText((_, element) => element?.textContent === "Faye · GA · Misses")).toHaveLength(2);
+    expect(await screen.findAllByText(/Faye · GA · Misses/)).toHaveLength(2);
+    await waitFor(async () => expect((await GameSession.open(store)).gameScore(game.id)).toEqual({ own: 0, opposition: 0 }));
     await user.click(screen.getAllByRole("button", { name: "Remove event" })[0]);
+    expect(screen.getByRole("alertdialog", { name: "Delete event?" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Delete event" }));
     expect(await screen.findAllByRole("button", { name: "Remove event" })).toHaveLength(1);
-    expect(session.liveQuarter(game.id).ownScore).toBe(0);
+    await waitFor(async () => expect((await GameSession.open(store)).gameScore(game.id)).toEqual({ own: 0, opposition: 0 }));
   });
 
   it("requires confirmation before abandoning a live Match", async () => {
