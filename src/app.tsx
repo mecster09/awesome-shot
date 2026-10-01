@@ -101,13 +101,11 @@ export function App({ store }: AppProps) {
   const matchSquadDraft = setup.matchSetupDraft?.stage === "match-squad" ? setup.matchSetupDraft : undefined;
   const courtSetupDraft = setup.matchSetupDraft?.stage === "court-setup" ? setup.matchSetupDraft : undefined;
   const currentView = deriveCurrentView({ matchView, setup, liveMatch, nextQuarterCourt: (gameId) => session.nextQuarterCourt(gameId) });
-  const primaryNavigationLabel = liveMatch ? "Live Match" : "Setup Match";
-  const navigationView = currentView.kind === "game" || currentView.kind === "next-quarter-setup" ? "match" : currentView.kind === "history" ? "history" : currentView.kind === "settings" || currentView.kind === "settings-section" ? "settings" : undefined;
+  const navigationView = currentView.kind === "history" ? "history" : currentView.kind === "settings" || currentView.kind === "settings-section" ? "settings" : "match";
 
   return <main className="app-shell">
     <CoachNavigation
       activeView={navigationView}
-      primaryLabel={primaryNavigationLabel}
       onOpenMatch={() => setMatchView(undefined)}
       onOpenHistory={() => setMatchView({ kind: "history" })}
       onOpenSettings={() => setMatchView({ kind: "settings" })}
@@ -204,27 +202,17 @@ export function App({ store }: AppProps) {
   </main>;
 }
 
-function CoachNavigation({ activeView, primaryLabel, onOpenMatch, onOpenHistory, onOpenSettings }: { activeView?: "match" | "history" | "settings"; primaryLabel: "Setup Match" | "Live Match"; onOpenMatch: () => void; onOpenHistory: () => void; onOpenSettings: () => void }) {
+function CoachNavigation({ activeView, onOpenMatch, onOpenHistory, onOpenSettings }: { activeView?: "match" | "history" | "settings"; onOpenMatch: () => void; onOpenHistory: () => void; onOpenSettings: () => void }) {
   const compactRail = useCompactCoachRail();
-  const [expanded, setExpanded] = useState(false);
-  useEffect(() => {
-    if (!compactRail) setExpanded(false);
-  }, [compactRail]);
   const items: Array<{ key: "match" | "history" | "settings"; label: string; icon: "court" | "history" | "settings"; onClick: () => void }> = [
-    { key: "match" as const, label: primaryLabel, icon: "court", onClick: onOpenMatch },
-    { key: "history" as const, label: "Match History", icon: "history", onClick: onOpenHistory },
+    { key: "match" as const, label: "Match", icon: "court", onClick: onOpenMatch },
+    { key: "history" as const, label: "History", icon: "history", onClick: onOpenHistory },
     { key: "settings" as const, label: "Settings", icon: "settings", onClick: onOpenSettings }
   ];
 
-  const navigateAndCollapseRail = (action: () => void) => {
-    action();
-    setExpanded(false);
-  };
-
-  return <nav className="coach-navigation" aria-label="Coach navigation" data-layout={compactRail ? "compact-rail" : "labeled-bottom"} data-expanded={compactRail ? expanded : undefined}>
+  return <nav className="coach-navigation" aria-label="Coach navigation" data-layout={compactRail ? "compact-rail" : "labeled-bottom"}>
     <div className="app-identity"><AppMark /><span><strong>Natball</strong><small>Insights</small></span></div>
-    <div className="coach-navigation-items">{items.map((item) => <button key={item.key} type="button" className="coach-navigation-item" aria-current={activeView === item.key ? "page" : undefined} onClick={() => navigateAndCollapseRail(item.onClick)}><NavigationIcon name={item.icon} /><span>{item.label}</span></button>)}</div>
-    {compactRail && <button type="button" className="coach-navigation-toggle" aria-label={`${expanded ? "Collapse" : "Expand"} Coach navigation`} aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>☰</button>}
+    <div className="coach-navigation-items">{items.map((item) => <button key={item.key} type="button" className="coach-navigation-item" aria-current={activeView === item.key ? "page" : undefined} onClick={item.onClick}><NavigationIcon name={item.icon} /><span>{item.label}</span></button>)}</div>
   </nav>;
 }
 
