@@ -289,7 +289,10 @@ export class GameSession {
       oppositionScore: this.score(quarter.captureActions).opposition,
       startingLineup: lineup(quarter.startingLineup),
       substitutions: quarter.substitutions.map((substitution) => ({ ...substitution, ...(substitution.playerId ? { playerName: playerName(substitution.playerId) } : {}) })),
-      playerStatistics: this.statisticTotals(quarter.captureActions).map((statistic) => ({ ...statistic, playerName: playerName(statistic.playerId) }))
+      playerStatistics: this.statisticTotals(quarter.captureActions).map((statistic) => ({ ...statistic, playerName: playerName(statistic.playerId) })),
+      events: quarter.captureActions.map((action, index) => action.kind === "opposition-goal"
+        ? { sequence: index + 1, kind: "opposition-goal" as const }
+        : { sequence: index + 1, kind: "player-statistic" as const, playerId: action.playerId, playerName: playerName(action.playerId), position: action.position, statistic: action.statistic })
     }));
     return structuredClone({
       id: game.id,

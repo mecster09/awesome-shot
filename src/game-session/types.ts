@@ -72,6 +72,9 @@ export type StatisticsSummary = {
   readOnly: boolean;
 };
 export type ReportPlayerStatisticTotal = PlayerStatisticTotal & { playerName: string };
+export type ReportEvent =
+  | { sequence: number; kind: "opposition-goal" }
+  | { sequence: number; kind: "player-statistic"; playerId: string; playerName: string; position: Position; statistic: PlayerStatistic };
 export type TerminalMatchReport = {
   id: string;
   date: string;
@@ -87,6 +90,7 @@ export type TerminalMatchReport = {
     startingLineup: Array<{ position: Position; playerId: string; playerName: string }>;
     substitutions: Array<{ sequence: number; position: Position; playerId?: string; playerName?: string }>;
     playerStatistics: ReportPlayerStatisticTotal[];
+    events: ReportEvent[];
   }>;
   gamePlayerStatistics: ReportPlayerStatisticTotal[];
 };
