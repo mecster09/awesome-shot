@@ -18,8 +18,10 @@ type MatchActions = {
   deleteQuarterAction: (quarter: QuarterNumber, actionId: string) => Promise<void>;
   correctQuarterPlayerStatistic: (quarter: QuarterNumber, actionId: string, correction: { playerId: string; position: Position; statistic: PlayerStatistic }) => Promise<void>;
 };
+const isTerminalMatch = (game: Game) => game.status === "finalised" || game.status === "abandoned" || game.status === "terminated";
+const terminalMatchesNewestFirst = (games: Game[]) => games.filter(isTerminalMatch).sort((left, right) => right.date.localeCompare(left.date));
 
-export const deriveCurrentView = ({ matchView, setup, liveMatch, nextQuarterCourt }: { matchView?: MatchView; setup: SetupSummary; liveMatch?: Game; nextQuarterCourt: (gameId: string) => StartingLineup }): MatchView => {
+export const deriveCurrentView = ({ matchView, setup, liveMatch, latestTerminalMatch, nextQuarterCourt }: { matchView?: MatchView; setup: SetupSummary; liveMatch?: Game; latestTerminalMatch?: Game; nextQuarterCourt: (gameId: string) => StartingLineup }): MatchView => {
   if (matchView) return matchView;
   if (liveMatch) {
     if (!liveMatch.activeQuarter && (liveMatch.quarters?.length ?? 0) < TOTAL_QUARTERS) return { kind: "next-quarter-setup", gameId: liveMatch.id, startingLineup: nextQuarterCourt(liveMatch.id) };
@@ -30,6 +32,7 @@ export const deriveCurrentView = ({ matchView, setup, liveMatch, nextQuarterCour
     if (setup.matchSetupDraft?.stage === "match-squad" || setup.matchSetupDraft?.stage === "match-identity") return { kind: "match-setup" };
     return { kind: "no-match" };
   }
+  if (latestTerminalMatch) return { kind: "game", gameId: latestTerminalMatch.id };
   return setup.teams.length > 0 ? { kind: "season-setup" } : { kind: "team-setup" };
 };
 
@@ -98,9 +101,10 @@ export function App({ store }: AppProps) {
   const activeSeason = setup.seasons.find((season) => season.status === "active");
   const editableTeam = activeSeason ? setup.teams.find((team) => team.id === activeSeason.teamId) : setup.teams.at(-1);
   const liveMatch = session.matches().find((game) => game.status === "live");
+  const latestTerminalMatch = terminalMatchesNewestFirst(session.matches())[0];
   const matchSetupDraft = setup.matchSetupDraft;
   const courtSetupDraft = setup.matchSetupDraft?.stage === "court-setup" ? setup.matchSetupDraft : undefined;
-  const currentView = deriveCurrentView({ matchView, setup, liveMatch, nextQuarterCourt: (gameId) => session.nextQuarterCourt(gameId) });
+  const currentView = deriveCurrentView({ matchView, setup, liveMatch, latestTerminalMatch, nextQuarterCourt: (gameId) => session.nextQuarterCourt(gameId) });
   const navigationView = currentView.kind === "history" ? "history" : currentView.kind === "settings" || currentView.kind === "settings-section" ? "settings" : "match";
 
   return <main className="app-shell">
@@ -228,11 +232,10 @@ function NavigationIcon({ name }: { name: "court" | "history" | "settings" }) {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a7 7 0 0 0-1.7-1L14.5 3h-5l-.4 3.1a7 7 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.5a7 7 0 0 0 0 2L3 14.5l2 3.4 2.4-1a7 7 0 0 0 1.7 1l.4 3.1h5l.4-3.1a7 7 0 0 0 1.7-1l2.4 1 2-3.4-2-1.5c.1-.3.1-.7.1-1Z" /></svg>;
 }
 
-const isTerminalMatch = (game: Game) => game.status === "finalised" || game.status === "abandoned" || game.status === "terminated";
 const matchStatusLabel = (game: Game) => game.outcome?.kind === "completed" ? "Completed" : "Abandoned";
 
 function MatchHistory({ games, scores, setup, onOpen }: { games: Game[]; scores: Map<string, { own: number; opposition: number }>; setup: SetupSummary; onOpen: (gameId: string) => void }) {
-  const terminalMatches = games.filter(isTerminalMatch);
+  const terminalMatches = terminalMatchesNewestFirst(games);
   const seasons = [...setup.seasons].reverse();
   const initiallyExpandedSeason = setup.seasons.find((season) => season.status === "active")?.id ?? setup.seasons.at(-1)?.id;
 
