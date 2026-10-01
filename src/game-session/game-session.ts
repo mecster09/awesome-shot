@@ -544,12 +544,17 @@ export class GameSession {
   }
 
   async substitutePlayer(id: string, input: { position: Position; playerId: string }): Promise<void> {
+    const { quarter } = this.requireLiveQuarter(id);
+    await this.saveSubstitutions(id, { ...this.currentLineup(quarter), [input.position]: input.playerId });
+  }
+
+  async saveSubstitutions(id: string, nextCourt: StartingLineup): Promise<void> {
     const { game, quarter } = this.requireLiveQuarter(id);
-    if (!game.squadPlayerIds.includes(input.playerId)) throw new Error("Choose a player from the match squad.");
     const court = this.currentLineup(quarter);
-    if (court[input.position] === input.playerId) throw new Error("This player already occupies the Position.");
-    if (Object.entries(court).some(([position, playerId]) => position !== input.position && playerId === input.playerId)) throw new Error("A player can occupy only one Position.");
-    quarter.substitutions.push({ sequence: quarter.substitutions.length + 1, ...input });
+    this.validateCourt(game, nextCourt);
+    const changes = POSITIONS.filter((position) => court[position] !== nextCourt[position]);
+    if (!changes.length) throw new Error("Change at least one Court Position before saving.");
+    quarter.substitutions.push(...changes.map((position, index) => ({ sequence: quarter.substitutions.length + index + 1, position, ...(nextCourt[position] ? { playerId: nextCourt[position] } : {}) })));
     await this.persist();
   }
 
