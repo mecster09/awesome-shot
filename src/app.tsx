@@ -6,7 +6,7 @@ import { createMatchCsv, createMatchPdf } from "./reports";
 import "./styles.css";
 
 type AppProps = { store?: GameSessionStore };
-type MatchView = { kind: "team-setup" } | { kind: "season-setup" } | { kind: "no-match" } | { kind: "match-identity" } | { kind: "match-squad" } | { kind: "court-setup" } | { kind: "settings" } | { kind: "settings-section"; section: "season" | "backup" } | { kind: "history" } | { kind: "next-quarter-setup"; gameId: string; startingLineup: StartingLineup } | { kind: "game"; gameId: string };
+type MatchView = { kind: "team-setup" } | { kind: "season-setup" } | { kind: "no-match" } | { kind: "match-identity" } | { kind: "match-squad" } | { kind: "court-setup" } | { kind: "settings" } | { kind: "settings-section"; section: "team" | "season" | "backup" } | { kind: "history" } | { kind: "next-quarter-setup"; gameId: string; startingLineup: StartingLineup } | { kind: "game"; gameId: string };
 type MatchActions = {
   recordPlayerStatistic: (position: Position, statistic: PlayerStatistic) => Promise<void>;
   recordOppositionGoal: () => Promise<void>;
@@ -97,6 +97,7 @@ export function App({ store }: AppProps) {
     return <main className="loading" aria-live="polite">{error ?? message}</main>;
   }
   const activeSeason = setup.seasons.find((season) => season.status === "active");
+  const editableTeam = activeSeason ? setup.teams.find((team) => team.id === activeSeason.teamId) : setup.teams.at(-1);
   const liveMatch = session.matches().find((game) => game.status === "live");
   const matchSquadDraft = setup.matchSetupDraft?.stage === "match-squad" ? setup.matchSetupDraft : undefined;
   const courtSetupDraft = setup.matchSetupDraft?.stage === "court-setup" ? setup.matchSetupDraft : undefined;
@@ -126,8 +127,8 @@ export function App({ store }: AppProps) {
       <SeasonForm team={setup.teams.at(-1)!} onSubmit={(input) => perform(async () => { await session.createSeason(input); setMatchView(undefined); })} />
     </section>}
 
-    {currentView.kind === "settings" && <section className="match-area focused-screen management-screen settings-root" aria-labelledby="settings-title"><p className="eyebrow">COACH SETTINGS</p><h2 id="settings-title">Settings</h2><p>Manage your Season and protect your offline data.</p><section className="settings-group" aria-labelledby="season-settings-title"><h3 id="season-settings-title">Season</h3><div className="settings-root-actions">{activeSeason && <button type="button" className="text-button" disabled={Boolean(liveMatch)} onClick={() => setMatchView({ kind: "settings-section", section: "season" })}>End season</button>}</div>{liveMatch && <p className="settings-guidance">End season is unavailable while a live Match is in progress.</p>}</section><section className="settings-group" aria-labelledby="data-settings-title"><h3 id="data-settings-title">Data</h3><div className="settings-root-actions"><button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "backup" })}>Backup & restore</button></div></section></section>}
-    {currentView.kind === "settings-section" && <section className="match-area focused-screen management-screen" aria-labelledby="settings-section-title"><div className="section-heading"><h2 id="settings-section-title">{currentView.section === "season" ? "End season" : "Backup & restore"}</h2><button className="text-button" onClick={() => setMatchView({ kind: "settings" })}>Back to Settings</button></div>{currentView.section === "season" && activeSeason && !liveMatch && <EndSeasonControl season={activeSeason} onConfirm={() => perform(async () => { await session.endSeason(activeSeason.id); setMatchView(undefined); })} />}{currentView.section === "backup" && <BackupCard exportBackup={() => session.exportBackup()} onImport={(serialized, mode, confirmed) => perform(async () => { await session.importBackup(serialized, mode, confirmed); if (mode === "replace") setUnsavedCourts({}); })} />}</section>}
+    {currentView.kind === "settings" && <section className="match-area focused-screen management-screen settings-root" aria-labelledby="settings-title"><p className="eyebrow">COACH SETTINGS</p><h2 id="settings-title">Settings</h2><p>Manage your Team, Season, and offline data.</p><section className="settings-group" aria-labelledby="team-settings-title"><h3 id="team-settings-title">Team</h3><div className="settings-root-actions">{editableTeam && <button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "team" })}>Edit team</button>}</div></section><section className="settings-group" aria-labelledby="season-settings-title"><h3 id="season-settings-title">Season</h3><div className="settings-root-actions">{activeSeason && <button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "season" })}>Edit season</button>}{activeSeason && <button type="button" className="text-button" disabled={Boolean(liveMatch)} onClick={() => setMatchView({ kind: "settings-section", section: "season" })}>End season</button>}</div>{liveMatch && <p className="settings-guidance">End season is unavailable while a live Match is in progress.</p>}</section><section className="settings-group" aria-labelledby="data-settings-title"><h3 id="data-settings-title">Data</h3><div className="settings-root-actions"><button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "backup" })}>Backup & restore</button></div></section></section>}
+    {currentView.kind === "settings-section" && <section className="match-area focused-screen management-screen" aria-labelledby="settings-section-title"><div className="section-heading"><h2 id="settings-section-title">{currentView.section === "team" ? "Team Setup" : currentView.section === "season" ? "Season Setup" : "Backup & restore"}</h2><button className="text-button" onClick={() => setMatchView({ kind: "settings" })}>Back to Settings</button></div>{currentView.section === "team" && editableTeam && <TeamForm initialName={editableTeam.name} submitLabel="Save changes" cancelLabel="Cancel" onCancel={() => setMatchView({ kind: "settings" })} onSubmit={(input) => perform(async () => { await session.renameTeam(editableTeam.id, input); setMatchView({ kind: "settings" }); })} />}{currentView.section === "season" && activeSeason && <><SeasonForm team={setup.teams.find((team) => team.id === activeSeason.teamId)!} initialName={activeSeason.name} submitLabel="Save changes" cancelLabel="Cancel" onCancel={() => setMatchView({ kind: "settings" })} onSubmit={(input) => perform(async () => { await session.renameSeason(activeSeason.id, input); setMatchView({ kind: "settings" }); })} />{!liveMatch && <EndSeasonControl season={activeSeason} onConfirm={() => perform(async () => { await session.endSeason(activeSeason.id); setMatchView(undefined); })} />}</>}{currentView.section === "backup" && <BackupCard exportBackup={() => session.exportBackup()} onImport={(serialized, mode, confirmed) => perform(async () => { await session.importBackup(serialized, mode, confirmed); if (mode === "replace") setUnsavedCourts({}); })} />}</section>}
 
     {currentView.kind === "no-match" && activeSeason && <section className="match-area focused-screen no-match-screen" aria-labelledby="no-match-title"><p className="eyebrow">SETUP MATCH</p><h2 id="no-match-title">No Match in progress</h2><p><strong>{activeSeason.name} is the active Season.</strong> Add an Opposition and date when you are ready to prepare a Match.</p><button type="button" aria-label="Set up a Match" onClick={() => setMatchView({ kind: "match-identity" })}>Add Opposition</button></section>}
 
@@ -252,20 +253,20 @@ function MatchHistory({ games, scores, setup, onOpen }: { games: Game[]; scores:
   })}</ul></section>;
 }
 
-function TeamForm({ onSubmit }: { onSubmit: (input: { name: string }) => Promise<void> }) {
-  const [name, setName] = useState("");
+function TeamForm({ initialName = "", submitLabel = "Save team", cancelLabel, onCancel, onSubmit }: { initialName?: string; submitLabel?: string; cancelLabel?: string; onCancel?: () => void; onSubmit: (input: { name: string }) => Promise<void> }) {
+  const [name, setName] = useState(initialName);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     await onSubmit({ name });
   };
   return <form className="setup-form" onSubmit={(event) => void submit(event)}>
     <label>Team name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your team" /></label>
-    <PrimaryActionBar><button type="submit" disabled={!name.trim()}>Save team</button></PrimaryActionBar>
+    <PrimaryActionBar>{cancelLabel && <button type="button" className="secondary-button" onClick={onCancel}>{cancelLabel}</button>}<button type="submit" disabled={!name.trim() || name.trim() === initialName}>{submitLabel}</button></PrimaryActionBar>
   </form>;
 }
 
-function SeasonForm({ team, onSubmit }: { team: SetupSummary["teams"][number]; onSubmit: (input: { name: string; teamId: string }) => Promise<void> }) {
-  const [name, setName] = useState("");
+function SeasonForm({ team, initialName = "", submitLabel = "Create season", cancelLabel, onCancel, onSubmit }: { team: SetupSummary["teams"][number]; initialName?: string; submitLabel?: string; cancelLabel?: string; onCancel?: () => void; onSubmit: (input: { name: string; teamId: string }) => Promise<void> }) {
+  const [name, setName] = useState(initialName);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     await onSubmit({ name, teamId: team.id });
@@ -274,7 +275,7 @@ function SeasonForm({ team, onSubmit }: { team: SetupSummary["teams"][number]; o
   return <form className="setup-form" onSubmit={(event) => void submit(event)}>
     <label>Season name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. 2026 Winter" /></label>
     <p><strong>Team:</strong> {team.name}</p>
-    <PrimaryActionBar><button type="submit" disabled={!name.trim()}>Create season</button></PrimaryActionBar>
+    <PrimaryActionBar>{cancelLabel && <button type="button" className="secondary-button" onClick={onCancel}>{cancelLabel}</button>}<button type="submit" disabled={!name.trim() || name.trim() === initialName}>{submitLabel}</button></PrimaryActionBar>
   </form>;
 }
 
