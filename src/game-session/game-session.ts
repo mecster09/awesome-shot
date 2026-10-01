@@ -1,4 +1,4 @@
-import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, TOTAL_QUARTERS, type BetweenQuarterStatistics, type CaptureAction, type CourtSetupDraft, type Game, type GameSessionStore, type LiveQuarterCapture, type MatchIdentityDraft, type MatchSetupDraft, type MatchSquadDraft, type Opposition, type Player, type PlayerPositionStint, type PlayerStatistic, type PlayerStatisticTotal, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartMatchInput, type StartingLineup, type Team, type TerminalMatchReport } from "./types";
+import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, TOTAL_QUARTERS, type BetweenQuarterStatistics, type CaptureAction, type CourtSetupDraft, type Game, type GameSessionStore, type LiveQuarterCapture, type StatisticsSummary, type MatchIdentityDraft, type MatchSetupDraft, type MatchSquadDraft, type Opposition, type Player, type PlayerPositionStint, type PlayerStatistic, type PlayerStatisticTotal, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartMatchInput, type StartingLineup, type Team, type TerminalMatchReport } from "./types";
 
 const emptySetup = (): SetupData => ({ teams: [], seasons: [], players: [], opposition: [], games: [] });
 const backupFormat = "natball-insights-backup";
@@ -434,6 +434,19 @@ export class GameSession {
     return this.capture(game, quarter);
   }
 
+  statisticsSummary(id: string, selection: { scope: "match" } | { scope: "quarter"; quarter: QuarterNumber }): StatisticsSummary {
+    const game = this.data.games.find((candidate) => candidate.id === id);
+    if (!game) throw new Error("Match was not found.");
+    const quarters = game.quarters ?? [];
+    const selectedQuarters = selection.scope === "match" ? quarters : quarters.filter((quarter) => quarter.number === selection.quarter);
+    if (!selectedQuarters.length) throw new Error("Quarter was not found.");
+    return structuredClone({
+      availableTabs: [...quarters.map((quarter) => quarter.number), "match"],
+      stints: this.playerPositionStints(game, selectedQuarters),
+      readOnly: isTerminalMatch(game)
+    });
+  }
+
   async deleteCaptureAction(id: string, number: QuarterNumber, actionId: string): Promise<void> {
     const game = this.requireLiveGame(id);
     const quarter = this.requireUnfinalisedQuarter(game, number);
@@ -659,7 +672,6 @@ export class GameSession {
       }
     }
     for (const statistic of this.statisticTotals(quarters.flatMap((quarter) => quarter.captureActions))) {
-      addStint(statistic.playerId, statistic.position);
       const stint = stints.get(`${statistic.playerId}:${statistic.position}`);
       if (stint) stint.playerStatistics.push(statistic);
     }

@@ -403,6 +403,37 @@ describe("GameSession live quarter capture", () => {
     await expect(abandoned.session.endQuarter(abandoned.game.id)).rejects.toThrow("no live quarter");
   });
 
+  it("projects completed quarter and Match summaries with zero-event Player–Position rows", async () => {
+    const { session, players, game } = await startLiveMatch();
+    await session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Tip" });
+    await session.substitutePlayer(game.id, { position: "Centre", playerId: players[7].id });
+    await session.endQuarter(game.id);
+
+    const quarterSummary = session.statisticsSummary(game.id, { scope: "quarter", quarter: 1 });
+    expect(quarterSummary.availableTabs).toEqual([1, "match"]);
+    expect(quarterSummary.stints).toContainEqual({ playerId: players[3].id, position: "Centre", playerStatistics: [{ playerId: players[3].id, position: "Centre", statistic: "Tip", count: 1 }] });
+    expect(quarterSummary.stints).toContainEqual({ playerId: players[7].id, position: "Centre", playerStatistics: [] });
+    expect(quarterSummary.stints).toContainEqual({ playerId: players[0].id, position: "Goal Keeper", playerStatistics: [] });
+    expect(session.statisticsSummary(game.id, { scope: "match" }).stints).toEqual(quarterSummary.stints);
+  });
+
+  it("combines Match totals while retaining each Player–Position combination", async () => {
+    const { session, players, game } = await startLiveMatch();
+    await session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Tip" });
+    await session.endQuarter(game.id);
+    const nextCourt = session.nextQuarterCourt(game.id);
+    nextCourt.Centre = players[7].id;
+    nextCourt["Wing Attack"] = players[3].id;
+    await session.startNextQuarter(game.id, nextCourt);
+    await session.recordPlayerStatistic(game.id, { position: "Wing Attack", statistic: "Intercept" });
+    await session.endQuarter(game.id);
+
+    expect(session.statisticsSummary(game.id, { scope: "match" }).stints).toEqual(expect.arrayContaining([
+      { playerId: players[3].id, position: "Centre", playerStatistics: [{ playerId: players[3].id, position: "Centre", statistic: "Tip", count: 1 }] },
+      { playerId: players[3].id, position: "Wing Attack", playerStatistics: [{ playerId: players[3].id, position: "Wing Attack", statistic: "Intercept", count: 1 }] }
+    ]));
+  });
+
   it("exposes a read-only report model only for terminal matches", async () => {
     const { session, game } = await startLiveMatch();
     await expect(() => session.terminalMatchReport(game.id)).toThrow("Only a terminal match");
