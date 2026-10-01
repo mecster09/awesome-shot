@@ -188,12 +188,57 @@ describe("Natball Insights setup", () => {
     await user.click(screen.getByRole("button", { name: "End season" }));
     await user.click(screen.getByRole("button", { name: "Confirm end season" }));
 
+    await user.click(coachNavigation().getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "Edit team" }));
+    await user.clear(screen.getByLabelText("Team name"));
+    await user.type(screen.getByLabelText("Team name"), "Violets");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
     await user.click(coachNavigation().getByRole("button", { name: "History" }));
     await user.click(coachNavigation().getByRole("button", { name: "Match" }));
     await user.type(await screen.findByLabelText("Season name"), "2027 Winter");
-    expect(screen.getByText("Roses")).toBeInTheDocument();
+    expect(screen.getByText("Violets")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Create season" }));
     expect(await screen.findByRole("heading", { name: "No Match in progress" })).toBeInTheDocument();
+  });
+
+  it("edits Team and Season from Settings with explicit save and cancel actions", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const user = userEvent.setup();
+    render(<App store={store} />);
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "Edit team" }));
+    expect(await screen.findByRole("heading", { name: "Team Setup" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+    await user.clear(screen.getByLabelText("Team name"));
+    await user.type(screen.getByLabelText("Team name"), "Violets");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(session.setup().teams).toMatchObject([{ name: "Roses" }]);
+
+    await user.click(screen.getByRole("button", { name: "Edit team" }));
+    await user.clear(screen.getByLabelText("Team name"));
+    await user.type(screen.getByLabelText("Team name"), "Violets");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect((await GameSession.open(store)).setup().teams).toMatchObject([{ name: "Violets" }]);
+
+    await user.click(screen.getByRole("button", { name: "Edit season" }));
+    expect(await screen.findByRole("heading", { name: "Season Setup" })).toBeInTheDocument();
+    await user.clear(screen.getByLabelText("Season name"));
+    await user.type(screen.getByLabelText("Season name"), "2026 Spring");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect((await GameSession.open(store)).setup().seasons).toMatchObject([{ name: "2026 Winter" }]);
+
+    await user.click(screen.getByRole("button", { name: "Edit season" }));
+    await user.clear(screen.getByLabelText("Season name"));
+    await user.type(screen.getByLabelText("Season name"), "2026 Spring");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect((await GameSession.open(store)).setup().seasons).toMatchObject([{ name: "2026 Spring" }]);
   });
 
   it("uses explicit destructive confirmations for ending a Season and replacing local data", async () => {

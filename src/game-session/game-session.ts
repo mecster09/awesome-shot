@@ -133,10 +133,23 @@ export class GameSession {
     const name = requireText(input.name, "Team name");
     const existing = this.data.teams.find((team) => nameKey(team.name) === nameKey(name));
     if (existing) return structuredClone(existing);
+    if (this.data.teams.length) throw new Error("Rename the saved team instead of creating another.");
     const team = { id: crypto.randomUUID(), name };
     this.data.teams.push(team);
     await this.persist();
     return structuredClone(team);
+  }
+
+  async renameTeam(id: string, input: { name: string }): Promise<void> {
+    const team = this.requireTeam(id);
+    const name = requireText(input.name, "Team name");
+    const duplicate = this.data.teams.find((candidate) => candidate.id !== id && nameKey(candidate.name) === nameKey(name));
+    if (duplicate) throw new Error("A team with this name already exists.");
+    for (const game of this.data.games) {
+      if (isTerminalMatch(game) && !game.teamName && this.requireSeason(game.seasonId).teamId === id) game.teamName = team.name;
+    }
+    team.name = name;
+    await this.persist();
   }
 
   async createSeason(input: { name: string; teamId?: string; teamName?: string }): Promise<Season> {
@@ -152,6 +165,12 @@ export class GameSession {
     this.data.seasons.push(season);
     await this.persist();
     return structuredClone(season);
+  }
+
+  async renameSeason(id: string, input: { name: string }): Promise<void> {
+    const season = this.requireActiveSeason(id);
+    season.name = requireText(input.name, "Season name");
+    await this.persist();
   }
 
   async endSeason(id: string): Promise<void> {
@@ -275,7 +294,7 @@ export class GameSession {
     return structuredClone({
       id: game.id,
       date: game.date,
-      teamName: this.requireTeam(this.requireSeason(game.seasonId).teamId).name,
+      teamName: game.teamName ?? this.teamNameFor(game),
       oppositionName: this.data.opposition.find((opposition) => opposition.id === game.oppositionId)?.name ?? "Unknown opposition",
       status: game.status,
       outcome: game.outcome,
@@ -443,6 +462,7 @@ export class GameSession {
     game.status = "finalised";
     game.outcome = { kind: "completed" };
     game.finalScore = score;
+    game.teamName = this.teamNameFor(game);
     await this.persist();
   }
 
@@ -456,6 +476,7 @@ export class GameSession {
     game.outcome = outcome;
     game.incomplete = true;
     game.finalScore = this.gameScore(id);
+    game.teamName = this.teamNameFor(game);
     await this.persist();
   }
 
@@ -529,6 +550,10 @@ export class GameSession {
     const team = this.data.teams.find((candidate) => candidate.id === id);
     if (!team) throw new Error("Team was not found.");
     return team;
+  }
+
+  private teamNameFor(game: Game): string {
+    return this.requireTeam(this.requireSeason(game.seasonId).teamId).name;
   }
 
   private requireActiveOpposition(id: string): Opposition {

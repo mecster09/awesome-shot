@@ -106,6 +106,7 @@ export type GameOutcome =
 export type Game = {
   id: string;
   seasonId: string;
+  teamName?: string;
   oppositionId: string;
   date: string;
   squadPlayerIds: string[];
