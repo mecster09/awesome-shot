@@ -150,7 +150,7 @@ describe("Natball Insights setup", () => {
     const session = await GameSession.open(store);
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
     const opposition = await session.addOpposition({ name: "Thunder" });
-    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia", "Hana"].map((name) => session.addPlayer({ name })));
     await startLiveMatch(session, season.id, opposition.id, players);
     const user = userEvent.setup();
     render(<App store={store} />);
@@ -444,6 +444,28 @@ describe("Natball Insights setup", () => {
     expect(await screen.findByText("LIVE MATCH · QUARTER 1")).toBeInTheDocument();
   });
 
+  it("returns from Quarter 1 to Setup Match while retaining Court assignments for retained Squad Players", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye"].map((name) => session.addPlayer({ name })));
+    await session.advanceToCourtSetup({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id) });
+    const user = userEvent.setup();
+    render(<App store={store} />);
+
+    await screen.findByRole("heading", { name: "Set up Quarter 1 Court" });
+    for (const [position, player] of [["Goal Keeper", players[0]], ["Goal Defence", players[1]], ["Wing Defence", players[2]], ["Centre", players[3]], ["Wing Attack", players[4]]] as const) await user.selectOptions(screen.getByLabelText(position), player.id);
+    await user.click(screen.getByRole("button", { name: "Back to Setup Match" }));
+    expect(await screen.findByRole("heading", { name: "Setup Match" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Remove Ava from Match Squad" }));
+    await user.click(screen.getByRole("button", { name: "Continue to Court Setup" }));
+
+    expect(await screen.findByRole("heading", { name: "Set up Quarter 1 Court" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Goal Keeper")).toHaveValue("");
+    expect(screen.getByLabelText("Goal Defence")).toHaveValue(players[1].id);
+  });
+
   it("uses a searchable Player picker with selected Squad chips and a persistent primary action", async () => {
     const store = new InMemoryGameSessionStore();
     const session = await GameSession.open(store);
@@ -477,7 +499,7 @@ describe("Natball Insights setup", () => {
     expect(await screen.findByText("LIVE MATCH · QUARTER 1")).toBeInTheDocument();
   });
 
-  it("shows switchable previous-quarter and Match statistics beside a prefilled Court", async () => {
+  it("links from later Court setup to the previous Quarter on Match Events", async () => {
     const store = new InMemoryGameSessionStore();
     const session = await GameSession.open(store);
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
@@ -493,17 +515,15 @@ describe("Natball Insights setup", () => {
     expect(screen.getByLabelText("Goal Keeper")).toHaveValue(players[0].id);
     expect(screen.getByRole("option", { name: "Ava" })).toBeInTheDocument();
     expect(screen.getAllByRole("option", { name: "Ava" })).toHaveLength(1);
-    expect(screen.getByRole("heading", { name: "Previous quarter statistics" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review previous Quarter on Match Events" })).toBeInTheDocument();
     expect(screen.getByText("Court ready — 7 Players assigned. You can start Quarter 2.")).toBeInTheDocument();
-    expect(screen.getByText((_, element) => element?.tagName === "LI" && element.textContent === "Demi · Centre · Tip: 1")).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("Centre"), "");
     expect(screen.getByText("Court ready — 6 Players assigned. You can start Quarter 2.")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "All Match" }));
-    expect(screen.getByRole("heading", { name: "All Match statistics" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Centre")).toHaveValue("");
-    await user.click(screen.getByRole("button", { name: "Previous quarter" }));
-    expect(screen.getByRole("heading", { name: "Previous quarter statistics" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Centre")).toHaveValue("");
+    await user.click(screen.getByRole("button", { name: "Review previous Quarter on Match Events" }));
+    expect(await screen.findByLabelText("Quarter 1 statistics")).toHaveTextContent("Demi");
+    expect(screen.getByLabelText("Quarter 1 statistics")).toHaveTextContent("Tip: 1");
+    await user.click(coachNavigation().getByRole("button", { name: "Match" }));
+    expect(await screen.findByLabelText("Centre")).toHaveValue("");
     await user.selectOptions(screen.getByLabelText("Centre"), players[3].id);
     await user.click(screen.getByRole("button", { name: "Start Quarter 2" }));
     expect(await screen.findByText("LIVE MATCH · QUARTER 2")).toBeInTheDocument();
@@ -567,12 +587,13 @@ describe("Natball Insights setup", () => {
     await user.click(screen.getByRole("button", { name: "Record Goals for Faye" }));
     await user.click(screen.getByRole("button", { name: "Opponent goal" }));
     await user.click(screen.getByRole("button", { name: "Record Substitution" }));
-    await user.selectOptions(screen.getByLabelText("Substitution Position"), "Centre");
-    await user.selectOptions(screen.getByLabelText("Substitution Player"), players[7].id);
-    await user.click(screen.getAllByRole("button", { name: "Record Substitution" }).at(-1)!);
+    expect(await screen.findByRole("heading", { name: "Stage substitutions" })).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Centre"), players[7].id);
+    await user.click(screen.getByRole("button", { name: "Save substitutions" }));
 
     expect(await screen.findByText("Roses 1 — Thunder 1")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Hana" })).toBeInTheDocument();
+    expect((await GameSession.open(store)).match(game.id)?.quarters?.[0].substitutions).toHaveLength(1);
     expect(screen.getByRole("heading", { name: "Quarter 1 event feed" })).toBeInTheDocument();
     expect(screen.getAllByText("Opponent goal")).toHaveLength(2);
     expect(screen.getByText((_, element) => element?.textContent === "Faye · GA · Goals")).toBeInTheDocument();
@@ -619,7 +640,7 @@ describe("Natball Insights setup", () => {
     const session = await GameSession.open(store);
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
     const opposition = await session.addOpposition({ name: "Thunder" });
-    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia", "Hana"].map((name) => session.addPlayer({ name })));
     const game = await startLiveMatch(session, season.id, opposition.id, players);
     const user = userEvent.setup();
     render(<App store={store} />);
@@ -643,9 +664,12 @@ describe("Natball Insights setup", () => {
     await waitFor(async () => expect((await GameSession.open(store)).gameScore(game.id)).toEqual({ own: 1, opposition: 1 }));
 
     await user.click(screen.getByRole("button", { name: "Record Substitution" }));
-    expect(screen.getByLabelText("Substitution Position")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Stage substitutions" })).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Centre"), players[7].id);
     await user.click(screen.getByRole("button", { name: "Cancel Substitution" }));
-    expect(screen.queryByLabelText("Substitution Position")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Stage substitutions" })).not.toBeInTheDocument();
+    expect((await GameSession.open(store)).liveQuarter(game.id).lineup.Centre).toBe(players[3].id);
+    expect((await GameSession.open(store)).match(game.id)?.quarters?.[0].substitutions).toHaveLength(0);
     await user.click(screen.getByRole("button", { name: "End quarter" }));
     expect(await screen.findByRole("heading", { name: "Set up Quarter 2 Court" })).toBeInTheDocument();
     const persistedSession = await GameSession.open(store);
