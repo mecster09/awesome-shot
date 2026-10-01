@@ -569,7 +569,8 @@ describe("Natball Insights setup", () => {
     render(<App store={store} />);
 
     expect(await screen.findByRole("heading", { name: "Quarter 4 has ended" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Confirm and finalise" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Match" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "Finalise Match" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Set up Quarter 5 Court" })).not.toBeInTheDocument();
   });
 
@@ -672,10 +673,46 @@ describe("Natball Insights setup", () => {
     expect((await GameSession.open(store)).liveQuarter(game.id).lineup.Centre).toBe(players[3].id);
     expect((await GameSession.open(store)).match(game.id)?.quarters?.[0].substitutions).toHaveLength(0);
     await user.click(screen.getByRole("button", { name: "End quarter" }));
+    expect(await screen.findByLabelText("Quarter 1 statistics")).toHaveTextContent("Faye");
+    await user.click(screen.getByRole("button", { name: "Set up Quarter 2" }));
     expect(await screen.findByRole("heading", { name: "Set up Quarter 2 Court" })).toBeInTheDocument();
     const persistedSession = await GameSession.open(store);
     expect(persistedSession.match(game.id)?.status).toBe("live");
     expect(persistedSession.gameScore(game.id)).toEqual({ own: 1, opposition: 1 });
+  });
+
+  it("carries every completed Quarter through finalisation and reveals both terminal exports", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
+    await startLiveMatch(session, season.id, opposition.id, players);
+    const user = userEvent.setup();
+    render(<App store={store} />);
+
+    for (const quarter of [1, 2, 3] as const) {
+      await user.click(await screen.findByRole("button", { name: "End quarter" }));
+      expect(await screen.findByLabelText(`Quarter ${quarter} statistics`)).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: `Set up Quarter ${quarter + 1}` }));
+      await user.click(await screen.findByRole("button", { name: `Start Quarter ${quarter + 1}` }));
+    }
+    await user.click(await screen.findByRole("button", { name: "End quarter" }));
+    expect(await screen.findByRole("button", { name: "Finalise Match" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Finalise Match" }));
+    expect(await screen.findByText("MATCH RECORD")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download CSV" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download PDF" })).toBeInTheDocument();
+    const createObjectURL = vi.fn(() => "blob:match-report");
+    const revokeObjectURL = vi.fn();
+    const downloadClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
+    await user.click(screen.getByRole("button", { name: "Download CSV" }));
+    await user.click(screen.getByRole("button", { name: "Download PDF" }));
+    expect(createObjectURL).toHaveBeenCalledTimes(2);
+    expect(downloadClick).toHaveBeenCalledTimes(2);
+    vi.unstubAllGlobals();
+    downloadClick.mockRestore();
   });
 
   it("keeps the Event-feed drawer closed until the coach opens it, without moving the capture grid", async () => {
@@ -745,6 +782,7 @@ describe("Natball Insights setup", () => {
     const user = userEvent.setup();
     render(<App store={store} />);
 
+    await user.click(await screen.findByRole("button", { name: "Record Goals for Faye" }));
     await user.click(await screen.findByRole("button", { name: "More" }));
     await user.click(screen.getByRole("button", { name: "Abandon match" }));
     expect(screen.getByRole("alertdialog", { name: "Abandon this Match?" })).toBeInTheDocument();
@@ -753,10 +791,11 @@ describe("Natball Insights setup", () => {
 
     await user.click(screen.getByRole("button", { name: "Abandon match" }));
     await user.click(screen.getByRole("button", { name: "Confirm abandonment" }));
-    expect(await screen.findByRole("heading", { name: "No Match in progress" })).toBeInTheDocument();
-    await user.click(coachNavigation().getByRole("button", { name: "History" }));
-    await user.click(screen.getByRole("button", { name: "View match record" }));
     expect(await screen.findByText("MATCH RECORD")).toBeInTheDocument();
+    expect(screen.getByText(/Abandoned - no winner/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Roses 1 - Thunder 0" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download CSV" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download PDF" })).toBeInTheDocument();
   });
 
   it("opens ended Quarter history away from the live Match Centre", async () => {
