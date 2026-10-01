@@ -34,7 +34,7 @@ describe("Natball Insights setup", () => {
 
     expect(await screen.findByRole("heading", { name: "Team Setup" })).toBeInTheDocument();
     await user.click(coachNavigation().getByRole("button", { name: "History" }));
-    expect(await screen.findByRole("heading", { name: "Match history" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "History" })).toBeInTheDocument();
     await user.click(coachNavigation().getByRole("button", { name: "Match" }));
     expect(await screen.findByRole("heading", { name: "Team Setup" })).toBeInTheDocument();
     await user.click(coachNavigation().getByRole("button", { name: "Settings" }));
@@ -157,32 +157,65 @@ describe("Natball Insights setup", () => {
 
     expect(await screen.findByRole("button", { name: "Match" })).toBeInTheDocument();
     await user.click(coachNavigation().getByRole("button", { name: "History" }));
-    expect(await screen.findByRole("heading", { name: "Match history" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "History" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Match" }));
     expect(await screen.findByText("LIVE MATCH · QUARTER 1")).toBeInTheDocument();
   });
 
-  it("distinguishes a live Match from a terminal Match in Match History", async () => {
+  it("groups terminal Matches by Season, orders them newest first, and reopens both terminal outcomes", async () => {
     const store = new InMemoryGameSessionStore();
     const session = await GameSession.open(store);
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
     const opposition = await session.addOpposition({ name: "Thunder" });
     const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
-    const terminalMatch = await startLiveMatch(session, season.id, opposition.id, players);
-    await session.abandonGame(terminalMatch.id);
-    await startLiveMatch(session, season.id, opposition.id, players);
+    const completedMatch = await startLiveMatch(session, season.id, opposition.id, players);
+    await session.abandonGame(completedMatch.id);
+    const abandonedMatch = await startLiveMatch(session, season.id, opposition.id, players);
+    await session.abandonGame(abandonedMatch.id);
     const backup = JSON.parse(session.exportBackup());
-    backup.data.games[0].status = "terminated";
-    backup.data.games[0].outcome = { kind: "terminated" };
+    backup.data.games[0] = { ...backup.data.games[0], date: "2026-09-27", status: "finalised", outcome: { kind: "completed" }, finalScore: { own: 0, opposition: 0 } };
+    backup.data.games[1].date = "2026-01-12";
     await session.importBackup(JSON.stringify(backup), "replace", true);
+    await session.endSeason(season.id);
+    const currentSeason = await session.createSeason({ name: "2027 Winter", teamName: "Roses" });
+    await startLiveMatch(session, currentSeason.id, opposition.id, players);
+    const currentMatch = session.matches().find((game) => game.status === "live")!;
+    await session.abandonGame(currentMatch.id);
+    const currentBackup = JSON.parse(session.exportBackup());
+    currentBackup.data.games.find((game: { id: string }) => game.id === currentMatch.id).seasonId = currentSeason.id;
+    currentBackup.data.games.find((game: { id: string }) => game.id === currentMatch.id).date = "2027-01-09";
+    await session.importBackup(JSON.stringify(currentBackup), "replace", true);
+    await startLiveMatch(session, currentSeason.id, opposition.id, players);
     const user = userEvent.setup();
     render(<App store={store} />);
 
     await screen.findByRole("navigation", { name: "Coach navigation" });
     await user.click(coachNavigation().getByRole("button", { name: "History" }));
 
-    expect(screen.getByText("Live Match · Quarter 1 · 0 – 0")).toBeInTheDocument();
-    expect(screen.getByText("Terminated Match · 0 – 0")).toBeInTheDocument();
+    const currentGroup = screen.getByRole("group", { name: "2027 Winter History" });
+    const previousGroup = screen.getByRole("group", { name: "2026 Winter History" });
+    expect(currentGroup).toHaveAttribute("open");
+    expect(previousGroup).not.toHaveAttribute("open");
+    expect(within(currentGroup).getByText("Abandoned · 0 – 0")).toBeInTheDocument();
+    expect(screen.queryByText("Live Match · Quarter 1 · 0 – 0")).not.toBeInTheDocument();
+
+    await user.click(within(previousGroup).getByText("2026 Winter"));
+    const previousMatches = within(previousGroup).getByRole("list", { name: "2026 Winter terminal Matches" });
+    expect(within(previousMatches).getAllByRole("listitem").map((entry) => entry.textContent)).toEqual([
+      expect.stringContaining("2026-09-27"),
+      expect.stringContaining("2026-01-12")
+    ]);
+    await user.click(within(previousMatches).getAllByRole("button", { name: "View Match Events" })[0]);
+    expect(await screen.findByText("READ-ONLY MATCH EVENTS")).toBeInTheDocument();
+    expect(screen.getByText(/Completed/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download CSV" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download PDF" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Back to History" }));
+    const returnedPreviousGroup = screen.getByRole("group", { name: "2026 Winter History" });
+    await user.click(within(returnedPreviousGroup).getByText("2026 Winter"));
+    await user.click(within(returnedPreviousGroup).getAllByRole("button", { name: "View Match Events" })[1]);
+    expect(await screen.findByText("READ-ONLY MATCH EVENTS")).toBeInTheDocument();
+    expect(screen.getByText(/Abandoned - no winner/)).toBeInTheDocument();
   });
 
   it("keeps all Coach navigation labels permanently visible in the landscape rail", async () => {
@@ -209,7 +242,7 @@ describe("Natball Insights setup", () => {
     expect(screen.getByText("LIVE MATCH · QUARTER 1")).toBeInTheDocument();
     await user.click(coachNavigation().getByRole("button", { name: "History" }));
 
-    expect(await screen.findByRole("heading", { name: "Match history" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "History" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Match" }));
     expect(await screen.findByText("LIVE MATCH · QUARTER 1")).toBeInTheDocument();
   });
@@ -395,7 +428,7 @@ describe("Natball Insights setup", () => {
     await user.selectOptions(screen.getByLabelText("Opposition"), opposition.id);
     expect(screen.getByRole("heading", { name: "Setup Match" })).toBeInTheDocument();
     await user.click(coachNavigation().getByRole("button", { name: "History" }));
-    expect(await screen.findByRole("heading", { name: "Match history" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "History" })).toBeInTheDocument();
     await user.click(coachNavigation().getByRole("button", { name: "Match" }));
     expect(await screen.findByRole("heading", { name: "Setup Match" })).toBeInTheDocument();
     const date = screen.getByLabelText("Match date").getAttribute("value");
@@ -700,7 +733,7 @@ describe("Natball Insights setup", () => {
     await user.click(await screen.findByRole("button", { name: "End quarter" }));
     expect(await screen.findByRole("button", { name: "Finalise Match" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Finalise Match" }));
-    expect(await screen.findByText("MATCH RECORD")).toBeInTheDocument();
+    expect(await screen.findByText("READ-ONLY MATCH EVENTS")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download CSV" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download PDF" })).toBeInTheDocument();
     const createObjectURL = vi.fn(() => "blob:match-report");
@@ -791,7 +824,7 @@ describe("Natball Insights setup", () => {
 
     await user.click(screen.getByRole("button", { name: "Abandon match" }));
     await user.click(screen.getByRole("button", { name: "Confirm abandonment" }));
-    expect(await screen.findByText("MATCH RECORD")).toBeInTheDocument();
+    expect(await screen.findByText("READ-ONLY MATCH EVENTS")).toBeInTheDocument();
     expect(screen.getByText(/Abandoned - no winner/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Roses 1 - Thunder 0" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download CSV" })).toBeInTheDocument();
@@ -814,7 +847,7 @@ describe("Natball Insights setup", () => {
     await screen.findByText("LIVE MATCH · QUARTER 2");
     expect(screen.queryByText("Quarter 1 review")).not.toBeInTheDocument();
     await user.click(coachNavigation().getByRole("button", { name: "History" }));
-    expect(await screen.findByRole("heading", { name: "Match history" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "History" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "End quarter" })).not.toBeInTheDocument();
   });
 
@@ -832,14 +865,14 @@ describe("Natball Insights setup", () => {
 
     await screen.findByRole("navigation", { name: "Coach navigation" });
     await user.click(coachNavigation().getByRole("button", { name: "History" }));
-    await user.click(screen.getByRole("button", { name: "View match record" }));
-    expect(await screen.findByText("MATCH RECORD")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "View Match Events" }));
+    expect(await screen.findByText("READ-ONLY MATCH EVENTS")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Match" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText("This Match is read-only.")).toBeInTheDocument();
+    expect(screen.getByText("These Match Events are read-only.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download CSV" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download PDF" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Back to Match History" }));
-    expect(await screen.findByRole("heading", { name: "Match history" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Back to History" }));
+    expect(await screen.findByRole("heading", { name: "History" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "End quarter" })).not.toBeInTheDocument();
   });
 });

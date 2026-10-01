@@ -149,6 +149,11 @@ form { display: grid; gap: 13px; margin-top: 20px; }
 .match-list li[data-status="live"] { border-left: 5px solid #246b35; background: #f2fbf3; }
 .match-list li[data-status="finalised"] { border-left: 5px solid var(--management-icon); }
 .match-list li[data-status="abandoned"], .match-list li[data-status="terminated"] { border-left: 5px solid #8f1027; }
+.season-history-group { margin-top: 16px; border: 1px solid var(--management-border); border-radius: 14px; overflow: hidden; background: var(--management-surface); }
+.season-history-group summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px; cursor: pointer; font-weight: 800; }
+.season-history-group summary span:last-child { color: var(--management-muted-text); font-size: .84rem; font-weight: 600; }
+.season-history-group .match-list { margin: 0; padding: 0 12px 12px; }
+.empty-history { margin: 0; padding: 0 14px 14px; color: var(--management-muted-text); }
 .backup-card { display: grid; gap: 16px; margin-top: 22px; }
 .backup-action, .restore-action { padding: 18px; border: 1px solid var(--management-border); border-radius: 16px; background: var(--management-surface); }
 .backup-action { background: #f7fbf7; border-color: #b8dfbe; }

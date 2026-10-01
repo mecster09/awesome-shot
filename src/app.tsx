@@ -228,12 +228,21 @@ function NavigationIcon({ name }: { name: "court" | "history" | "settings" }) {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a7 7 0 0 0-1.7-1L14.5 3h-5l-.4 3.1a7 7 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.5a7 7 0 0 0 0 2L3 14.5l2 3.4 2.4-1a7 7 0 0 0 1.7 1l.4 3.1h5l.4-3.1a7 7 0 0 0 1.7-1l2.4 1 2-3.4-2-1.5c.1-.3.1-.7.1-1Z" /></svg>;
 }
 
+const isTerminalMatch = (game: Game) => game.status === "finalised" || game.status === "abandoned" || game.status === "terminated";
+const matchStatusLabel = (game: Game) => game.outcome?.kind === "completed" ? "Completed" : "Abandoned";
+
 function MatchHistory({ games, scores, setup, onOpen }: { games: Game[]; scores: Map<string, { own: number; opposition: number }>; setup: SetupSummary; onOpen: (gameId: string) => void }) {
-  return <section className="match-area focused-screen management-screen match-history" aria-labelledby="match-history-title"><div className="section-heading"><div><p className="eyebrow">MATCH HISTORY</p><h2 id="match-history-title">Match history</h2></div></div><ul className="match-list" aria-label="Saved matches">{games.map((game) => {
-    const score = game.finalScore ?? scores.get(game.id)!;
-    const status = game.status === "live" ? `Live Match · Quarter ${game.activeQuarter ?? game.quarters?.length ?? 1}` : `${game.outcome?.kind === "completed" ? "Completed" : game.outcome?.kind === "terminated" ? "Terminated" : "Abandoned"} Match`;
-    return <li key={game.id} data-status={game.status}><div><strong>{setup.opposition.find((opposition) => opposition.id === game.oppositionId)?.name}</strong><p>{status} · {score.own} – {score.opposition}</p><small>{game.date}</small></div><button className="text-button" onClick={() => onOpen(game.id)}>{game.status === "live" ? "View live match" : "View match record"}</button></li>;
-  })}</ul></section>;
+  const terminalMatches = games.filter(isTerminalMatch);
+  const seasons = [...setup.seasons].reverse();
+  const initiallyExpandedSeason = setup.seasons.find((season) => season.status === "active")?.id ?? setup.seasons.at(-1)?.id;
+
+  return <section className="match-area focused-screen management-screen match-history" aria-labelledby="match-history-title"><div className="section-heading"><div><p className="eyebrow">HISTORY</p><h2 id="match-history-title">History</h2></div></div>{seasons.map((season) => {
+    const matches = terminalMatches.filter((game) => game.seasonId === season.id).sort((left, right) => right.date.localeCompare(left.date));
+    return <details key={season.id} className="season-history-group" aria-label={`${season.name} History`} open={season.id === initiallyExpandedSeason}><summary><span>{season.name}</span><span>{matches.length} terminal {matches.length === 1 ? "Match" : "Matches"}</span></summary>{matches.length ? <ul className="match-list" aria-label={`${season.name} terminal Matches`}>{matches.map((game) => {
+      const score = game.finalScore ?? scores.get(game.id)!;
+      return <li key={game.id} data-status={game.status}><div><strong>{setup.opposition.find((opposition) => opposition.id === game.oppositionId)?.name}</strong><p>{matchStatusLabel(game)} · {score.own} – {score.opposition}</p><small>{game.date}</small></div><button className="text-button" onClick={() => onOpen(game.id)}>View Match Events</button></li>;
+    })}</ul> : <p className="empty-history">No terminal Matches in this Season.</p>}</details>;
+  })}</section>;
 }
 
 function TeamForm({ initialName = "", submitLabel = "Save team", cancelLabel, onCancel, onSubmit }: { initialName?: string; submitLabel?: string; cancelLabel?: string; onCancel?: () => void; onSubmit: (input: { name: string }) => Promise<void> }) {
@@ -387,8 +396,8 @@ function MatchEventSummaryTable({ summary, players, label }: { summary: Statisti
 }
 
 function TerminalMatchCard({ report, onBack }: { report: TerminalMatchReport; onBack: () => void }) {
-  const outcome = report.outcome.kind === "abandoned" ? "Abandoned - no winner" : report.status === "finalised" ? "Completed" : "Terminated - no winner";
-  return <section className="draft-card live-card" aria-labelledby="match-record-title"><div className="section-heading"><div><p className="eyebrow">MATCH RECORD</p><h2 id="match-record-title">{report.teamName} {report.score.own} - {report.oppositionName} {report.score.opposition}</h2></div><button className="text-button" onClick={onBack}>Back to Match History</button></div><p>{report.date} · {outcome}</p><p>This match record is read-only.</p><div className="quarter-review">{report.quarters.map((quarter) => <article key={quarter.number}><h3>Quarter {quarter.number}: {quarter.ownScore} - {quarter.oppositionScore}</h3><p>Starting court: {quarter.startingLineup.map((entry) => `${entry.position}: ${entry.playerName}`).join(", ")}</p>{quarter.substitutions.map((substitution) => <p key={substitution.sequence}>Substitution {substitution.sequence}: {substitution.position}: {substitution.playerName ?? "Vacant"}</p>)}<ul>{quarter.playerStatistics.map((statistic) => <li key={`${statistic.playerId}:${statistic.position}:${statistic.statistic}`}>{statistic.playerName} · {statistic.position} · {statistic.statistic}: {statistic.count}</li>)}</ul></article>)}</div><div className="draft-actions"><button onClick={() => download(`${report.id}.csv`, "text/csv", createMatchCsv(report))}>Download CSV</button><button className="secondary-button" onClick={() => download(`${report.id}.pdf`, "application/pdf", createMatchPdf(report))}>Download PDF</button></div></section>;
+  const outcome = report.outcome.kind === "completed" ? "Completed" : "Abandoned - no winner";
+  return <section className="draft-card live-card" aria-labelledby="match-events-record-title"><div className="section-heading"><div><p className="eyebrow">READ-ONLY MATCH EVENTS</p><h2 id="match-events-record-title">{report.teamName} {report.score.own} - {report.oppositionName} {report.score.opposition}</h2></div><button className="text-button" onClick={onBack}>Back to History</button></div><p>{report.date} · {outcome}</p><p>These Match Events are read-only.</p><div className="quarter-review">{report.quarters.map((quarter) => <article key={quarter.number}><h3>Quarter {quarter.number}: {quarter.ownScore} - {quarter.oppositionScore}</h3><p>Starting court: {quarter.startingLineup.map((entry) => `${entry.position}: ${entry.playerName}`).join(", ")}</p>{quarter.substitutions.map((substitution) => <p key={substitution.sequence}>Substitution {substitution.sequence}: {substitution.position}: {substitution.playerName ?? "Vacant"}</p>)}<ul>{quarter.playerStatistics.map((statistic) => <li key={`${statistic.playerId}:${statistic.position}:${statistic.statistic}`}>{statistic.playerName} · {statistic.position} · {statistic.statistic}: {statistic.count}</li>)}</ul></article>)}</div><div className="draft-actions"><button onClick={() => download(`${report.id}.csv`, "text/csv", createMatchCsv(report))}>Download CSV</button><button className="secondary-button" onClick={() => download(`${report.id}.pdf`, "application/pdf", createMatchPdf(report))}>Download PDF</button></div></section>;
 }
 
 function BackupCard({ exportBackup, onImport }: { exportBackup: () => string; onImport: (serialized: string, mode: "merge" | "replace", confirmed: boolean) => Promise<void> }) {

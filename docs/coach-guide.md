@@ -7,7 +7,7 @@ Natball Insights keeps one coach task on screen at a time. It has one active Sea
 There is no header menu. Use the persistent **Coach navigation** at the bottom of compact and standard tablets, or the left-hand rail on large tablets, to open the three root destinations:
 
 - **Setup Match** returns to the resumable setup stage before Quarter 1 begins. It becomes **Live Match** as soon as Quarter 1 starts and returns to the active Quarter or the next-Quarter plan.
-- **Match History** opens retained live and terminal Match records without changing the current stage.
+- **History** opens retained terminal Matches without changing the current stage.
 - **Settings** contains the Season lifecycle and **Backup & restore** controls.
 
 The app mark identifies the app in Coach navigation. The highlighted destination is the screen currently open.
@@ -64,7 +64,7 @@ If a Match cannot be completed, open **More match actions** during live capture 
 
 ## History, reports, and recovery
 
-Open **Match History** from Coach navigation to view live or terminal Matches. Terminal Match records show Quarter scores, Courts, substitutions, and Player–Position events. Use **Download CSV** for spreadsheet analysis (see [the CSV schema](reports/csv-schema.md)) or **Download PDF** for a coach-readable record. Legacy terminated records remain readable and exportable.
+Open **History** from Coach navigation to view terminal Matches. The read-only Match Events view shows Quarter scores, Courts, substitutions, and Player–Position events. Use **Download CSV** for spreadsheet analysis (see [the CSV schema](reports/csv-schema.md)) or **Download PDF** for a coach-readable record. Legacy terminal records remain readable and exportable.
 
 Open **Settings**, then **Backup & restore**, to download all locally stored Team, Season, Match, Court, event, and result data as JSON. To restore, paste backup JSON into **Backup data** and choose:
 
@@ -89,6 +89,6 @@ QA was completed against the integrated workflow at the following viewport width
 | 1024 × 768px landscape | Pass — the active Quarter Event feed is open on first render, showing its heading, latest event, correction, and removal controls without an empty panel. | The Event feed remains independently scrollable beside the current Court. |
 | 1024 × 600px landscape | Pass — the compact Event-feed drawer shows its label and latest event while collapsed; opening it reveals correction and removal controls. | The opened drawer is the contained scrolling surface and leaves the Event grid usable. |
 
-Accessible controls verified include **Coach navigation**, **Setup Match**/**Live Match**, **Match History**, **Settings**, the Stage 5 **All Match**/**Previous quarter** switch, **Opponent goal**, event-cell labels such as **Record Goals for Faye**, and destructive-confirmation actions.
+Accessible controls verified include **Coach navigation**, **Setup Match**/**Live Match**, **History**, **Settings**, the Stage 5 **All Match**/**Previous quarter** switch, **Opponent goal**, event-cell labels such as **Record Goals for Faye**, and destructive-confirmation actions.
 
 Automated verification completed successfully against the integrated implementation: `pnpm test` passed all 52 tests, and `pnpm run build` completed the TypeScript check and production Vite build.
