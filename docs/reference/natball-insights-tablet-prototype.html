@@ -1,0 +1,1234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Natball Insights - Tablet Dashboard</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- React & React DOM CDNs -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  
+  <!-- Babel Standalone for JSX compilation -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50: '#fff1f2',
+              100: '#ffe4e6',
+              500: '#e11d48',
+              600: '#e11d48',
+              700: '#be123c',
+              900: '#881337',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+      background-color: #cbd5e1;
+    }
+
+    /* Tablet Viewport Optimization for 1280x800 and 1180x820 */
+    .tablet-viewport {
+      max-width: 1280px;
+      max-height: 820px;
+      height: 100vh;
+      width: 100vw;
+      margin: 0 auto;
+    }
+
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+  </style>
+</head>
+<body class="flex items-center justify-center h-screen w-screen overflow-hidden">
+  
+  <div id="root" class="tablet-viewport bg-slate-50 text-slate-800 flex flex-col relative overflow-hidden shadow-2xl rounded-none sm:rounded-xl border border-slate-300"></div>
+
+  <script type="text/babel">
+    const { useState, useMemo } = React;
+
+    const Icons = {
+      Menu: (p) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></svg>,
+      Trophy: (p) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg>,
+      History: (p) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>,
+      Settings: (p) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>,
+      Activity: (p) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>,
+      Users: (p) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+      Calendar: (p) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
+      Shield: (p) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
+      CheckCircle2: (p) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>,
+      ArrowRight: (p) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>,
+      ArrowLeft: (p) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>,
+      X: (p) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>,
+      RotateCcw: (p) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>,
+      Plus: (p) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
+      Minus: (p) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="5" y1="12" x2="19" y2="12"/></svg>,
+      Database: (p) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>,
+      Power: (p) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>,
+      List: (p) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>,
+      ArrowRightLeft: (p) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></svg>,
+      Check: (p) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...p}><polyline points="20 6 9 17 4 12"/></svg>,
+      AlertTriangle: (p) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    };
+
+    const POSITIONS = [
+      { code: 'GK', name: 'Goal Keeper' },
+      { code: 'GD', name: 'Goal Defence' },
+      { code: 'WD', name: 'Wing Defence' },
+      { code: 'C',  name: 'Center' },
+      { code: 'WA', name: 'Wing Attack' },
+      { code: 'GA', name: 'Goal Attack' },
+      { code: 'GS', name: 'Goal Shooter' }
+    ];
+
+    const STAT_TYPES = [
+      { key: 'cpr', label: 'CPR', fullName: 'Center Pass Receive', color: 'bg-slate-100 border-slate-300 text-slate-800' },
+      { key: 'tip', label: 'Tip', fullName: 'Defensive Tip', color: 'bg-amber-50 border-amber-200 text-amber-900' },
+      { key: 'int', label: 'Int', fullName: 'Interception', color: 'bg-emerald-50 border-emerald-200 text-emerald-900' },
+      { key: 'ue', label: 'UE', fullName: 'Unforced Error', color: 'bg-rose-50 border-rose-200 text-rose-900' },
+      { key: 'con', label: 'Con', fullName: 'Penalty Contact', color: 'bg-orange-50 border-orange-200 text-orange-900' },
+      { key: 'obs', label: 'Obs', fullName: 'Obstruction Call', color: 'bg-purple-50 border-purple-200 text-purple-900' },
+      { key: 'goal', label: 'Goal', fullName: 'Goal Scored', color: 'bg-emerald-600 border-emerald-700 text-white shadow-xs' },
+      { key: 'miss', label: 'Miss', fullName: 'Goal Missed', color: 'bg-rose-600 border-rose-700 text-white shadow-xs' }
+    ];
+
+    const DEFAULT_PLAYERS = [
+      { id: 'p1', name: 'Emma Watson', pos: 'GK' },
+      { id: 'p2', name: 'Sarah Jenkins', pos: 'GD' },
+      { id: 'p3', name: 'Jessica Alba', pos: 'WD' },
+      { id: 'p4', name: 'Chloe Grace', pos: 'C' },
+      { id: 'p5', name: 'Hannah Abbott', pos: 'WA' },
+      { id: 'p6', name: 'Mia Taylor', pos: 'GA' },
+      { id: 'p7', name: 'Olivia Rodrigo', pos: 'GS' },
+      { id: 'p8', name: 'Sophia Turner', pos: 'WA' },
+      { id: 'p9', name: 'Ava Gardner', pos: 'GK' },
+      { id: 'p10', name: 'Isabella Ross', pos: 'C' }
+    ];
+
+    function App() {
+      // Views: 'setup_team', 'setup_season', 'setup_match', 'setup_quarter', 'live_match'
+      const [view, setView] = useState('setup_team');
+      const [activeNavTab, setActiveNavTab] = useState('match'); // 'match', 'history', 'settings'
+      const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+
+      // Setup State
+      const [teamName, setTeamName] = useState('Thunderbirds NC');
+      const [clubAssociation, setClubAssociation] = useState('South Metro League');
+      const [seasonName, setSeasonName] = useState('Winter 2026 League');
+      const [startDate, setStartDate] = useState('2026-05-01');
+      const [endDate, setEndDate] = useState('2026-09-30');
+      const [oppositionName, setOppositionName] = useState('Northern Vixens');
+      const [matchDate, setMatchDate] = useState('2026-10-02');
+      const [matchVenue, setMatchVenue] = useState('Home');
+      const [squad, setSquad] = useState(DEFAULT_PLAYERS);
+
+      // New Player Inputs
+      const [newPlayerName, setNewPlayerName] = useState('');
+      const [newPlayerPos, setNewPlayerPos] = useState('C');
+
+      // Quarter setup tracking (Which quarter setup screen is active: 'Q1', 'Q2', 'Q3', 'Q4')
+      const [targetSetupQuarter, setTargetSetupQuarter] = useState('Q1');
+
+      // Quarter Lineup Storage per quarter: { Q1: { GK: id, GD: id, ... }, Q2: { ... } }
+      const [quarterLineups, setQuarterLineups] = useState({
+        Q1: { GK: 'p1', GD: 'p2', WD: 'p3', C: 'p4', WA: 'p5', GA: 'p6', GS: 'p7' },
+        Q2: { GK: 'p1', GD: 'p2', WD: 'p3', C: 'p4', WA: 'p5', GA: 'p6', GS: 'p7' },
+        Q3: { GK: 'p1', GD: 'p2', WD: 'p3', C: 'p4', WA: 'p5', GA: 'p6', GS: 'p7' },
+        Q4: { GK: 'p1', GD: 'p2', WD: 'p3', C: 'p4', WA: 'p5', GA: 'p6', GS: 'p7' }
+      });
+
+      // Live Match View Quarter Tab Selection: 'Q1', 'Q2', 'Q3', 'Q4', 'OVERALL'
+      const [currentQuarter, setCurrentQuarter] = useState('Q1');
+
+      // Stats State: { Q1: { [playerId]: { goal: 0, miss: 0, ... } }, Q2: {}, ... }
+      const [matchStats, setMatchStats] = useState({ Q1: {}, Q2: {}, Q3: {}, Q4: {} });
+      const [opponentScores, setOpponentScores] = useState({ Q1: 0, Q2: 0, Q3: 0, Q4: 0 });
+      const [eventsLog, setEventsLog] = useState([]);
+
+      // Modals
+      const [isEventFeedOpen, setIsEventFeedOpen] = useState(false);
+      const [isSubModalOpen, setIsSubModalOpen] = useState(false);
+      const [isEndQuarterOpen, setIsEndQuarterOpen] = useState(false);
+      const [isAbandonConfirmOpen, setIsAbandonConfirmOpen] = useState(false);
+
+      // Substitution modal selections
+      const [subSelectedCourtPos, setSubSelectedCourtPos] = useState('GK');
+      const [subSelectedBenchId, setSubSelectedBenchId] = useState('');
+
+      const activeQKey = currentQuarter === 'OVERALL' ? 'Q1' : currentQuarter;
+
+      // On-Court Players for currently selected quarter tab
+      const currentCourtPlayers = useMemo(() => {
+        const lineupForQ = quarterLineups[activeQKey] || quarterLineups.Q1;
+        return POSITIONS.map(pos => {
+          const pId = lineupForQ[pos.code];
+          const playerObj = squad.find(p => p.id === pId);
+          return {
+            pos: pos.code,
+            id: pId || '',
+            name: playerObj ? playerObj.name : 'Unassigned'
+          };
+        });
+      }, [quarterLineups, activeQKey, squad]);
+
+      // Bench Players for active quarter tab
+      const currentBench = useMemo(() => {
+        const lineupForQ = quarterLineups[activeQKey] || quarterLineups.Q1;
+        const assignedIds = Object.values(lineupForQ);
+        return squad.filter(p => !assignedIds.includes(p.id));
+      }, [quarterLineups, activeQKey, squad]);
+
+      // Score Calculations
+      const getQuarterHomeScore = (q) => {
+        const qData = matchStats[q] || {};
+        let total = 0;
+        Object.values(qData).forEach(pStats => {
+          total += (pStats.goal || 0);
+        });
+        return total;
+      };
+
+      const totalHomeScore = useMemo(() => {
+        return ['Q1', 'Q2', 'Q3', 'Q4'].reduce((sum, q) => sum + getQuarterHomeScore(q), 0);
+      }, [matchStats]);
+
+      const totalAwayScore = useMemo(() => {
+        return ['Q1', 'Q2', 'Q3', 'Q4'].reduce((sum, q) => sum + (opponentScores[q] || 0), 0);
+      }, [opponentScores]);
+
+      // Stat Helper Functions
+      const getStatCount = (playerId, statKey) => {
+        if (!playerId) return 0;
+        if (currentQuarter === 'OVERALL') {
+          return ['Q1', 'Q2', 'Q3', 'Q4'].reduce((sum, q) => {
+            return sum + (matchStats[q]?.[playerId]?.[statKey] || 0);
+          }, 0);
+        }
+        return matchStats[activeQKey]?.[playerId]?.[statKey] || 0;
+      };
+
+      const logEvent = (type, playerPos, playerName, text) => {
+        const newEvent = {
+          id: Date.now() + Math.random(),
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+          quarter: activeQKey,
+          type,
+          playerPos,
+          playerName,
+          text
+        };
+        setEventsLog(prev => [newEvent, ...prev]);
+      };
+
+      const updateStat = (playerId, playerPos, playerName, statKey, delta) => {
+        if (!playerId) return;
+
+        setMatchStats(prev => {
+          const qData = prev[activeQKey] || {};
+          const pData = qData[playerId] || {};
+          const currentVal = pData[statKey] || 0;
+          const newVal = Math.max(0, currentVal + delta);
+
+          return {
+            ...prev,
+            [activeQKey]: {
+              ...qData,
+              [playerId]: {
+                ...pData,
+                [statKey]: newVal
+              }
+            }
+          };
+        });
+
+        const statInfo = STAT_TYPES.find(s => s.key === statKey);
+        if (delta > 0) {
+          logEvent(statKey, playerPos, playerName, `${playerPos} (${playerName}) recorded +1 ${statInfo?.fullName || statKey}`);
+        } else {
+          logEvent('minus', playerPos, playerName, `${playerPos} reduced ${statInfo?.fullName || statKey}`);
+        }
+      };
+
+      const handleOpponentGoal = () => {
+        setOpponentScores(prev => ({
+          ...prev,
+          [activeQKey]: (prev[activeQKey] || 0) + 1
+        }));
+        logEvent('opponent_goal', 'OPP', oppositionName, `${oppositionName} scored a goal (+1)`);
+      };
+
+      const handleGlobalUndo = () => {
+        if (eventsLog.length === 0) return;
+        const lastEvent = eventsLog[0];
+        if (lastEvent.type === 'opponent_goal') {
+          const q = lastEvent.quarter;
+          setOpponentScores(prev => ({ ...prev, [q]: Math.max(0, (prev[q] || 0) - 1) }));
+        } else {
+          const q = lastEvent.quarter;
+          const pObj = currentCourtPlayers.find(p => p.pos === lastEvent.playerPos);
+          if (pObj && pObj.id) {
+            setMatchStats(prev => {
+              const qData = prev[q] || {};
+              const pData = qData[pObj.id] || {};
+              return {
+                ...prev,
+                [q]: {
+                  ...qData,
+                  [pObj.id]: {
+                    ...pData,
+                    [lastEvent.type]: Math.max(0, (pData[lastEvent.type] || 0) - 1)
+                  }
+                }
+              };
+            });
+          }
+        }
+        setEventsLog(prev => prev.slice(1));
+      };
+
+      const handleAddPlayer = () => {
+        if (!newPlayerName.trim() || squad.length >= 12) return;
+        const newP = {
+          id: 'p_' + Date.now(),
+          name: newPlayerName.trim(),
+          pos: newPlayerPos
+        };
+        setSquad([...squad, newP]);
+        setNewPlayerName('');
+      };
+
+      const handleRemovePlayer = (id) => {
+        setSquad(squad.filter(p => p.id !== id));
+      };
+
+      const handleAssignLineup = (posCode, playerId) => {
+        setQuarterLineups(prev => {
+          const qLineup = { ...(prev[targetSetupQuarter] || {}) };
+          // Ensure no duplicate assignment on same quarter lineup
+          Object.keys(qLineup).forEach(k => {
+            if (qLineup[k] === playerId && k !== posCode) qLineup[k] = '';
+          });
+          qLineup[posCode] = playerId;
+          return {
+            ...prev,
+            [targetSetupQuarter]: qLineup
+          };
+        });
+      };
+
+      const handleExecuteSub = () => {
+        if (!subSelectedBenchId) return;
+        
+        const currentQLineup = quarterLineups[activeQKey] || {};
+        const oldPlayerId = currentQLineup[subSelectedCourtPos];
+
+        setQuarterLineups(prev => ({
+          ...prev,
+          [activeQKey]: {
+            ...prev[activeQKey],
+            [subSelectedCourtPos]: subSelectedBenchId
+          }
+        }));
+
+        const incoming = squad.find(p => p.id === subSelectedBenchId);
+        const outgoing = squad.find(p => p.id === oldPlayerId);
+
+        logEvent('sub', subSelectedCourtPos, incoming?.name || 'Sub', `SUB: ${incoming?.name} IN for ${outgoing?.name || 'Player'} at (${subSelectedCourtPos})`);
+        setIsSubModalOpen(false);
+      };
+
+      // Proceed to Next Quarter Lineup Setup
+      const getNextQuarterCode = (q) => {
+        if (q === 'Q1') return 'Q2';
+        if (q === 'Q2') return 'Q3';
+        if (q === 'Q3') return 'Q4';
+        return 'Q4';
+      };
+
+      const handleProceedNextQuarterSetup = () => {
+        const nextQ = getNextQuarterCode(currentQuarter);
+        // Pre-populate next quarter lineup with previous quarter's ending lineup if not set
+        setQuarterLineups(prev => ({
+          ...prev,
+          [nextQ]: { ...(prev[currentQuarter] || prev.Q1) }
+        }));
+        setTargetSetupQuarter(nextQ);
+        setIsEndQuarterOpen(false);
+        setView('setup_quarter');
+      };
+
+      const handleAbandonMatch = () => {
+        setIsAbandonConfirmOpen(false);
+        setView('setup_team');
+        setActiveNavTab('match');
+      };
+
+      return (
+        <div className="flex-1 flex flex-col h-full w-full overflow-hidden relative bg-slate-50">
+          
+          {/* OVERLAY SLIDE-OVER NAVIGATION DRAWER */}
+          {isDrawerOpen && (
+            <div 
+              className="absolute inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex transition-opacity duration-200"
+              onClick={() => setIsDrawerOpen(false)}
+            >
+              <div 
+                className="w-80 bg-white h-full shadow-2xl border-r border-slate-200 flex flex-col justify-between animate-in slide-in-from-left duration-200"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div>
+                  {/* Unobstructed Logo Container */}
+                  <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50/80">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-rose-600 flex items-center justify-center text-white shadow-md shadow-rose-600/20">
+                        <Icons.Activity className="w-6 h-6 stroke-[2.5]" />
+                      </div>
+                      <div>
+                        <h1 className="font-black text-slate-900 text-lg tracking-tight leading-none">Natball</h1>
+                        <span className="text-[10px] text-rose-600 font-extrabold uppercase tracking-widest">Insights</span>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => setIsDrawerOpen(false)}
+                      className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg transition-colors"
+                    >
+                      <Icons.X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  {/* Navigation Drawer Links */}
+                  <nav className="p-3 space-y-1.5">
+                    <button
+                      onClick={() => { setActiveNavTab('match'); setIsDrawerOpen(false); }}
+                      className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl font-bold text-sm transition-all ${
+                        activeNavTab === 'match'
+                          ? 'bg-rose-50 text-rose-600 border border-rose-200 shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      }`}
+                    >
+                      <Icons.Trophy className="w-5 h-5 text-rose-600" />
+                      <span>{view === 'live_match' ? 'Live Match Tracker' : 'Current Setup Wizard'}</span>
+                    </button>
+
+                    <button
+                      onClick={() => { setActiveNavTab('history'); setIsDrawerOpen(false); }}
+                      className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl font-bold text-sm transition-all ${
+                        activeNavTab === 'history'
+                          ? 'bg-rose-50 text-rose-600 border border-rose-200 shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      }`}
+                    >
+                      <Icons.History className="w-5 h-5 text-rose-600" />
+                      <span>Match History</span>
+                    </button>
+
+                    <button
+                      onClick={() => { setActiveNavTab('settings'); setIsDrawerOpen(false); }}
+                      className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl font-bold text-sm transition-all ${
+                        activeNavTab === 'settings'
+                          ? 'bg-rose-50 text-rose-600 border border-rose-200 shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      }`}
+                    >
+                      <Icons.Settings className="w-5 h-5 text-rose-600" />
+                      <span>Settings</span>
+                    </button>
+                  </nav>
+                </div>
+
+                <div className="p-4 border-t border-slate-200 bg-slate-50 space-y-2">
+                  <button 
+                    onClick={() => { setView('setup_team'); setIsDrawerOpen(false); setActiveNavTab('match'); }}
+                    className="w-full py-2.5 bg-slate-200 hover:bg-slate-300/80 text-slate-800 rounded-xl font-bold text-xs flex items-center justify-center gap-2"
+                  >
+                    <Icons.RotateCcw className="w-4 h-4" /> Restart Setup Workflow
+                  </button>
+                  <p className="text-[10px] text-slate-400 font-medium text-center">Natball Insights Tablet v3.2</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {}
+          <header className="bg-white border-b border-slate-200 px-4 py-2.5 flex items-center justify-between shrink-0 shadow-xs z-10">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setIsDrawerOpen(true)}
+                className="p-2 bg-slate-100 hover:bg-slate-200/80 rounded-xl border border-slate-200 text-slate-700 transition-colors flex items-center gap-2"
+                title="Open Navigation Menu"
+              >
+                <Icons.Menu className="w-5 h-5 text-rose-600" />
+              </button>
+
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-rose-600 text-white flex items-center justify-center font-black text-xs shadow-xs">
+                  NI
+                </div>
+                <div>
+                  <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest block leading-none">NATBALL INSIGHTS</span>
+                  <h1 className="text-sm font-black text-slate-900 leading-tight">
+                    {activeNavTab === 'settings' ? 'Dashboard Settings' : activeNavTab === 'history' ? 'Match History' : view === 'live_match' ? `${teamName} vs ${oppositionName}` : 'Pre-Match Setup'}
+                  </h1>
+                </div>
+              </div>
+            </div>
+
+            {/* SINGLE ROW LIVE SCOREBOARD FOR MATCH EVENTS VIEW */}
+            {activeNavTab === 'match' && view === 'live_match' && (
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 bg-slate-100 px-3.5 py-1.5 rounded-xl border border-slate-200">
+                  <div className="flex items-baseline gap-2 font-black text-sm">
+                    <span className="text-slate-900">{teamName}</span>
+                    <span className="text-rose-600 text-base">{totalHomeScore}</span>
+                    <span className="text-slate-400">–</span>
+                    <span className="text-rose-600 text-base">{totalAwayScore}</span>
+                    <span className="text-slate-900">{oppositionName}</span>
+                  </div>
+                  <span className="text-slate-300">|</span>
+                  <div className="text-xs font-bold text-slate-600">
+                    {currentQuarter}: <span className="text-slate-900">{getQuarterHomeScore(activeQKey)}</span> - <span className="text-slate-900">{opponentScores[activeQKey] || 0}</span>
+                  </div>
+                  <button 
+                    onClick={handleOpponentGoal}
+                    className="px-2.5 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold shadow-xs active:scale-95"
+                  >
+                    + Opp Goal
+                  </button>
+                </div>
+              </div>
+            )}
+          </header>
+
+          {}
+          <div className="flex-1 overflow-y-auto bg-slate-100 p-3 sm:p-4 flex flex-col justify-between min-h-0">
+            
+            {/* 1. SETTINGS VIEW */}
+            {activeNavTab === 'settings' && (
+              <div className="p-4 max-w-4xl mx-auto w-full space-y-5">
+                <div>
+                  <h2 className="text-2xl font-black text-slate-900">Settings</h2>
+                  <p className="text-xs text-slate-500">Manage team profiles, season archives, data backup, and active match controls.</p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Edit Team */}
+                  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3">
+                    <h3 className="font-extrabold text-slate-900 text-sm flex items-center gap-2">
+                      <Icons.Users className="w-4 h-4 text-rose-600" /> Edit Team
+                    </h3>
+                    <p className="text-xs text-slate-500">Update team title and association.</p>
+                    <input 
+                      type="text" 
+                      value={teamName} 
+                      onChange={e => setTeamName(e.target.value)} 
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold"
+                    />
+                  </div>
+
+                  {/* Edit Season */}
+                  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3">
+                    <h3 className="font-extrabold text-slate-900 text-sm flex items-center gap-2">
+                      <Icons.Calendar className="w-4 h-4 text-rose-600" /> Edit Season
+                    </h3>
+                    <p className="text-xs text-slate-500">Update active season title.</p>
+                    <input 
+                      type="text" 
+                      value={seasonName} 
+                      onChange={e => setSeasonName(e.target.value)} 
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold"
+                    />
+                  </div>
+
+                  {/* End Season */}
+                  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3">
+                    <h3 className="font-extrabold text-slate-900 text-sm flex items-center gap-2">
+                      <Icons.Power className="w-4 h-4 text-rose-600" /> End Season
+                    </h3>
+                    <p className="text-xs text-slate-500">Archive matches and start a fresh season record.</p>
+                    <button className="px-3.5 py-2 bg-rose-50 text-rose-600 border border-rose-200 font-bold text-xs rounded-xl hover:bg-rose-100">
+                      Archive Active Season
+                    </button>
+                  </div>
+
+                  {/* Backup & Restore */}
+                  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3">
+                    <h3 className="font-extrabold text-slate-900 text-sm flex items-center gap-2">
+                      <Icons.Database className="w-4 h-4 text-rose-600" /> Backup & Restore
+                    </h3>
+                    <p className="text-xs text-slate-500">Export or restore tablet match records.</p>
+                    <div className="flex gap-2">
+                      <button className="px-3 py-2 bg-slate-100 border border-slate-200 text-slate-700 font-bold text-xs rounded-xl hover:bg-slate-200">Backup JSON</button>
+                      <button className="px-3 py-2 bg-slate-100 border border-slate-200 text-slate-700 font-bold text-xs rounded-xl hover:bg-slate-200">Restore</button>
+                    </div>
+                  </div>
+
+                  {/* Abandon Match (Relocated Here) */}
+                  <div className="bg-white border border-rose-200 rounded-2xl p-5 shadow-xs space-y-3 md:col-span-2">
+                    <h3 className="font-extrabold text-rose-700 text-sm flex items-center gap-2">
+                      <Icons.AlertTriangle className="w-4 h-4 text-rose-600" /> Abandon Active Match
+                    </h3>
+                    <p className="text-xs text-slate-500">Discard all statistics logged for the current active match and return to the Setup Wizard.</p>
+                    <button 
+                      onClick={() => setIsAbandonConfirmOpen(true)}
+                      className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl shadow-xs"
+                    >
+                      Abandon Current Match
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 2. MATCH HISTORY VIEW */}
+            {activeNavTab === 'history' && (
+              <div className="p-4 max-w-4xl mx-auto w-full space-y-4">
+                <h2 className="text-2xl font-black text-slate-900">Match History</h2>
+                <div className="space-y-3">
+                  <div className="bg-white border border-slate-200 rounded-2xl p-4 flex items-center justify-between shadow-xs">
+                    <div>
+                      <span className="text-[10px] font-bold text-rose-600 uppercase">{seasonName}</span>
+                      <h4 className="font-extrabold text-slate-900 text-base">{teamName} vs Northern Vixens</h4>
+                      <p className="text-xs text-slate-400">2026-09-24 • Home Match</p>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xl font-black text-emerald-600">52 - 44</span>
+                      <p className="text-[10px] text-slate-400 font-bold">WIN</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {}
+            {activeNavTab === 'match' && view === 'setup_team' && (
+              <div className="max-w-xl mx-auto w-full bg-white border border-slate-200 rounded-2xl shadow-xs p-6 space-y-6 my-auto">
+                <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
+                  <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 border border-rose-200 flex items-center justify-center font-black">
+                    <Icons.Shield className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest">STEP 1 OF 4</span>
+                    <h2 className="text-xl font-black text-slate-900">Setup Team</h2>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Team Name *</label>
+                    <input 
+                      type="text" 
+                      value={teamName}
+                      onChange={(e) => setTeamName(e.target.value)}
+                      placeholder="e.g. Thunderbirds NC"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-500 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Club / Association (Optional)</label>
+                    <input 
+                      type="text" 
+                      value={clubAssociation}
+                      onChange={(e) => setClubAssociation(e.target.value)}
+                      placeholder="e.g. South Metro Netball League"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-semibold text-slate-900 focus:outline-none text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-slate-100 flex justify-end">
+                  <button
+                    onClick={() => setView('setup_season')}
+                    disabled={!teamName.trim()}
+                    className="flex items-center gap-2 px-6 py-3 bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white font-black text-sm rounded-xl shadow-md transition-all active:scale-95"
+                  >
+                    <span>Next: Setup Season</span>
+                    <Icons.ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {}
+            {activeNavTab === 'match' && view === 'setup_season' && (
+              <div className="max-w-xl mx-auto w-full bg-white border border-slate-200 rounded-2xl shadow-xs p-6 space-y-6 my-auto">
+                <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 border border-indigo-200 flex items-center justify-center font-black">
+                    <Icons.Calendar className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">STEP 2 OF 4</span>
+                    <h2 className="text-xl font-black text-slate-900">Setup Season</h2>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Season Title *</label>
+                    <input 
+                      type="text" 
+                      value={seasonName}
+                      onChange={(e) => setSeasonName(e.target.value)}
+                      placeholder="e.g. Winter 2026 League"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-semibold text-slate-900 focus:outline-none text-sm"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Start Date</label>
+                      <input 
+                        type="date" 
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 font-semibold text-slate-900 text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">End Date</label>
+                      <input 
+                        type="date" 
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 font-semibold text-slate-900 text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+                  <button onClick={() => setView('setup_team')} className="flex items-center gap-1.5 font-bold text-xs text-slate-600">
+                    <Icons.ArrowLeft className="w-4 h-4" /> Back
+                  </button>
+                  <button
+                    onClick={() => setView('setup_match')}
+                    disabled={!seasonName.trim()}
+                    className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-black text-sm rounded-xl shadow-md transition-all active:scale-95"
+                  >
+                    <span>Next: Setup Match & Squad</span>
+                    <Icons.ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {}
+            {activeNavTab === 'match' && view === 'setup_match' && (
+              <div className="max-w-4xl mx-auto w-full bg-white border border-slate-200 rounded-2xl shadow-xs p-6 space-y-5 my-auto overflow-y-auto">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-2xl bg-amber-50 text-amber-700 border border-amber-200 flex items-center justify-center font-black">
+                      <Icons.Trophy className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-black text-amber-700 uppercase tracking-widest">STEP 3 OF 4</span>
+                      <h2 className="text-xl font-black text-slate-900">Setup Match & Squad</h2>
+                    </div>
+                  </div>
+                  <span className="px-3 py-1 bg-amber-100 text-amber-900 font-black text-xs rounded-xl border border-amber-200">
+                    {squad.length} / 12 Squad Max
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Opposition & Date */}
+                  <div className="space-y-3 bg-slate-50/80 p-4 rounded-xl border border-slate-200">
+                    <h3 className="font-extrabold text-xs text-slate-500 uppercase tracking-wider">Match Details</h3>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Opposition Team Name *</label>
+                      <input 
+                        type="text" 
+                        value={oppositionName}
+                        onChange={(e) => setOppositionName(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 font-semibold text-slate-900 text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Match Date</label>
+                      <input 
+                        type="date" 
+                        value={matchDate}
+                        onChange={(e) => setMatchDate(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 font-semibold text-slate-900 text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Venue</label>
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => setMatchVenue('Home')}
+                          className={`flex-1 py-2 rounded-xl font-bold text-xs border ${
+                            matchVenue === 'Home' ? 'bg-rose-600 text-white border-rose-600' : 'bg-white border-slate-200 text-slate-700'
+                          }`}
+                        >
+                          Home
+                        </button>
+                        <button 
+                          onClick={() => setMatchVenue('Away')}
+                          className={`flex-1 py-2 rounded-xl font-bold text-xs border ${
+                            matchVenue === 'Away' ? 'bg-rose-600 text-white border-rose-600' : 'bg-white border-slate-200 text-slate-700'
+                          }`}
+                        >
+                          Away
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Add Player (Without Bib) */}
+                  <div className="space-y-3 bg-slate-50/80 p-4 rounded-xl border border-slate-200">
+                    <h3 className="font-extrabold text-xs text-slate-500 uppercase tracking-wider">Add Player to Squad</h3>
+                    <div className="space-y-2">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Player Name</label>
+                        <input 
+                          type="text" 
+                          placeholder="e.g. Olivia Rodrigo"
+                          value={newPlayerName}
+                          onChange={(e) => setNewPlayerName(e.target.value)}
+                          className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 font-semibold text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Preferred Position</label>
+                        <select 
+                          value={newPlayerPos}
+                          onChange={(e) => setNewPlayerPos(e.target.value)}
+                          className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 font-semibold text-xs"
+                        >
+                          {POSITIONS.map(p => (
+                            <option key={p.code} value={p.code}>{p.code} - {p.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <button 
+                        onClick={handleAddPlayer}
+                        disabled={squad.length >= 12 || !newPlayerName.trim()}
+                        className="w-full py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs"
+                      >
+                        <Icons.Plus className="w-4 h-4" /> Add Player to Squad
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Squad List */}
+                <div>
+                  <h3 className="font-extrabold text-xs text-slate-500 uppercase tracking-wider mb-2">Match Squad Roster ({squad.length} / 12)</h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                    {squad.map((p) => (
+                      <div key={p.id} className="bg-white border border-slate-200 p-2.5 rounded-xl flex items-center justify-between shadow-2xs">
+                        <div className="min-w-0">
+                          <p className="font-bold text-xs text-slate-900 truncate">{p.name}</p>
+                          <span className="text-[10px] font-extrabold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-100">{p.pos}</span>
+                        </div>
+                        {squad.length > 7 && (
+                          <button onClick={() => handleRemovePlayer(p.id)} className="text-slate-300 hover:text-rose-600 p-1">
+                            <Icons.X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                  <button onClick={() => setView('setup_season')} className="flex items-center gap-1.5 font-bold text-xs text-slate-600">
+                    <Icons.ArrowLeft className="w-4 h-4" /> Back
+                  </button>
+                  <button
+                    onClick={() => { setTargetSetupQuarter('Q1'); setView('setup_quarter'); }}
+                    disabled={squad.length < 7 || !oppositionName.trim()}
+                    className="flex items-center gap-2 px-6 py-3 bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white font-black text-sm rounded-xl shadow-md transition-all active:scale-95"
+                  >
+                    <span>Next: Setup Lineup</span>
+                    <Icons.ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {}
+            {activeNavTab === 'match' && view === 'setup_quarter' && (
+              <div className="max-w-4xl mx-auto w-full bg-white border border-slate-200 rounded-2xl shadow-xs p-5 space-y-4 my-auto overflow-y-auto">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div>
+                    <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest">STEP 4 OF 4</span>
+                    <h2 className="text-xl font-black text-slate-900">{targetSetupQuarter} Lineup Selection</h2>
+                  </div>
+                  <span className="text-xs text-slate-500 font-bold">Assign On-Court Positions</span>
+                </div>
+
+                {/* Positions Allocation Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {POSITIONS.map((pos) => {
+                    const currentLineupForQ = quarterLineups[targetSetupQuarter] || {};
+                    return (
+                      <div key={pos.code} className="flex items-center gap-3 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                        <span className="w-10 h-10 rounded-xl bg-rose-600 text-white flex items-center justify-center font-black text-xs shrink-0 shadow-xs">
+                          {pos.code}
+                        </span>
+                        <select
+                          value={currentLineupForQ[pos.code] || ''}
+                          onChange={(e) => handleAssignLineup(pos.code, e.target.value)}
+                          className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 focus:outline-none"
+                        >
+                          <option value="">-- Select {pos.name} --</option>
+                          {squad.map((p) => (
+                            <option key={p.id} value={p.id}>{p.name} ({p.pos})</option>
+                          ))}
+                        </select>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                  <button onClick={() => setView('setup_match')} className="flex items-center gap-1.5 font-bold text-xs text-slate-600">
+                    <Icons.ArrowLeft className="w-4 h-4" /> Back to Squad
+                  </button>
+                  <button
+                    onClick={() => {
+                      setCurrentQuarter(targetSetupQuarter);
+                      setView('live_match');
+                    }}
+                    className="flex items-center gap-2 px-6 py-3 bg-rose-600 hover:bg-rose-500 text-white font-black text-sm rounded-xl shadow-lg shadow-rose-600/20 transition-all active:scale-95"
+                  >
+                    <Icons.Check className="w-4 h-4" />
+                    <span>Start {targetSetupQuarter} Match Events</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {}
+            {activeNavTab === 'match' && view === 'live_match' && (
+              <div className="flex-1 flex flex-col min-h-0 space-y-2">
+                
+                {/* Quarter Tabs Strip & Action Bar Aligned Exactly as Requested */}
+                <div className="flex items-center justify-between gap-2 bg-white p-2 rounded-2xl border border-slate-200 shadow-2xs">
+                  {/* Quarter Tabs */}
+                  <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                    {['Q1', 'Q2', 'Q3', 'Q4', 'OVERALL'].map((q) => (
+                      <button
+                        key={q}
+                        onClick={() => setCurrentQuarter(q)}
+                        className={`px-4 py-1.5 rounded-lg font-black text-xs transition-all ${
+                          currentQuarter === q ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
+                        }`}
+                      >
+                        {q === 'OVERALL' ? 'Match' : q}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Top Action Row Aligned as: [ Record Substitute ] [ Undo ] [ Event Feed ] [ End Quarter ] */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setIsSubModalOpen(true)}
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl border border-slate-200 font-extrabold text-xs transition-colors"
+                    >
+                      <Icons.ArrowRightLeft className="w-3.5 h-3.5 text-rose-600" />
+                      <span>Record Substitute</span>
+                    </button>
+
+                    <button
+                      onClick={handleGlobalUndo}
+                      disabled={eventsLog.length === 0}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-800 disabled:opacity-40 rounded-xl font-extrabold text-xs transition-all"
+                      title="Undo Last Action"
+                    >
+                      <Icons.RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+                      <span>Undo</span>
+                    </button>
+
+                    <button
+                      onClick={() => setIsEventFeedOpen(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-800 text-xs font-extrabold rounded-xl transition-all"
+                    >
+                      <Icons.List className="w-3.5 h-3.5 text-rose-600" />
+                      <span>Event Feed</span>
+                      {eventsLog.length > 0 && (
+                        <span className="bg-rose-600 text-white px-1.5 py-0.5 rounded-full text-[10px] font-black ml-0.5">
+                          {eventsLog.length}
+                        </span>
+                      )}
+                    </button>
+
+                    <button
+                      onClick={() => setIsEndQuarterOpen(true)}
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-extrabold text-xs shadow-xs transition-all active:scale-95"
+                    >
+                      <Icons.CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>End Quarter</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Main Stats Matrix Table */}
+                <div className="flex-1 overflow-y-auto bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden flex flex-col">
+                  {/* Column Headers */}
+                  <div className="grid grid-cols-12 gap-1.5 px-3 py-2 bg-slate-100 border-b border-slate-200 text-[11px] font-black text-slate-500 uppercase tracking-wider items-center shrink-0">
+                    <div className="col-span-3 sm:col-span-2">Player / Position</div>
+                    <div className="col-span-9 sm:col-span-10 grid grid-cols-8 gap-1.5 text-center">
+                      {STAT_TYPES.map(st => (
+                        <div key={st.key} className="truncate" title={st.fullName}>{st.label}</div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Matrix Rows */}
+                  <div className="divide-y divide-slate-100 flex-1 overflow-y-auto">
+                    {currentCourtPlayers.map((player) => {
+                      const isAttacker = player.pos === 'GS' || player.pos === 'GA';
+
+                      return (
+                        <div key={player.pos} className="grid grid-cols-12 gap-1.5 px-3 py-2 items-center hover:bg-slate-50/80 transition-colors">
+                          <div className="col-span-3 sm:col-span-2 flex items-center gap-2 min-w-0">
+                            <span className="w-8 h-8 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 flex items-center justify-center font-black text-xs shrink-0">
+                              {player.pos}
+                            </span>
+                            <div className="min-w-0 truncate">
+                              <h4 className="font-bold text-slate-900 text-xs truncate leading-tight">{player.name}</h4>
+                            </div>
+                          </div>
+
+                          <div className="col-span-9 sm:col-span-10 grid grid-cols-8 gap-1.5">
+                            {STAT_TYPES.map((st) => {
+                              const isGoalOrMiss = st.key === 'goal' || st.key === 'miss';
+                              const disabled = isGoalOrMiss && !isAttacker;
+                              const count = getStatCount(player.id, st.key);
+
+                              if (disabled) {
+                                return (
+                                  <div key={st.key} className="h-11 bg-slate-50 rounded-xl border border-slate-200/60 flex items-center justify-center text-slate-300 font-bold text-xs">
+                                    —
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <div key={st.key} className="relative group">
+                                  <button
+                                    onClick={() => updateStat(player.id, player.pos, player.name, st.key, 1)}
+                                    className={`w-full h-11 rounded-xl border font-black text-base flex items-center justify-center transition-all active:scale-95 shadow-2xs ${st.color}`}
+                                  >
+                                    {count}
+                                  </button>
+                                  {count > 0 && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        updateStat(player.id, player.pos, player.name, st.key, -1);
+                                      }}
+                                      className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-slate-800 hover:bg-rose-600 text-white rounded-full flex items-center justify-center text-[10px] shadow-xs"
+                                      title="Decrement"
+                                    >
+                                      <Icons.Minus className="w-2.5 h-2.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+              </div>
+            )}
+
+          </div>
+
+          {}
+
+          {/* EVENT FEED DRAWER */}
+          {isEventFeedOpen && (
+            <div className="absolute inset-0 z-50 flex justify-end bg-slate-900/40 backdrop-blur-xs">
+              <div className="w-full max-w-md bg-white h-full shadow-2xl border-l border-slate-200 flex flex-col">
+                <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+                  <div className="flex items-center gap-2">
+                    <Icons.List className="w-5 h-5 text-rose-600" />
+                    <h3 className="font-extrabold text-slate-900 text-base">Live Event Log</h3>
+                  </div>
+                  <button onClick={() => setIsEventFeedOpen(false)} className="p-1 text-slate-400 hover:text-slate-800">
+                    <Icons.X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                  {eventsLog.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400 text-xs">No match events logged yet.</div>
+                  ) : (
+                    eventsLog.map((ev) => (
+                      <div key={ev.id} className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1">
+                        <div className="flex items-center justify-between font-bold text-slate-800">
+                          <span>{ev.text}</span>
+                          <span className="text-[10px] font-mono text-slate-400">{ev.timestamp}</span>
+                        </div>
+                        <span className="inline-block px-1.5 py-0.5 bg-slate-200 text-slate-700 rounded text-[9px] font-bold">{ev.quarter}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SUBSTITUTION MODAL */}
+          {isSubModalOpen && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+              <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl p-5 space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <h3 className="font-black text-slate-900 text-base">Record Substitution</h3>
+                  <button onClick={() => setIsSubModalOpen(false)} className="p-1 text-slate-400"><Icons.X className="w-5 h-5" /></button>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Select Court Position</label>
+                    <select 
+                      value={subSelectedCourtPos}
+                      onChange={e => setSubSelectedCourtPos(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold"
+                    >
+                      {POSITIONS.map(p => (
+                        <option key={p.code} value={p.code}>{p.code} - {currentCourtPlayers.find(cp => cp.pos === p.code)?.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Select Replacement Bench Player</label>
+                    <select 
+                      value={subSelectedBenchId}
+                      onChange={e => setSubSelectedBenchId(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold"
+                    >
+                      <option value="">-- Choose Bench Player --</option>
+                      {currentBench.map(b => (
+                        <option key={b.id} value={b.id}>{b.name} ({b.pos})</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">
+                  <button onClick={() => setIsSubModalOpen(false)} className="px-4 py-2 font-bold text-xs text-slate-500">Cancel</button>
+                  <button onClick={handleExecuteSub} disabled={!subSelectedBenchId} className="px-5 py-2 bg-rose-600 disabled:opacity-40 text-white font-bold text-xs rounded-xl shadow-xs">Confirm Substitution</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* END QUARTER SUMMARY MODAL WITH HYBRID NEXT-QUARTER OR STAT REVIEW PATHS */}
+          {isEndQuarterOpen && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+              <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md p-6 space-y-5 shadow-2xl">
+                <div className="text-center space-y-2">
+                  <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto font-black">
+                    <Icons.CheckCircle2 className="w-6 h-6" />
+                  </div>
+                  <h3 className="font-black text-slate-900 text-xl">{currentQuarter} Finished</h3>
+                  <p className="text-xs text-slate-500">
+                    Quarter Score: {teamName} <span className="font-bold text-slate-900">{getQuarterHomeScore(activeQKey)}</span> - <span className="font-bold text-slate-900">{opponentScores[activeQKey] || 0}</span> {oppositionName}
+                  </p>
+                </div>
+
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs space-y-1.5">
+                  <div className="flex justify-between font-bold text-slate-700">
+                    <span>Overall Match Total:</span>
+                    <span className="text-rose-600">{teamName} {totalHomeScore} - {totalAwayScore} {oppositionName}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-500">
+                    <span>Recorded Events Logged:</span>
+                    <span className="font-bold text-slate-800">{eventsLog.filter(e => e.quarter === activeQKey).length}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-1">
+                  <button 
+                    onClick={handleProceedNextQuarterSetup}
+                    className="w-full py-3 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
+                  >
+                    <span>Proceed to {getNextQuarterCode(currentQuarter)} Lineup Setup</span>
+                    <Icons.ArrowRight className="w-4 h-4" />
+                  </button>
+
+                  <button 
+                    onClick={() => setIsEndQuarterOpen(false)}
+                    className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors"
+                  >
+                    Review Stats / View Quarter Data
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ABANDON CONFIRMATION DIALOG */}
+          {isAbandonConfirmOpen && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+              <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-sm p-5 text-center space-y-4 shadow-2xl">
+                <div className="w-12 h-12 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto font-black">
+                  <Icons.AlertTriangle className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-base">Abandon Match?</h3>
+                  <p className="text-xs text-slate-500 mt-1">This will discard current match statistics and reset the setup wizard.</p>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setIsAbandonConfirmOpen(false)} className="flex-1 py-2 bg-slate-100 text-slate-700 font-bold text-xs rounded-xl">Cancel</button>
+                  <button onClick={handleAbandonMatch} className="flex-1 py-2 bg-rose-600 text-white font-bold text-xs rounded-xl shadow-xs">Abandon</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
