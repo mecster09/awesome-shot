@@ -132,6 +132,7 @@ export type MatchIdentityDraft = {
   seasonId: string;
   oppositionId?: string;
   date?: string;
+  squadPlayerIds?: string[];
   stage: "match-identity";
 };
 export type MatchSquadDraft = {

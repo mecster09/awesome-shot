@@ -155,6 +155,17 @@ describe("GameSession match drafts", () => {
     expect(reopened.setup().matchSetupDraft).toEqual({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", stage: "match-identity" });
   });
 
+  it("persists a partial Match Squad before all Match identity fields are complete", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const player = await session.addPlayer({ name: "Ava" });
+
+    await session.saveMatchIdentity({ seasonId: season.id, squadPlayerIds: [player.id] });
+
+    expect((await GameSession.open(store)).setup().matchSetupDraft).toEqual({ seasonId: season.id, squadPlayerIds: [player.id], stage: "match-identity" });
+  });
+
   it("clears an incomplete Match identity when its Season ends", async () => {
     const session = await GameSession.open(new InMemoryGameSessionStore());
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });

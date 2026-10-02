@@ -307,13 +307,14 @@ export class GameSession {
     });
   }
 
-  async saveMatchIdentity(input: Pick<MatchIdentityDraft, "seasonId" | "oppositionId" | "date">): Promise<MatchIdentityDraft> {
+  async saveMatchIdentity(input: Pick<MatchIdentityDraft, "seasonId" | "oppositionId" | "date" | "squadPlayerIds">): Promise<MatchIdentityDraft> {
     this.requireActiveSeason(input.seasonId);
     if (input.oppositionId) this.requireActiveOpposition(input.oppositionId);
     const draft: MatchIdentityDraft = {
       seasonId: input.seasonId,
       ...(input.oppositionId ? { oppositionId: input.oppositionId } : {}),
       ...(input.date ? { date: this.requireDate(input.date) } : {}),
+      ...(input.squadPlayerIds ? { squadPlayerIds: this.validPartialMatchSquad(input.squadPlayerIds) } : {}),
       stage: "match-identity"
     };
     this.data.matchSetupDraft = draft;
