@@ -120,24 +120,24 @@ export function App({ store }: AppProps) {
     />
     <div className="app-content">
     {error && <p className="error" role="alert">{error}</p>}
-    {currentView.kind === "team-setup" && <section className="match-area focused-screen setup-screen" aria-labelledby="team-setup-title">
-      <p className="eyebrow">FIRST-TIME SETUP · 1 OF 2</p>
-      <h2 id="team-setup-title">Team Setup</h2>
-      <p>Save your reusable Team before creating a Season.</p>
-      <TeamForm onSubmit={(input) => perform(async () => { await session.createTeam(input); setMatchView({ kind: "season-setup" }); })} />
+    {currentView.kind === "team-setup" && <section className="match-area focused-screen setup-screen setup-flow-screen" aria-labelledby="team-setup-title">
+      <div className="setup-flow-card">
+        <SetupFlowHeading icon="team" step="STEP 1 OF 4" title="Setup Team" />
+        <TeamForm initialName={setup.teams.at(-1)?.name} submitLabel="Next: Setup Season" onSubmit={(input) => perform(async () => { const team = setup.teams.at(-1); if (team) await session.renameTeam(team.id, input); else await session.createTeam(input); setMatchView({ kind: "season-setup" }); })} />
+      </div>
     </section>}
 
-    {currentView.kind === "season-setup" && <section className="match-area focused-screen setup-screen" aria-labelledby="season-setup-title">
-      <p className="eyebrow">FIRST-TIME SETUP · 2 OF 2</p>
-      <h2 id="season-setup-title">Season Setup</h2>
-      <p>Team saved. Create an active Season before preparing a Match.</p>
-      <SeasonForm team={setup.teams.at(-1)!} onSubmit={(input) => perform(async () => { await session.createSeason(input); setMatchView(undefined); })} />
+    {currentView.kind === "season-setup" && <section className="match-area focused-screen setup-screen setup-flow-screen" aria-labelledby="season-setup-title">
+      <div className="setup-flow-card">
+        <SetupFlowHeading icon="season" step="STEP 2 OF 4" title="Setup Season" />
+        <SeasonForm team={setup.teams.at(-1)!} submitLabel="Next: Setup Match & Squad" cancelLabel="Back" onCancel={() => setMatchView({ kind: "team-setup" })} onSubmit={(input) => perform(async () => { await session.createSeason(input); setMatchView(undefined); })} />
+      </div>
     </section>}
 
     {currentView.kind === "settings" && <section className="match-area focused-screen management-screen settings-root" aria-labelledby="settings-title"><p className="eyebrow">COACH SETTINGS</p><h2 id="settings-title">Settings</h2><p>Manage your Team, Season, and offline data.</p><section className="settings-group" aria-labelledby="team-settings-title"><h3 id="team-settings-title">Team</h3><div className="settings-root-actions">{editableTeam && <button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "team" })}>Edit team</button>}</div></section><section className="settings-group" aria-labelledby="season-settings-title"><h3 id="season-settings-title">Season</h3><div className="settings-root-actions">{activeSeason && <button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "season" })}>Edit season</button>}{activeSeason && <button type="button" className="text-button" disabled={Boolean(liveMatch)} onClick={() => setMatchView({ kind: "settings-section", section: "season" })}>End season</button>}</div>{liveMatch && <p className="settings-guidance">End season is unavailable while a live Match is in progress.</p>}</section><section className="settings-group" aria-labelledby="data-settings-title"><h3 id="data-settings-title">Data</h3><div className="settings-root-actions"><button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "backup" })}>Backup & restore</button></div></section></section>}
     {currentView.kind === "settings-section" && <section className="match-area focused-screen management-screen" aria-labelledby="settings-section-title"><div className="section-heading"><h2 id="settings-section-title">{currentView.section === "team" ? "Team Setup" : currentView.section === "season" ? "Season Setup" : "Backup & restore"}</h2><button className="text-button" onClick={() => setMatchView({ kind: "settings" })}>Back to Settings</button></div>{currentView.section === "team" && editableTeam && <TeamForm initialName={editableTeam.name} submitLabel="Save changes" cancelLabel="Cancel" onCancel={() => setMatchView({ kind: "settings" })} onSubmit={(input) => perform(async () => { await session.renameTeam(editableTeam.id, input); setMatchView({ kind: "settings" }); })} />}{currentView.section === "season" && activeSeason && <><SeasonForm team={setup.teams.find((team) => team.id === activeSeason.teamId)!} initialName={activeSeason.name} submitLabel="Save changes" cancelLabel="Cancel" onCancel={() => setMatchView({ kind: "settings" })} onSubmit={(input) => perform(async () => { await session.renameSeason(activeSeason.id, input); setMatchView({ kind: "settings" }); })} />{!liveMatch && <EndSeasonControl season={activeSeason} onConfirm={() => perform(async () => { await session.endSeason(activeSeason.id); setMatchView(undefined); })} />}</>}{currentView.section === "backup" && <BackupCard exportBackup={() => session.exportBackup()} onImport={(serialized, mode, confirmed) => perform(async () => { await session.importBackup(serialized, mode, confirmed); if (mode === "replace") setUnsavedCourts({}); })} />}</section>}
 
-    {currentView.kind === "no-match" && activeSeason && <section className="match-area focused-screen no-match-screen" aria-labelledby="no-match-title"><p className="eyebrow">SETUP MATCH</p><h2 id="no-match-title">No Match in progress</h2><p><strong>{activeSeason.name} is the active Season.</strong> Add an Opposition and date when you are ready to prepare a Match.</p><button type="button" aria-label="Set up a Match" onClick={() => setMatchView({ kind: "match-setup" })}>Add Opposition</button></section>}
+    {currentView.kind === "no-match" && activeSeason && <section className="match-area focused-screen no-match-screen" aria-labelledby="no-match-title"><div className="no-match-card"><div className="no-match-icon" aria-hidden="true"><MatchIcon /></div><p className="eyebrow">ACTIVE SEASON</p><h2 id="no-match-title">No Match in progress</h2><p><strong>{activeSeason.name}</strong> is ready for your next Match. Add an Opposition and date when you are ready to prepare.</p><button type="button" onClick={() => setMatchView({ kind: "match-setup" })}>Start Match setup</button></div></section>}
 
     {currentView.kind === "match-setup" && activeSeason && <section className="match-area focused-screen setup-screen" aria-labelledby="match-setup-title"><MatchSetupProgress current="setup" /><h2 id="match-setup-title">Setup Match</h2><p>{activeSeason.name} · choose the Opposition, date, and Match Squad.</p><MatchSetupForm opposition={setup.activeOpposition} players={setup.players} draft={matchSetupDraft} onAddOpposition={async (input) => { const opponent = await session.addOpposition(input); refresh(); return opponent; }} onAddPlayer={async (input) => { const player = await session.addPlayer(input); refresh(); return player; }} onSave={(input) => perform(async () => { if (input.oppositionId && input.date) await session.saveMatchSquad({ seasonId: activeSeason.id, oppositionId: input.oppositionId, date: input.date, squadPlayerIds: input.squadPlayerIds }); else await session.saveMatchIdentity({ seasonId: activeSeason.id, oppositionId: input.oppositionId, date: input.date }); })} onProceed={(input) => perform(async () => { await session.advanceToCourtSetup({ seasonId: activeSeason.id, ...input }); setMatchView({ kind: "court-setup" }); })} /></section>}
     {currentView.kind === "court-setup" && courtSetupDraft && <QuarterSetupCard match={courtSetupDraft} startingLineup={unsavedCourts["court-setup"] ?? {}} quarterNumber={1} setup={setup} mode="starting" onLineupChange={(lineup) => setUnsavedCourts((courts) => ({ ...courts, "court-setup": lineup }))} onReturnToMatchSetup={() => perform(async () => { await session.saveMatchSquad(courtSetupDraft); setMatchView({ kind: "match-setup" }); })} onStart={async (startingLineup) => {
@@ -268,6 +268,22 @@ function MatchHistory({ games, scores, setup, onOpen }: { games: Game[]; scores:
   })}</section>;
 }
 
+function SetupFlowHeading({ icon, step, title }: { icon: "team" | "season"; step: string; title: string }) {
+  return <div className={`setup-flow-heading setup-flow-heading-${icon}`}><span className="setup-flow-icon" aria-hidden="true">{icon === "team" ? <TeamIcon /> : <SeasonIcon />}</span><div><p className="setup-flow-step">{step}</p><h2 id={icon === "team" ? "team-setup-title" : "season-setup-title"}>{title}</h2></div></div>;
+}
+
+function TeamIcon() {
+  return <svg viewBox="0 0 24 24"><path d="M6 20v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" /></svg>;
+}
+
+function SeasonIcon() {
+  return <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M7 3v4M17 3v4M3 10h18" /></svg>;
+}
+
+function MatchIcon() {
+  return <svg viewBox="0 0 24 24"><path d="M5 4h14v16H5zM5 10h14M12 4v16M8 7h.01M16 17h.01" /></svg>;
+}
+
 function TeamForm({ initialName = "", submitLabel = "Save team", cancelLabel, onCancel, onSubmit }: { initialName?: string; submitLabel?: string; cancelLabel?: string; onCancel?: () => void; onSubmit: (input: { name: string }) => Promise<void> }) {
   const [name, setName] = useState(initialName);
   const submit = async (event: FormEvent) => {
@@ -288,7 +304,7 @@ function SeasonForm({ team, initialName = "", submitLabel = "Create season", can
     setName("");
   };
   return <form className="setup-form" onSubmit={(event) => void submit(event)}>
-    <label>Season name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. 2026 Winter" /></label>
+    <label>Season title<input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Winter 2026 League" /></label>
     <p><strong>Team:</strong> {team.name}</p>
     <PrimaryActionBar>{cancelLabel && <button type="button" className="secondary-button" onClick={onCancel}>{cancelLabel}</button>}<button type="submit" disabled={!name.trim() || name.trim() === initialName}>{submitLabel}</button></PrimaryActionBar>
   </form>;
