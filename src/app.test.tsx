@@ -77,18 +77,19 @@ describe("Natball Insights setup", () => {
     expect(await screen.findByText("2026 Winter")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Start Match setup" }));
 
-    expect(await screen.findByText("MATCH SETUP · 1 OF 2")).toBeInTheDocument();
+    expect(await screen.findByText("STEP 3 OF 4")).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Match setup progress" })).toHaveTextContent("Setup Match");
     expect(screen.getByRole("group", { name: "Saved Oppositions" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Add a new Opposition" })).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("Opposition"), opposition.id);
+    await user.type(screen.getByLabelText("Match date"), "2026-09-26");
     expect(screen.getByRole("group", { name: /Match Squad/ })).toBeInTheDocument();
     for (const player of players) await user.click(screen.getByLabelText(player.name));
     expect(screen.getByRole("group", { name: "Selected Match Squad" })).toHaveTextContent("Ava");
     expect(screen.getByRole("button", { name: "Remove Ava from Match Squad" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Continue to Court Setup" }));
+    await user.click(screen.getByRole("button", { name: "Next: Setup Quarter" }));
 
-    expect(await screen.findByText("MATCH SETUP · 2 OF 2")).toBeInTheDocument();
+    expect(await screen.findByText("STEP 4 OF 4")).toBeInTheDocument();
   });
 
   it("filters a large Opposition history and adds a new Opposition in Setup Match", async () => {
@@ -439,7 +440,7 @@ describe("Natball Insights setup", () => {
     expect(await screen.findByRole("heading", { name: "No Match in progress" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Start Match setup" }));
     expect(await screen.findByRole("heading", { name: "Setup Match" })).toBeInTheDocument();
-    const continueToCourt = screen.getByRole("button", { name: "Continue to Court Setup" });
+    const continueToCourt = screen.getByRole("button", { name: "Next: Setup Quarter" });
     expect(continueToCourt).toBeDisabled();
     await user.selectOptions(screen.getByLabelText("Opposition"), opposition.id);
     expect(screen.getByRole("heading", { name: "Setup Match" })).toBeInTheDocument();
@@ -455,7 +456,24 @@ describe("Natball Insights setup", () => {
     expect(screen.getByLabelText("Opposition")).toHaveValue(opposition.id);
     expect(screen.getByLabelText("Match date")).toHaveValue(date ?? "");
     expect(screen.getByRole("group", { name: /Match Squad/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Continue to Court Setup" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Next: Setup Quarter" })).toBeDisabled();
+  });
+
+  it("starts a Match & Squad screen without sample details and presents prototype-style panels", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const user = userEvent.setup();
+    render(<App store={store} />);
+
+    await user.click(await screen.findByRole("button", { name: "Start Match setup" }));
+
+    expect(screen.getByRole("heading", { name: "Match Details" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Add Player to Squad" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Match Squad Roster \(0 \/ 12\)/ })).toBeInTheDocument();
+    expect(screen.getByLabelText("Match date")).toHaveValue("");
+    expect(screen.getByLabelText("Opposition")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Next: Setup Quarter" })).toBeDisabled();
   });
 
   it("persists a five-Player Match Squad before advancing to Court Setup", async () => {
@@ -469,13 +487,13 @@ describe("Natball Insights setup", () => {
     const rendered = render(<App store={store} />);
 
     expect(await screen.findByRole("heading", { name: "Setup Match" })).toBeInTheDocument();
-    const continueToCourt = screen.getByRole("button", { name: "Continue to Court Setup" });
+    const continueToCourt = screen.getByRole("button", { name: "Next: Setup Quarter" });
     expect(continueToCourt).toBeDisabled();
     await user.type(screen.getByLabelText("New player name"), "Eve");
     await user.click(screen.getByRole("button", { name: "Add player to Match Squad" }));
     expect(await screen.findByLabelText("Eve")).toBeChecked();
     for (const player of players) await user.click(screen.getByLabelText(player.name));
-    expect(screen.getByRole("button", { name: "Continue to Court Setup" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Next: Setup Quarter" })).toBeEnabled();
     await user.click(continueToCourt);
 
     expect(await screen.findByRole("heading", { name: "Set up Quarter 1 Court" })).toBeInTheDocument();
@@ -509,7 +527,7 @@ describe("Natball Insights setup", () => {
     await user.click(screen.getByRole("button", { name: "Back to Setup Match" }));
     expect(await screen.findByRole("heading", { name: "Setup Match" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Remove Ava from Match Squad" }));
-    await user.click(screen.getByRole("button", { name: "Continue to Court Setup" }));
+    await user.click(screen.getByRole("button", { name: "Next: Setup Quarter" }));
 
     expect(await screen.findByRole("heading", { name: "Set up Quarter 1 Court" })).toBeInTheDocument();
     expect(screen.getByLabelText("Goal Keeper")).toHaveValue("");
@@ -533,7 +551,7 @@ describe("Natball Insights setup", () => {
 
     await user.click(screen.getByLabelText("Ava"));
     expect(screen.getByRole("button", { name: "Remove Ava from Match Squad" })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "Primary action" })).toContainElement(screen.getByRole("button", { name: "Continue to Court Setup" }));
+    expect(screen.getByRole("group", { name: "Primary action" })).toContainElement(screen.getByRole("button", { name: "Next: Setup Quarter" }));
   });
 
   it("reopens a persisted live match after an interruption", async () => {
