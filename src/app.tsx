@@ -1,25 +1,27 @@
 import { FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { GameSession } from "./game-session/game-session";
 import { IndexedDbGameSessionStore } from "./game-session/indexed-db-game-session-store";
-import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, TOTAL_QUARTERS, type BetweenQuarterStatistics, type CaptureAction, type Game, type GameSessionStore, type LiveQuarterCapture, type PlayerStatistic, type Position, type QuarterNumber, type SetupSummary, type StartMatchInput, type StartingLineup, type TerminalMatchReport } from "./game-session/types";
+import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, TOTAL_QUARTERS, type CaptureAction, type Game, type GameSessionStore, type LiveQuarterCapture, type StatisticsSummary, type PlayerStatistic, type Position, type QuarterNumber, type SetupSummary, type StartMatchInput, type StartingLineup, type TerminalMatchReport } from "./game-session/types";
 import { createMatchCsv, createMatchPdf } from "./reports";
 import "./styles.css";
 
 type AppProps = { store?: GameSessionStore };
-type MatchView = { kind: "team-setup" } | { kind: "season-setup" } | { kind: "no-match" } | { kind: "match-identity" } | { kind: "match-squad" } | { kind: "court-setup" } | { kind: "settings" } | { kind: "settings-section"; section: "season" | "backup" } | { kind: "history" } | { kind: "next-quarter-setup"; gameId: string; startingLineup: StartingLineup } | { kind: "game"; gameId: string };
+type MatchView = { kind: "team-setup" } | { kind: "season-setup" } | { kind: "no-match" } | { kind: "match-setup" } | { kind: "court-setup" } | { kind: "settings" } | { kind: "settings-section"; section: "team" | "season" | "backup" } | { kind: "history" } | { kind: "next-quarter-setup"; gameId: string; startingLineup: StartingLineup } | { kind: "game"; gameId: string };
 type MatchActions = {
   recordPlayerStatistic: (position: Position, statistic: PlayerStatistic) => Promise<void>;
   recordOppositionGoal: () => Promise<void>;
   undoCaptureAction: () => Promise<void>;
-  substitutePlayer: (input: { position: Position; playerId: string }) => Promise<void>;
+  saveSubstitutions: (lineup: StartingLineup) => Promise<void>;
   endQuarter: () => Promise<void>;
   abandon: () => Promise<void>;
   finalise: (score: { own: number; opposition: number }) => Promise<void>;
   deleteQuarterAction: (quarter: QuarterNumber, actionId: string) => Promise<void>;
   correctQuarterPlayerStatistic: (quarter: QuarterNumber, actionId: string, correction: { playerId: string; position: Position; statistic: PlayerStatistic }) => Promise<void>;
 };
+const isTerminalMatch = (game: Game) => game.status === "finalised" || game.status === "abandoned" || game.status === "terminated";
+const terminalMatchesNewestFirst = (games: Game[]) => games.filter(isTerminalMatch).sort((left, right) => right.date.localeCompare(left.date));
 
-export const deriveCurrentView = ({ matchView, setup, liveMatch, nextQuarterCourt }: { matchView?: MatchView; setup: SetupSummary; liveMatch?: Game; nextQuarterCourt: (gameId: string) => StartingLineup }): MatchView => {
+export const deriveCurrentView = ({ matchView, setup, liveMatch, latestTerminalMatch, nextQuarterCourt }: { matchView?: MatchView; setup: SetupSummary; liveMatch?: Game; latestTerminalMatch?: Game; nextQuarterCourt: (gameId: string) => StartingLineup }): MatchView => {
   if (matchView) return matchView;
   if (liveMatch) {
     if (!liveMatch.activeQuarter && (liveMatch.quarters?.length ?? 0) < TOTAL_QUARTERS) return { kind: "next-quarter-setup", gameId: liveMatch.id, startingLineup: nextQuarterCourt(liveMatch.id) };
@@ -27,10 +29,10 @@ export const deriveCurrentView = ({ matchView, setup, liveMatch, nextQuarterCour
   }
   if (setup.seasons.some((season) => season.status === "active")) {
     if (setup.matchSetupDraft?.stage === "court-setup") return { kind: "court-setup" };
-    if (setup.matchSetupDraft?.stage === "match-squad") return { kind: "match-squad" };
-    if (setup.matchSetupDraft?.stage === "match-identity") return { kind: "match-identity" };
+    if (setup.matchSetupDraft?.stage === "match-squad" || setup.matchSetupDraft?.stage === "match-identity") return { kind: "match-setup" };
     return { kind: "no-match" };
   }
+  if (latestTerminalMatch) return { kind: "game", gameId: latestTerminalMatch.id };
   return setup.teams.length > 0 ? { kind: "season-setup" } : { kind: "team-setup" };
 };
 
@@ -47,15 +49,15 @@ const localDate = () => {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 };
-const statisticIcon: Record<PlayerStatistic, string> = {
-  "Successful Centre Pass Received": "↗",
-  Tip: "⌁",
-  Intercept: "↯",
-  "Unforced Errors": "!",
-  "Contact Conceded": "×",
-  "Obstruction Conceded": "⊘",
-  Goals: "◎",
-  Misses: "○"
+const statisticHeader: Record<PlayerStatistic, string> = {
+  "Successful Centre Pass Received": "CPR",
+  Tip: "Tip",
+  Intercept: "Int",
+  "Unforced Errors": "UE",
+  "Contact Conceded": "Con",
+  "Obstruction Conceded": "Obs",
+  Goals: "Goal",
+  Misses: "Miss"
 };
 const positionAbbreviation: Record<Position, string> = { "Goal Keeper": "GK", "Goal Defence": "GD", "Wing Defence": "WD", Centre: "C", "Wing Attack": "WA", "Goal Attack": "GA", "Goal Shooter": "GS" };
 const browserStore = new IndexedDbGameSessionStore();
@@ -97,17 +99,17 @@ export function App({ store }: AppProps) {
     return <main className="loading" aria-live="polite">{error ?? message}</main>;
   }
   const activeSeason = setup.seasons.find((season) => season.status === "active");
+  const editableTeam = activeSeason ? setup.teams.find((team) => team.id === activeSeason.teamId) : setup.teams.at(-1);
   const liveMatch = session.matches().find((game) => game.status === "live");
-  const matchSquadDraft = setup.matchSetupDraft?.stage === "match-squad" ? setup.matchSetupDraft : undefined;
+  const latestTerminalMatch = terminalMatchesNewestFirst(session.matches())[0];
+  const matchSetupDraft = setup.matchSetupDraft;
   const courtSetupDraft = setup.matchSetupDraft?.stage === "court-setup" ? setup.matchSetupDraft : undefined;
-  const currentView = deriveCurrentView({ matchView, setup, liveMatch, nextQuarterCourt: (gameId) => session.nextQuarterCourt(gameId) });
-  const primaryNavigationLabel = liveMatch ? "Live Match" : "Setup Match";
-  const navigationView = currentView.kind === "game" || currentView.kind === "next-quarter-setup" ? "match" : currentView.kind === "history" ? "history" : currentView.kind === "settings" || currentView.kind === "settings-section" ? "settings" : undefined;
+  const currentView = deriveCurrentView({ matchView, setup, liveMatch, latestTerminalMatch, nextQuarterCourt: (gameId) => session.nextQuarterCourt(gameId) });
+  const navigationView = currentView.kind === "history" ? "history" : currentView.kind === "settings" || currentView.kind === "settings-section" ? "settings" : "match";
 
   return <main className="app-shell">
     <CoachNavigation
       activeView={navigationView}
-      primaryLabel={primaryNavigationLabel}
       onOpenMatch={() => setMatchView(undefined)}
       onOpenHistory={() => setMatchView({ kind: "history" })}
       onOpenSettings={() => setMatchView({ kind: "settings" })}
@@ -128,30 +130,13 @@ export function App({ store }: AppProps) {
       <SeasonForm team={setup.teams.at(-1)!} onSubmit={(input) => perform(async () => { await session.createSeason(input); setMatchView(undefined); })} />
     </section>}
 
-    {currentView.kind === "settings" && <section className="match-area focused-screen management-screen settings-root" aria-labelledby="settings-title"><p className="eyebrow">COACH SETTINGS</p><h2 id="settings-title">Settings</h2><p>Manage your Season and protect your offline data.</p><section className="settings-group" aria-labelledby="season-settings-title"><h3 id="season-settings-title">Season</h3><div className="settings-root-actions">{activeSeason && <button type="button" className="text-button" disabled={Boolean(liveMatch)} onClick={() => setMatchView({ kind: "settings-section", section: "season" })}>End season</button>}</div>{liveMatch && <p className="settings-guidance">End season is unavailable while a live Match is in progress.</p>}</section><section className="settings-group" aria-labelledby="data-settings-title"><h3 id="data-settings-title">Data</h3><div className="settings-root-actions"><button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "backup" })}>Backup & restore</button></div></section></section>}
-    {currentView.kind === "settings-section" && <section className="match-area focused-screen management-screen" aria-labelledby="settings-section-title"><div className="section-heading"><h2 id="settings-section-title">{currentView.section === "season" ? "End season" : "Backup & restore"}</h2><button className="text-button" onClick={() => setMatchView({ kind: "settings" })}>Back to Settings</button></div>{currentView.section === "season" && activeSeason && !liveMatch && <EndSeasonControl season={activeSeason} onConfirm={() => perform(async () => { await session.endSeason(activeSeason.id); setMatchView(undefined); })} />}{currentView.section === "backup" && <BackupCard exportBackup={() => session.exportBackup()} onImport={(serialized, mode, confirmed) => perform(async () => { await session.importBackup(serialized, mode, confirmed); if (mode === "replace") setUnsavedCourts({}); })} />}</section>}
+    {currentView.kind === "settings" && <section className="match-area focused-screen management-screen settings-root" aria-labelledby="settings-title"><p className="eyebrow">COACH SETTINGS</p><h2 id="settings-title">Settings</h2><p>Manage your Team, Season, and offline data.</p><section className="settings-group" aria-labelledby="team-settings-title"><h3 id="team-settings-title">Team</h3><div className="settings-root-actions">{editableTeam && <button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "team" })}>Edit team</button>}</div></section><section className="settings-group" aria-labelledby="season-settings-title"><h3 id="season-settings-title">Season</h3><div className="settings-root-actions">{activeSeason && <button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "season" })}>Edit season</button>}{activeSeason && <button type="button" className="text-button" disabled={Boolean(liveMatch)} onClick={() => setMatchView({ kind: "settings-section", section: "season" })}>End season</button>}</div>{liveMatch && <p className="settings-guidance">End season is unavailable while a live Match is in progress.</p>}</section><section className="settings-group" aria-labelledby="data-settings-title"><h3 id="data-settings-title">Data</h3><div className="settings-root-actions"><button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "backup" })}>Backup & restore</button></div></section></section>}
+    {currentView.kind === "settings-section" && <section className="match-area focused-screen management-screen" aria-labelledby="settings-section-title"><div className="section-heading"><h2 id="settings-section-title">{currentView.section === "team" ? "Team Setup" : currentView.section === "season" ? "Season Setup" : "Backup & restore"}</h2><button className="text-button" onClick={() => setMatchView({ kind: "settings" })}>Back to Settings</button></div>{currentView.section === "team" && editableTeam && <TeamForm initialName={editableTeam.name} submitLabel="Save changes" cancelLabel="Cancel" onCancel={() => setMatchView({ kind: "settings" })} onSubmit={(input) => perform(async () => { await session.renameTeam(editableTeam.id, input); setMatchView({ kind: "settings" }); })} />}{currentView.section === "season" && activeSeason && <><SeasonForm team={setup.teams.find((team) => team.id === activeSeason.teamId)!} initialName={activeSeason.name} submitLabel="Save changes" cancelLabel="Cancel" onCancel={() => setMatchView({ kind: "settings" })} onSubmit={(input) => perform(async () => { await session.renameSeason(activeSeason.id, input); setMatchView({ kind: "settings" }); })} />{!liveMatch && <EndSeasonControl season={activeSeason} onConfirm={() => perform(async () => { await session.endSeason(activeSeason.id); setMatchView(undefined); })} />}</>}{currentView.section === "backup" && <BackupCard exportBackup={() => session.exportBackup()} onImport={(serialized, mode, confirmed) => perform(async () => { await session.importBackup(serialized, mode, confirmed); if (mode === "replace") setUnsavedCourts({}); })} />}</section>}
 
-    {currentView.kind === "no-match" && activeSeason && <section className="match-area focused-screen no-match-screen" aria-labelledby="no-match-title"><p className="eyebrow">SETUP MATCH</p><h2 id="no-match-title">No Match in progress</h2><p><strong>{activeSeason.name} is the active Season.</strong> Add an Opposition and date when you are ready to prepare a Match.</p><button type="button" aria-label="Set up a Match" onClick={() => setMatchView({ kind: "match-identity" })}>Add Opposition</button></section>}
+    {currentView.kind === "no-match" && activeSeason && <section className="match-area focused-screen no-match-screen" aria-labelledby="no-match-title"><p className="eyebrow">SETUP MATCH</p><h2 id="no-match-title">No Match in progress</h2><p><strong>{activeSeason.name} is the active Season.</strong> Add an Opposition and date when you are ready to prepare a Match.</p><button type="button" aria-label="Set up a Match" onClick={() => setMatchView({ kind: "match-setup" })}>Add Opposition</button></section>}
 
-    {currentView.kind === "match-identity" && activeSeason && <section className="match-area focused-screen setup-screen" aria-labelledby="match-identity-title">
-      <MatchSetupProgress current="identity" /><h2 id="match-identity-title">Add Opposition</h2><p>{activeSeason.name} · choose the Opposition and Match date.</p>
-      <MatchIdentityForm
-        opposition={setup.activeOpposition}
-        draft={setup.matchSetupDraft?.stage === "match-identity" ? setup.matchSetupDraft : undefined}
-        onAddOpposition={async (input) => {
-          const opposition = await session.addOpposition(input);
-          refresh();
-          return opposition;
-        }}
-        onSave={(input) => perform(async () => { await session.saveMatchIdentity({ seasonId: activeSeason.id, ...input }); })}
-        onProceed={(input) => perform(async () => {
-          await session.advanceToMatchSquad({ seasonId: activeSeason.id, ...input });
-          setMatchView({ kind: "match-squad" });
-        })}
-      />
-    </section>}
-    {currentView.kind === "match-squad" && matchSquadDraft && <section className="match-area focused-screen setup-screen" aria-labelledby="match-squad-title"><MatchSetupProgress current="squad" /><h2 id="match-squad-title">Match Squad</h2><p>{matchSquadDraft.date} · {setup.opposition.find((opposition) => opposition.id === matchSquadDraft.oppositionId)?.name}</p><MatchSquadForm players={setup.players} selectedPlayerIds={matchSquadDraft.squadPlayerIds ?? []} onAddPlayer={async (input) => { const player = await session.addPlayer(input); refresh(); return player; }} onSave={(squadPlayerIds) => perform(async () => { await session.saveMatchSquad({ ...matchSquadDraft, squadPlayerIds }); })} onProceed={(squadPlayerIds) => perform(async () => { await session.advanceToCourtSetup({ ...matchSquadDraft, squadPlayerIds }); setMatchView({ kind: "court-setup" }); })} /></section>}
-    {currentView.kind === "court-setup" && courtSetupDraft && <QuarterSetupCard match={courtSetupDraft} startingLineup={unsavedCourts["court-setup"] ?? {}} quarterNumber={1} setup={setup} onLineupChange={(lineup) => setUnsavedCourts((courts) => ({ ...courts, "court-setup": lineup }))} onStart={async (startingLineup) => {
+    {currentView.kind === "match-setup" && activeSeason && <section className="match-area focused-screen setup-screen" aria-labelledby="match-setup-title"><MatchSetupProgress current="setup" /><h2 id="match-setup-title">Setup Match</h2><p>{activeSeason.name} · choose the Opposition, date, and Match Squad.</p><MatchSetupForm opposition={setup.activeOpposition} players={setup.players} draft={matchSetupDraft} onAddOpposition={async (input) => { const opponent = await session.addOpposition(input); refresh(); return opponent; }} onAddPlayer={async (input) => { const player = await session.addPlayer(input); refresh(); return player; }} onSave={(input) => perform(async () => { if (input.oppositionId && input.date) await session.saveMatchSquad({ seasonId: activeSeason.id, oppositionId: input.oppositionId, date: input.date, squadPlayerIds: input.squadPlayerIds }); else await session.saveMatchIdentity({ seasonId: activeSeason.id, oppositionId: input.oppositionId, date: input.date }); })} onProceed={(input) => perform(async () => { await session.advanceToCourtSetup({ seasonId: activeSeason.id, ...input }); setMatchView({ kind: "court-setup" }); })} /></section>}
+    {currentView.kind === "court-setup" && courtSetupDraft && <QuarterSetupCard match={courtSetupDraft} startingLineup={unsavedCourts["court-setup"] ?? {}} quarterNumber={1} setup={setup} mode="starting" onLineupChange={(lineup) => setUnsavedCourts((courts) => ({ ...courts, "court-setup": lineup }))} onReturnToMatchSetup={() => perform(async () => { await session.saveMatchSquad(courtSetupDraft); setMatchView({ kind: "match-setup" }); })} onStart={async (startingLineup) => {
         let started = false;
         await perform(async () => {
           const game = await session.startMatch({ ...courtSetupDraft, startingLineup });
@@ -165,7 +150,7 @@ export function App({ store }: AppProps) {
         if (!game) return null;
         const quarterNumber = (game.quarters?.length ?? 0) + 1;
         const courtKey = `${game.id}:${quarterNumber}`;
-        return <QuarterSetupCard match={game} startingLineup={unsavedCourts[courtKey] ?? currentView.startingLineup} quarterNumber={quarterNumber} setup={setup} statistics={session.betweenQuarterStatistics(game.id)} onLineupChange={(lineup) => setUnsavedCourts((courts) => ({ ...courts, [courtKey]: lineup }))} onStart={async (startingLineup) => {
+        return <QuarterSetupCard match={game} startingLineup={unsavedCourts[courtKey] ?? currentView.startingLineup} quarterNumber={quarterNumber} setup={setup} onReviewPreviousQuarter={() => setMatchView({ kind: "game", gameId: game.id })} onLineupChange={(lineup) => setUnsavedCourts((courts) => ({ ...courts, [courtKey]: lineup }))} onStart={async (startingLineup) => {
           let started = false;
           await perform(async () => {
             await session.startNextQuarter(game.id, startingLineup);
@@ -183,48 +168,39 @@ export function App({ store }: AppProps) {
         capture={game.status === "live" && game.activeQuarter ? session.liveQuarter(game.id) : undefined}
         score={game.status === "live" ? session.gameScore(game.id) : undefined}
         report={game.status === "finalised" || game.status === "abandoned" || game.status === "terminated" ? session.terminalMatchReport(game.id) : undefined}
+        summary={(selection) => session.statisticsSummary(game.id, selection)}
         actions={{
           recordPlayerStatistic: (position, statistic) => perform(() => session.recordPlayerStatistic(game.id, { position, statistic })),
           recordOppositionGoal: () => perform(() => session.recordOppositionGoal(game.id)),
           undoCaptureAction: () => perform(() => session.undoLastCaptureAction(game.id)),
-          substitutePlayer: (input) => perform(() => session.substitutePlayer(game.id, input)),
+          saveSubstitutions: (lineup) => perform(() => session.saveSubstitutions(game.id, lineup)),
           endQuarter: () => perform(async () => {
             const completedQuarter = game.activeQuarter;
             await session.endQuarter(game.id);
-            if (completedQuarter && completedQuarter < TOTAL_QUARTERS) setMatchView({ kind: "next-quarter-setup", gameId: game.id, startingLineup: session.nextQuarterCourt(game.id) });
+            if (completedQuarter) setMatchView({ kind: "game", gameId: game.id });
           }),
-          abandon: () => perform(() => session.abandonGame(game.id)),
-          finalise: (score) => perform(() => session.finaliseGame(game.id, score)),
+          abandon: () => perform(async () => { await session.abandonGame(game.id); setMatchView({ kind: "game", gameId: game.id }); }),
+          finalise: (score) => perform(async () => { await session.finaliseGame(game.id, score); setMatchView({ kind: "game", gameId: game.id }); }),
           deleteQuarterAction: (quarter, actionId) => perform(() => session.deleteCaptureAction(game.id, quarter, actionId)),
           correctQuarterPlayerStatistic: (quarter, actionId, correction) => perform(() => session.correctPlayerStatistic(game.id, quarter, actionId, correction))
         }}
         onOpenHistory={() => setMatchView({ kind: "history" })}
+        onSetUpNextQuarter={() => setMatchView({ kind: "next-quarter-setup", gameId: game.id, startingLineup: session.nextQuarterCourt(game.id) })}
       />)}
     </div>
   </main>;
 }
-
-function CoachNavigation({ activeView, primaryLabel, onOpenMatch, onOpenHistory, onOpenSettings }: { activeView?: "match" | "history" | "settings"; primaryLabel: "Setup Match" | "Live Match"; onOpenMatch: () => void; onOpenHistory: () => void; onOpenSettings: () => void }) {
+function CoachNavigation({ activeView, onOpenMatch, onOpenHistory, onOpenSettings }: { activeView?: "match" | "history" | "settings"; onOpenMatch: () => void; onOpenHistory: () => void; onOpenSettings: () => void }) {
   const compactRail = useCompactCoachRail();
-  const [expanded, setExpanded] = useState(false);
-  useEffect(() => {
-    if (!compactRail) setExpanded(false);
-  }, [compactRail]);
   const items: Array<{ key: "match" | "history" | "settings"; label: string; icon: "court" | "history" | "settings"; onClick: () => void }> = [
-    { key: "match" as const, label: primaryLabel, icon: "court", onClick: onOpenMatch },
-    { key: "history" as const, label: "Match History", icon: "history", onClick: onOpenHistory },
+    { key: "match" as const, label: "Match", icon: "court", onClick: onOpenMatch },
+    { key: "history" as const, label: "History", icon: "history", onClick: onOpenHistory },
     { key: "settings" as const, label: "Settings", icon: "settings", onClick: onOpenSettings }
   ];
 
-  const navigateAndCollapseRail = (action: () => void) => {
-    action();
-    setExpanded(false);
-  };
-
-  return <nav className="coach-navigation" aria-label="Coach navigation" data-layout={compactRail ? "compact-rail" : "labeled-bottom"} data-expanded={compactRail ? expanded : undefined}>
+  return <nav className="coach-navigation" aria-label="Coach navigation" data-layout={compactRail ? "compact-rail" : "labeled-bottom"}>
     <div className="app-identity"><AppMark /><span><strong>Natball</strong><small>Insights</small></span></div>
-    <div className="coach-navigation-items">{items.map((item) => <button key={item.key} type="button" className="coach-navigation-item" aria-current={activeView === item.key ? "page" : undefined} onClick={() => navigateAndCollapseRail(item.onClick)}><NavigationIcon name={item.icon} /><span>{item.label}</span></button>)}</div>
-    {compactRail && <button type="button" className="coach-navigation-toggle" aria-label={`${expanded ? "Collapse" : "Expand"} Coach navigation`} aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>☰</button>}
+    <div className="coach-navigation-items">{items.map((item) => <button key={item.key} type="button" className="coach-navigation-item" aria-current={activeView === item.key ? "page" : undefined} onClick={item.onClick}><NavigationIcon name={item.icon} /><span>{item.label}</span></button>)}</div>
   </nav>;
 }
 
@@ -256,28 +232,36 @@ function NavigationIcon({ name }: { name: "court" | "history" | "settings" }) {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a7 7 0 0 0-1.7-1L14.5 3h-5l-.4 3.1a7 7 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.5a7 7 0 0 0 0 2L3 14.5l2 3.4 2.4-1a7 7 0 0 0 1.7 1l.4 3.1h5l.4-3.1a7 7 0 0 0 1.7-1l2.4 1 2-3.4-2-1.5c.1-.3.1-.7.1-1Z" /></svg>;
 }
 
+const matchStatusLabel = (game: Game) => game.outcome?.kind === "completed" ? "Completed" : "Abandoned";
+
 function MatchHistory({ games, scores, setup, onOpen }: { games: Game[]; scores: Map<string, { own: number; opposition: number }>; setup: SetupSummary; onOpen: (gameId: string) => void }) {
-  return <section className="match-area focused-screen management-screen match-history" aria-labelledby="match-history-title"><div className="section-heading"><div><p className="eyebrow">MATCH HISTORY</p><h2 id="match-history-title">Match history</h2></div></div><ul className="match-list" aria-label="Saved matches">{games.map((game) => {
-    const score = game.finalScore ?? scores.get(game.id)!;
-    const status = game.status === "live" ? `Live Match · Quarter ${game.activeQuarter ?? game.quarters?.length ?? 1}` : `${game.outcome?.kind === "completed" ? "Completed" : game.outcome?.kind === "terminated" ? "Terminated" : "Abandoned"} Match`;
-    return <li key={game.id} data-status={game.status}><div><strong>{setup.opposition.find((opposition) => opposition.id === game.oppositionId)?.name}</strong><p>{status} · {score.own} – {score.opposition}</p><small>{game.date}</small></div><button className="text-button" onClick={() => onOpen(game.id)}>{game.status === "live" ? "View live match" : "View match record"}</button></li>;
-  })}</ul></section>;
+  const terminalMatches = terminalMatchesNewestFirst(games);
+  const seasons = [...setup.seasons].reverse();
+  const initiallyExpandedSeason = setup.seasons.find((season) => season.status === "active")?.id ?? setup.seasons.at(-1)?.id;
+
+  return <section className="match-area focused-screen management-screen match-history" aria-labelledby="match-history-title"><div className="section-heading"><div><p className="eyebrow">HISTORY</p><h2 id="match-history-title">History</h2></div></div>{seasons.map((season) => {
+    const matches = terminalMatches.filter((game) => game.seasonId === season.id).sort((left, right) => right.date.localeCompare(left.date));
+    return <details key={season.id} className="season-history-group" aria-label={`${season.name} History`} open={season.id === initiallyExpandedSeason}><summary><span>{season.name}</span><span>{matches.length} terminal {matches.length === 1 ? "Match" : "Matches"}</span></summary>{matches.length ? <ul className="match-list" aria-label={`${season.name} terminal Matches`}>{matches.map((game) => {
+      const score = game.finalScore ?? scores.get(game.id)!;
+      return <li key={game.id} data-status={game.status}><div><strong>{setup.opposition.find((opposition) => opposition.id === game.oppositionId)?.name}</strong><p>{matchStatusLabel(game)} · {score.own} – {score.opposition}</p><small>{game.date}</small></div><button className="text-button" onClick={() => onOpen(game.id)}>View Match Events</button></li>;
+    })}</ul> : <p className="empty-history">No terminal Matches in this Season.</p>}</details>;
+  })}</section>;
 }
 
-function TeamForm({ onSubmit }: { onSubmit: (input: { name: string }) => Promise<void> }) {
-  const [name, setName] = useState("");
+function TeamForm({ initialName = "", submitLabel = "Save team", cancelLabel, onCancel, onSubmit }: { initialName?: string; submitLabel?: string; cancelLabel?: string; onCancel?: () => void; onSubmit: (input: { name: string }) => Promise<void> }) {
+  const [name, setName] = useState(initialName);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     await onSubmit({ name });
   };
   return <form className="setup-form" onSubmit={(event) => void submit(event)}>
     <label>Team name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your team" /></label>
-    <PrimaryActionBar><button type="submit" disabled={!name.trim()}>Save team</button></PrimaryActionBar>
+    <PrimaryActionBar>{cancelLabel && <button type="button" className="secondary-button" onClick={onCancel}>{cancelLabel}</button>}<button type="submit" disabled={!name.trim() || name.trim() === initialName}>{submitLabel}</button></PrimaryActionBar>
   </form>;
 }
 
-function SeasonForm({ team, onSubmit }: { team: SetupSummary["teams"][number]; onSubmit: (input: { name: string; teamId: string }) => Promise<void> }) {
-  const [name, setName] = useState("");
+function SeasonForm({ team, initialName = "", submitLabel = "Create season", cancelLabel, onCancel, onSubmit }: { team: SetupSummary["teams"][number]; initialName?: string; submitLabel?: string; cancelLabel?: string; onCancel?: () => void; onSubmit: (input: { name: string; teamId: string }) => Promise<void> }) {
+  const [name, setName] = useState(initialName);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     await onSubmit({ name, teamId: team.id });
@@ -286,7 +270,7 @@ function SeasonForm({ team, onSubmit }: { team: SetupSummary["teams"][number]; o
   return <form className="setup-form" onSubmit={(event) => void submit(event)}>
     <label>Season name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. 2026 Winter" /></label>
     <p><strong>Team:</strong> {team.name}</p>
-    <PrimaryActionBar><button type="submit" disabled={!name.trim()}>Create season</button></PrimaryActionBar>
+    <PrimaryActionBar>{cancelLabel && <button type="button" className="secondary-button" onClick={onCancel}>{cancelLabel}</button>}<button type="submit" disabled={!name.trim() || name.trim() === initialName}>{submitLabel}</button></PrimaryActionBar>
   </form>;
 }
 
@@ -327,94 +311,96 @@ function PrimaryActionBar({ children }: { children: ReactNode }) {
   return <div className="primary-action-bar" role="group" aria-label="Primary action">{children}</div>;
 }
 
-function MatchSetupProgress({ current }: { current: "identity" | "squad" | "court" }) {
-  const steps = [{ key: "identity", label: "Match details" }, { key: "squad", label: "Match Squad" }, { key: "court", label: "Court setup" }] as const;
+function MatchSetupProgress({ current }: { current: "setup" | "court" }) {
+  const steps = [{ key: "setup", label: "Setup Match" }, { key: "court", label: "Court setup" }] as const;
   const currentIndex = steps.findIndex((step) => step.key === current);
   return <div className="match-setup-progress" role="group" aria-label="Match setup progress"><p className="eyebrow">MATCH SETUP · {currentIndex + 1} OF {steps.length}</p><ol>{steps.map((step, index) => <li key={step.key} data-state={index < currentIndex ? "complete" : index === currentIndex ? "current" : "upcoming"}>{step.label}</li>)}</ol></div>;
 }
 
-function MatchIdentityForm({ opposition, draft, onAddOpposition, onSave, onProceed }: { opposition: SetupSummary["activeOpposition"]; draft?: { oppositionId?: string; date?: string }; onAddOpposition: (input: { name: string }) => Promise<{ id: string }>; onSave: (input: { oppositionId?: string; date?: string }) => Promise<void>; onProceed: (input: { oppositionId: string; date: string }) => Promise<void> }) {
+function MatchSetupForm({ opposition, players, draft, onAddOpposition, onAddPlayer, onSave, onProceed }: { opposition: SetupSummary["activeOpposition"]; players: SetupSummary["players"]; draft?: { oppositionId?: string; date?: string; squadPlayerIds?: string[] }; onAddOpposition: (input: { name: string }) => Promise<{ id: string }>; onAddPlayer: (input: { name: string }) => Promise<{ id: string }>; onSave: (input: { oppositionId?: string; date?: string; squadPlayerIds: string[] }) => Promise<void>; onProceed: (input: { oppositionId: string; date: string; squadPlayerIds: string[] }) => Promise<void> }) {
   const [oppositionId, setOppositionId] = useState(draft?.oppositionId ?? "");
+  const [oppositionSearch, setOppositionSearch] = useState("");
   const [date, setDate] = useState(draft?.date ?? localDate());
   const [newOppositionName, setNewOppositionName] = useState("");
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    await onProceed({ oppositionId, date });
-  };
+  const [playerIds, setPlayerIds] = useState(draft?.squadPlayerIds ?? []);
+  const [newPlayerName, setNewPlayerName] = useState("");
+  const [playerSearch, setPlayerSearch] = useState("");
+  const matchingOpposition = opposition.filter((opponent) => opponent.name.toLocaleLowerCase().includes(oppositionSearch.trim().toLocaleLowerCase()));
+  const matchingPlayers = players.filter((player) => playerLabel(player).toLocaleLowerCase().includes(playerSearch.trim().toLocaleLowerCase()));
+  const saveDraft = (next: { oppositionId?: string; date?: string; squadPlayerIds?: string[] }) => void onSave({ oppositionId, date, squadPlayerIds: playerIds, ...next });
   const addOpposition = async () => {
     const opposition = await onAddOpposition({ name: newOppositionName });
     setOppositionId(opposition.id);
+    setOppositionSearch("");
     setNewOppositionName("");
-    await onSave({ oppositionId: opposition.id, date });
+    await onSave({ oppositionId: opposition.id, date, squadPlayerIds: playerIds });
   };
-  return <form className="match-form setup-form" onSubmit={(event) => void submit(event)}>
-    <div className="field-grid" role="group" aria-label="Saved Oppositions">
-      <label>Opposition<select value={oppositionId} onChange={(event) => { setOppositionId(event.target.value); void onSave({ oppositionId: event.target.value || undefined, date }); }}><option value="">Select Opposition</option>{opposition.map((opponent) => <option key={opponent.id} value={opponent.id}>{opponent.name}</option>)}</select></label>
-      <label>Match date<input type="date" value={date} onChange={(event) => { setDate(event.target.value); void onSave({ oppositionId: oppositionId || undefined, date: event.target.value || undefined }); }} /></label>
-    </div>
-    <div className="quick-player" role="group" aria-label="Add a new Opposition"><label>New opposition name<input value={newOppositionName} onChange={(event) => setNewOppositionName(event.target.value)} placeholder="Opposition team" /></label><button type="button" disabled={!newOppositionName.trim()} onClick={() => void addOpposition()}>Add opposition to match</button></div>
-    <PrimaryActionBar><button type="submit" disabled={!oppositionId || !date}>Continue to Match Squad</button></PrimaryActionBar>
-  </form>;
-}
-
-function MatchSquadForm({ players, selectedPlayerIds, onAddPlayer, onSave, onProceed }: { players: SetupSummary["players"]; selectedPlayerIds: string[]; onAddPlayer: (input: { name: string }) => Promise<{ id: string }>; onSave: (playerIds: string[]) => Promise<void>; onProceed: (playerIds: string[]) => Promise<void> }) {
-  const [playerIds, setPlayerIds] = useState(selectedPlayerIds);
-  const [newPlayerName, setNewPlayerName] = useState("");
-  const [playerSearch, setPlayerSearch] = useState("");
-  const matchingPlayers = players.filter((player) => playerLabel(player).toLocaleLowerCase().includes(playerSearch.trim().toLocaleLowerCase()));
-  const updatePlayers = (next: string[]) => {
-    setPlayerIds(next);
-    void onSave(next);
-  };
+  const updatePlayers = (next: string[]) => { setPlayerIds(next); saveDraft({ squadPlayerIds: next }); };
   const addPlayer = async () => {
     const player = await onAddPlayer({ name: newPlayerName });
     const next = playerIds.includes(player.id) ? playerIds : [...playerIds, player.id];
     updatePlayers(next);
     setNewPlayerName("");
   };
-  return <form className="match-form setup-form" onSubmit={(event) => { event.preventDefault(); void onProceed(playerIds); }}>
+  return <form className="match-form setup-form" onSubmit={(event) => { event.preventDefault(); if (oppositionId && date && playerIds.length >= 5) void onProceed({ oppositionId, date, squadPlayerIds: playerIds }); }}>
+    <div className="field-grid" role="group" aria-label="Saved Oppositions">
+      <label>Search opposition history<input type="search" value={oppositionSearch} onChange={(event) => setOppositionSearch(event.target.value)} placeholder="Find an Opposition" /></label>
+      <label>Opposition<select value={oppositionId} onChange={(event) => { const next = event.target.value; setOppositionId(next); saveDraft({ oppositionId: next || undefined }); }}><option value="">Select Opposition</option>{matchingOpposition.map((opponent) => <option key={opponent.id} value={opponent.id}>{opponent.name}</option>)}</select></label>
+      <label>Match date<input type="date" value={date} onChange={(event) => { const next = event.target.value; setDate(next); saveDraft({ date: next || undefined }); }} /></label>
+    </div>
+    <div className="quick-player" role="group" aria-label="Add a new Opposition"><label>New opposition name<input value={newOppositionName} onChange={(event) => setNewOppositionName(event.target.value)} placeholder="Opposition team" /></label><button type="button" disabled={!newOppositionName.trim()} onClick={() => void addOpposition()}>Add opposition to match</button></div>
     <div className="quick-player" aria-label="Add a player to this Match Squad"><label>New player name<input value={newPlayerName} onChange={(event) => setNewPlayerName(event.target.value)} placeholder="Player name" /></label><button type="button" disabled={!newPlayerName.trim() || playerIds.length === 12} onClick={() => void addPlayer()}>Add player to Match Squad</button></div>
     <fieldset className="squad-picker"><legend>Match Squad <span>{playerIds.length}/12 selected</span></legend>{playerIds.length > 0 && <div className="selected-player-chips" role="group" aria-label="Selected Match Squad">{players.filter((player) => playerIds.includes(player.id)).map((player) => <button key={player.id} type="button" className="player-chip" onClick={() => updatePlayers(playerIds.filter((id) => id !== player.id))}>Remove {playerLabel(player)} from Match Squad</button>)}</div>}<label className="player-search">Search players<input type="search" value={playerSearch} onChange={(event) => setPlayerSearch(event.target.value)} placeholder="Find a Player" /></label><div className="player-picker-results">{matchingPlayers.map((player) => <label key={player.id} className="player-check"><input type="checkbox" checked={playerIds.includes(player.id)} onChange={() => updatePlayers(playerIds.includes(player.id) ? playerIds.filter((id) => id !== player.id) : [...playerIds, player.id])} disabled={!playerIds.includes(player.id) && playerIds.length === 12} />{playerLabel(player)}</label>)}{matchingPlayers.length === 0 && <p className="picker-empty">No Players match this search.</p>}</div></fieldset>
-    <PrimaryActionBar><button type="submit" disabled={playerIds.length < 5}>Continue to Court Setup</button></PrimaryActionBar>
+    <PrimaryActionBar><button type="submit" disabled={!oppositionId || !date || playerIds.length < 5}>Continue to Court Setup</button></PrimaryActionBar>
   </form>;
 }
 
-function QuarterSetupCard({ match, startingLineup, quarterNumber, setup, statistics, onLineupChange, onStart }: { match: Pick<StartMatchInput, "date" | "oppositionId" | "squadPlayerIds">; startingLineup: StartingLineup; quarterNumber: number; setup: SetupSummary; statistics?: BetweenQuarterStatistics; onLineupChange: (lineup: StartingLineup) => void; onStart: (startingLineup: StartingLineup) => Promise<void> }) {
-  const [lineup, setLineup] = useState<StartingLineup>(startingLineup);
+function QuarterSetupCard({ match, startingLineup, quarterNumber, setup, onLineupChange, onStart, onReturnToMatchSetup, onReviewPreviousQuarter, mode = "next-quarter" }: { match: Pick<StartMatchInput, "date" | "oppositionId" | "squadPlayerIds">; startingLineup: StartingLineup; quarterNumber: number; setup: SetupSummary; onLineupChange?: (lineup: StartingLineup) => void; onStart: (startingLineup: StartingLineup) => Promise<void>; onReturnToMatchSetup?: () => void; onReviewPreviousQuarter?: () => void; mode?: "starting" | "next-quarter" | "substitution" }) {
+  const [lineup, setLineup] = useState<StartingLineup>(() => Object.fromEntries(Object.entries(startingLineup).filter(([, playerId]) => match.squadPlayerIds.includes(playerId))) as StartingLineup);
   const squad = setup.players.filter((player) => match.squadPlayerIds.includes(player.id));
   const assignedPlayerIds = Object.values(lineup).filter(Boolean);
   const assignedPlayers = assignedPlayerIds.length;
   const canStart = assignedPlayers >= 5 && new Set(assignedPlayerIds).size === assignedPlayers;
-  const startAction = quarterNumber === 1 ? "Start Match" : `Start Quarter ${quarterNumber}`;
+  const hasChanges = POSITIONS.some((position) => lineup[position] !== startingLineup[position]);
+  const startAction = mode === "substitution" ? "Save substitutions" : quarterNumber === 1 ? "Start Match" : `Start Quarter ${quarterNumber}`;
   const readiness = canStart
-    ? `Court ready — ${assignedPlayers} Players assigned. You can start Quarter ${quarterNumber}.`
-    : `Assign ${5 - assignedPlayers} more ${5 - assignedPlayers === 1 ? "Player" : "Players"} to start Quarter ${quarterNumber}.`;
+    ? `Court ready — ${assignedPlayers} Players assigned.${mode === "substitution" ? " Save the changed Positions when ready." : ` You can start Quarter ${quarterNumber}.`}`
+    : `Assign ${5 - assignedPlayers} more ${5 - assignedPlayers === 1 ? "Player" : "Players"} to ${mode === "substitution" ? "save substitutions" : `start Quarter ${quarterNumber}`}.`;
   const updatePosition = (position: Position, playerId: string) => {
     const next = playerId ? { ...lineup, [position]: playerId } : (() => { const { [position]: _, ...remaining } = lineup; return remaining; })();
     setLineup(next);
-    onLineupChange(next);
+    onLineupChange?.(next);
   };
   const availablePlayers = (position: Position) => squad.filter((player) => !Object.entries(lineup).some(([assignedPosition, playerId]) => assignedPosition !== position && playerId === player.id));
-  return <section className="draft-card quarter-planner" aria-labelledby="quarter-setup-title">{quarterNumber === 1 && <MatchSetupProgress current="court" />}<div className="draft-heading"><div><p className="eyebrow">QUARTER SETUP</p><h2 id="quarter-setup-title">Set up Quarter {quarterNumber} Court</h2><p>{match.date} · {setup.opposition.find((opposition) => opposition.id === match.oppositionId)?.name}</p></div></div><div className="quarter-planner-bento"><div className="quarter-court"><div className="section-heading"><div><h3>Next Court</h3><p className="court-guidance">Assign a unique Match Squad Player to each Position. Up to two Positions may be vacant.</p></div><p className="court-count">{assignedPlayers}/7 assigned</p></div><p className={`court-readiness ${canStart ? "is-ready" : ""}`} role="status">{readiness}</p><div className="lineup-grid" aria-label="Court Positions">{POSITIONS.map((position) => <label key={position} className="court-position"><span>{position}</span><select aria-label={position} value={lineup[position] ?? ""} onChange={(event) => updatePosition(position, event.target.value)}><option value="">Vacant position</option>{availablePlayers(position).map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label>)}</div></div><aside className="quarter-statistics">{statistics ? <BetweenQuarterStatisticsPanel statistics={statistics} players={setup.players} /> : <><h3>Previous quarter statistics</h3><p>Statistics will be available after Quarter 1.</p></>}</aside></div><PrimaryActionBar><button disabled={!canStart} onClick={() => void onStart(lineup)}>{startAction}</button></PrimaryActionBar></section>;
+  const title = mode === "substitution" ? "Stage substitutions" : `Set up Quarter ${quarterNumber} Court`;
+  return <section className="draft-card quarter-planner" aria-labelledby="quarter-setup-title">{quarterNumber === 1 && <MatchSetupProgress current="court" />}<div className="draft-heading"><div><p className="eyebrow">{mode === "substitution" ? "SUBSTITUTION" : "QUARTER SETUP"}</p><h2 id="quarter-setup-title">{title}</h2><p>{match.date} · {setup.opposition.find((opposition) => opposition.id === match.oppositionId)?.name}</p></div></div><div className="quarter-planner-bento"><div className="quarter-court"><div className="section-heading"><div><h3>{mode === "substitution" ? "Current Court" : mode === "starting" ? "Starting Court" : "Next Court"}</h3><p className="court-guidance">Assign a unique Match Squad Player to each Position. Up to two Positions may be vacant.</p></div><p className="court-count">{assignedPlayers}/7 assigned</p></div><p className={`court-readiness ${canStart ? "is-ready" : ""}`} role="status">{readiness}</p><div className="lineup-grid" aria-label="Court Positions">{POSITIONS.map((position) => <label key={position} className="court-position"><span>{position}</span><select aria-label={position} value={lineup[position] ?? ""} onChange={(event) => updatePosition(position, event.target.value)}><option value="">Vacant position</option>{availablePlayers(position).map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label>)}</div></div>{onReviewPreviousQuarter && <aside className="quarter-statistics"><h3>Review the previous Quarter</h3><p>Statistics remain on Match Events while you prepare the next Court.</p><button type="button" className="text-button" onClick={onReviewPreviousQuarter}>Review previous Quarter on Match Events</button></aside>}</div><PrimaryActionBar>{onReturnToMatchSetup && <button type="button" className="secondary-button" onClick={onReturnToMatchSetup}>Back to Setup Match</button>}<button disabled={!canStart || mode === "substitution" && !hasChanges} onClick={() => void onStart(lineup)}>{startAction}</button></PrimaryActionBar></section>;
 }
 
-function BetweenQuarterStatisticsPanel({ statistics, players }: { statistics: BetweenQuarterStatistics; players: SetupSummary["players"] }) {
-  const [view, setView] = useState<"previous" | "match">("previous");
-  const stints = view === "previous" ? statistics.previousQuarterStints : statistics.matchStints;
-  const title = view === "previous" ? "Previous quarter statistics" : "All Match statistics";
-  return <section className="between-quarter-statistics" aria-labelledby="between-quarter-statistics-title"><div className="section-heading"><h3 id="between-quarter-statistics-title">{title}</h3><button type="button" className="text-button" onClick={() => setView(view === "previous" ? "match" : "previous")}>{view === "previous" ? "All Match" : "Previous quarter"}</button></div><p>{view === "previous" ? `Quarter ${statistics.previousQuarter}` : "All completed quarters"}</p><ul>{stints.map((stint) => <li key={`${stint.playerId}:${stint.position}`}><strong>{playerLabel(players.find((player) => player.id === stint.playerId) ?? { name: "Unknown player" })}</strong> · {stint.position} · {stint.playerStatistics.length ? stint.playerStatistics.map((statistic) => `${statistic.statistic}: ${statistic.count}`).join(" · ") : "No events"}</li>)}</ul></section>;
+function MatchCard({ game, setup, capture, score, report, summary, actions, onOpenHistory, onSetUpNextQuarter }: { game: Game; setup: SetupSummary; capture?: LiveQuarterCapture; score?: { own: number; opposition: number }; report?: TerminalMatchReport; summary: (selection: { scope: "match" } | { scope: "quarter"; quarter: QuarterNumber }) => StatisticsSummary; actions: MatchActions; onOpenHistory: () => void; onSetUpNextQuarter: () => void }) {
+  const defaultTab = report || game.quarters?.length === TOTAL_QUARTERS && !game.activeQuarter ? "match" : game.activeQuarter ?? game.quarters?.at(-1)?.number ?? "match";
+  const [tab, setTab] = useState<QuarterNumber | "match">(defaultTab);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const totalEventCount = game.quarters?.reduce((count, quarter) => count + quarter.captureActions.length, 0) ?? 0;
+  const previousEventCount = useRef(totalEventCount);
+  const [unreadEventCount, setUnreadEventCount] = useState(0);
+  useEffect(() => setTab(defaultTab), [defaultTab]);
+  useEffect(() => {
+    if (totalEventCount > previousEventCount.current && !drawerOpen) setUnreadEventCount((count) => count + totalEventCount - previousEventCount.current);
+    previousEventCount.current = totalEventCount;
+  }, [drawerOpen, totalEventCount]);
+  const availableTabs = summary({ scope: "match" }).availableTabs;
+  const selectedSummary = tab === "match" ? summary({ scope: "match" }) : summary({ scope: "quarter", quarter: tab });
+  const selectedIsLive = game.status === "live" && tab === game.activeQuarter && capture;
+  return <section className="match-events" aria-labelledby="match-events-title"><div className="section-heading"><div><p className="eyebrow">MATCH EVENTS</p><h2 id="match-events-title">Match Events</h2></div>{game.status === "live" && <button type="button" className="text-button" onClick={() => { setUnreadEventCount(0); setDrawerOpen(true); }}>Open Event feed{unreadEventCount ? `, ${unreadEventCount} new event${unreadEventCount === 1 ? "" : "s"}` : ""}</button>}</div><div className="match-event-tabs" role="tablist" aria-label="Match Events tabs">{([1, 2, 3, 4] as QuarterNumber[]).map((quarter) => <button key={quarter} type="button" role="tab" aria-selected={tab === quarter} disabled={!availableTabs.includes(quarter)} onClick={() => setTab(quarter)}>Q{quarter}</button>)}<button type="button" role="tab" aria-selected={tab === "match"} disabled={!availableTabs.includes("match")} onClick={() => setTab("match")}>Match</button></div>{selectedIsLive ? <LiveQuarterCard game={game} setup={setup} capture={capture} actions={actions} onOpenHistory={onOpenHistory} /> : report && tab === "match" ? <><TerminalMatchCard report={report} onBack={onOpenHistory} /><MatchEventSummaryTable summary={selectedSummary} players={setup.players} label="Match" /></> : <MatchEventSummaryTable summary={selectedSummary} players={setup.players} label={tab === "match" ? "Match" : `Quarter ${tab}`} />}{game.status === "live" && !game.activeQuarter && (tab !== "match" || game.quarters?.length === TOTAL_QUARTERS) && <section className="draft-card live-card"><p className="eyebrow">QUARTER COMPLETE</p><h2>Quarter {game.quarters?.at(-1)?.number} has ended</h2><p>Review the final Court, reposition players, and confirm before the next Quarter starts.</p>{game.quarters?.length === TOTAL_QUARTERS ? <><p>Final score: {score?.own} — {score?.opposition}</p><button onClick={() => score && void actions.finalise(score)}>Finalise Match</button></> : <button onClick={onSetUpNextQuarter}>Set up Quarter {(game.quarters?.length ?? 0) + 1}</button>}<AbandonMatchAction onAbandon={actions.abandon} /></section>}{drawerOpen && <EventFeedDrawer game={game} tab={tab} players={setup.players} actions={actions} onClose={() => setDrawerOpen(false)} />}</section>;
 }
 
-function MatchCard({ game, setup, capture, score, report, actions, onOpenHistory }: { game: Game; setup: SetupSummary; capture?: LiveQuarterCapture; score?: { own: number; opposition: number }; report?: TerminalMatchReport; actions: MatchActions; onOpenHistory: () => void }) {
-  if (game.status === "live" && capture) return <LiveQuarterCard game={game} setup={setup} capture={capture} actions={actions} onOpenHistory={onOpenHistory} />;
-  if (game.status === "live") return <section className="draft-card live-card"><p className="eyebrow">QUARTER COMPLETE</p><h2>Quarter {game.quarters?.at(-1)?.number} has ended</h2><p>Review the final Court, reposition players, and confirm before the next Quarter starts.</p>{game.quarters?.length === TOTAL_QUARTERS && <><p>Final score: {score?.own} — {score?.opposition}</p><button onClick={() => score && void actions.finalise(score)}>Confirm and finalise</button></>}<AbandonMatchAction onAbandon={actions.abandon} /></section>;
-  if (report) return <TerminalMatchCard report={report} onBack={onOpenHistory} />;
-  return null;
+function MatchEventSummaryTable({ summary, players, label }: { summary: StatisticsSummary; players: SetupSummary["players"]; label: string }) {
+  return <section className="match-event-summary" aria-label={`${label} statistics`}><p>{summary.readOnly ? "This Match is read-only." : "Completed event summary"}</p><div className="match-event-summary-scroll"><table><thead><tr><th>Player</th><th>Position</th><th>Events</th></tr></thead><tbody>{summary.stints.map((stint) => <tr key={`${stint.playerId}:${stint.position}`}><td>{playerLabel(players.find((player) => player.id === stint.playerId) ?? { name: "Unknown player" })}</td><td>{stint.position}</td><td>{stint.playerStatistics.length ? stint.playerStatistics.map((statistic) => `${statistic.statistic}: ${statistic.count}`).join(" · ") : "No events"}</td></tr>)}</tbody></table></div></section>;
 }
 
 function TerminalMatchCard({ report, onBack }: { report: TerminalMatchReport; onBack: () => void }) {
-  const outcome = report.outcome.kind === "abandoned" ? "Abandoned - no winner" : report.status === "finalised" ? "Completed" : "Terminated - no winner";
-  return <section className="draft-card live-card" aria-labelledby="match-record-title"><div className="section-heading"><div><p className="eyebrow">MATCH RECORD</p><h2 id="match-record-title">{report.teamName} {report.score.own} - {report.oppositionName} {report.score.opposition}</h2></div><button className="text-button" onClick={onBack}>Back to Match History</button></div><p>{report.date} · {outcome}</p><p>This match record is read-only.</p><div className="quarter-review">{report.quarters.map((quarter) => <article key={quarter.number}><h3>Quarter {quarter.number}: {quarter.ownScore} - {quarter.oppositionScore}</h3><p>Starting court: {quarter.startingLineup.map((entry) => `${entry.position}: ${entry.playerName}`).join(", ")}</p>{quarter.substitutions.map((substitution) => <p key={substitution.sequence}>Substitution {substitution.sequence}: {substitution.position}: {substitution.playerName ?? "Vacant"}</p>)}<ul>{quarter.playerStatistics.map((statistic) => <li key={`${statistic.playerId}:${statistic.position}:${statistic.statistic}`}>{statistic.playerName} · {statistic.position} · {statistic.statistic}: {statistic.count}</li>)}</ul></article>)}</div><div className="draft-actions"><button onClick={() => download(`${report.id}.csv`, "text/csv", createMatchCsv(report))}>Download CSV</button><button className="secondary-button" onClick={() => download(`${report.id}.pdf`, "application/pdf", createMatchPdf(report))}>Download PDF</button></div></section>;
+  const outcome = report.outcome.kind === "completed" ? "Completed" : "Abandoned - no winner";
+  return <section className="draft-card live-card" aria-labelledby="match-events-record-title"><div className="section-heading"><div><p className="eyebrow">READ-ONLY MATCH EVENTS</p><h2 id="match-events-record-title">{report.teamName} {report.score.own} - {report.oppositionName} {report.score.opposition}</h2></div><button className="text-button" onClick={onBack}>Back to History</button></div><p>{report.date} · {outcome}</p><p>These Match Events are read-only.</p><div className="quarter-review">{report.quarters.map((quarter) => <article key={quarter.number}><h3>Quarter {quarter.number}: {quarter.ownScore} - {quarter.oppositionScore}</h3><p>Starting court: {quarter.startingLineup.map((entry) => `${entry.position}: ${entry.playerName}`).join(", ")}</p>{quarter.substitutions.map((substitution) => <p key={substitution.sequence}>Substitution {substitution.sequence}: {substitution.position}: {substitution.playerName ?? "Vacant"}</p>)}<ul>{quarter.playerStatistics.map((statistic) => <li key={`${statistic.playerId}:${statistic.position}:${statistic.statistic}`}>{statistic.playerName} · {statistic.position} · {statistic.statistic}: {statistic.count}</li>)}</ul></article>)}</div><div className="draft-actions"><button onClick={() => download(`${report.id}.csv`, "text/csv", createMatchCsv(report))}>Download CSV</button><button className="secondary-button" onClick={() => download(`${report.id}.pdf`, "application/pdf", createMatchPdf(report))}>Download PDF</button></div></section>;
 }
 
 function BackupCard({ exportBackup, onImport }: { exportBackup: () => string; onImport: (serialized: string, mode: "merge" | "replace", confirmed: boolean) => Promise<void> }) {
@@ -444,12 +430,11 @@ function LiveQuarterCard({ game, setup, capture, actions, onOpenHistory }: { gam
   const compactCaptureControls = useCompactCaptureControls();
   const teamName = setup.teams.find((team) => team.id === setup.seasons.find((season) => season.id === game.seasonId)?.teamId)?.name ?? "Our team";
   const oppositionName = setup.opposition.find((opposition) => opposition.id === game.oppositionId)?.name ?? "Opposition";
-  const squad = setup.players.filter((player) => game.squadPlayerIds.includes(player.id));
   const openSubstitution = () => {
     setChangingCourt((current) => !current);
     setShowOverflow(false);
   };
-  return <section className="live-capture" aria-labelledby="live-quarter-title"><div className="score-strip"><div><p className="eyebrow">LIVE MATCH · QUARTER {capture.number}</p><h2 id="live-quarter-title">{teamName} {capture.ownGameScore} — {oppositionName} {capture.oppositionGameScore}</h2><p>Quarter: {teamName} {capture.ownScore} — {oppositionName} {capture.oppositionScore}</p></div><button className="opposition-goal" onClick={() => void actions.recordOppositionGoal()}>Opponent goal</button></div><div className="court-toolbar"><strong>Current Court</strong><div><button className="text-button" disabled={!capture.canUndo} onClick={() => void actions.undoCaptureAction()}>Undo</button>{compactCaptureControls ? <><button className="text-button" onClick={openSubstitution}>{changingCourt ? "Cancel Substitution" : "Record Substitution"}</button><button className="text-button" onClick={() => void actions.endQuarter()}>End quarter</button><AbandonMatchAction onAbandon={actions.abandon} /></> : <><button className="text-button" onClick={onOpenHistory}>History</button><button className="text-button" onClick={openSubstitution}>{changingCourt ? "Cancel Substitution" : "Record Substitution"}</button><button className="text-button" onClick={() => void actions.endQuarter()}>End quarter</button><button className="text-button" aria-expanded={showOverflow} onClick={() => setShowOverflow((current) => !current)}>More</button></>}</div></div>{showOverflow && <AbandonMatchAction onAbandon={actions.abandon} />}{changingCourt && <CourtChangeForm court={capture.lineup} squad={squad} onApply={async (input) => { await actions.substitutePlayer(input); setChangingCourt(false); }} />}<div className="live-quarter-layout"><div className="current-court" aria-label="Current court event grid">{POSITIONS.map((position) => <PlayerStatCard key={position} position={position} player={setup.players.find((candidate) => candidate.id === capture.lineup[position])} capture={capture} onRecord={actions.recordPlayerStatistic} />)}</div><ActiveQuarterEventFeed capture={capture} players={setup.players} actions={actions} /></div></section>;
+  return <section className="live-capture" aria-labelledby="live-quarter-title"><div className="score-strip"><div><p className="eyebrow">LIVE MATCH · QUARTER {capture.number}</p><h2 id="live-quarter-title">{teamName} {capture.ownGameScore} — {oppositionName} {capture.oppositionGameScore}</h2><p>Quarter: {teamName} {capture.ownScore} — {oppositionName} {capture.oppositionScore}</p></div><button className="opposition-goal" onClick={() => void actions.recordOppositionGoal()}>Opponent goal</button></div><div className="court-toolbar"><strong>Current Court</strong><div><button className="text-button" disabled={!capture.canUndo} onClick={() => void actions.undoCaptureAction()}>Undo</button>{compactCaptureControls ? <><button className="text-button" onClick={openSubstitution}>{changingCourt ? "Cancel Substitution" : "Record Substitution"}</button><button className="text-button" onClick={() => void actions.endQuarter()}>End quarter</button><AbandonMatchAction onAbandon={actions.abandon} /></> : <><button className="text-button" onClick={onOpenHistory}>History</button><button className="text-button" onClick={openSubstitution}>{changingCourt ? "Cancel Substitution" : "Record Substitution"}</button><button className="text-button" onClick={() => void actions.endQuarter()}>End quarter</button><button className="text-button" aria-expanded={showOverflow} onClick={() => setShowOverflow((current) => !current)}>More</button></>}</div></div>{showOverflow && <AbandonMatchAction onAbandon={actions.abandon} />}{changingCourt && <QuarterSetupCard match={game} startingLineup={capture.lineup} quarterNumber={capture.number} setup={setup} mode="substitution" onStart={async (lineup) => { await actions.saveSubstitutions(lineup); setChangingCourt(false); }} />}<div className="live-quarter-layout"><div className="current-court" aria-label="Current court event grid">{POSITIONS.map((position) => <PlayerStatCard key={position} position={position} player={setup.players.find((candidate) => candidate.id === capture.lineup[position])} capture={capture} onRecord={actions.recordPlayerStatistic} />)}</div></div></section>;
 }
 
 function useCompactCaptureControls() {
@@ -481,7 +466,7 @@ function PlayerStatCard({ position, player, capture, onRecord }: { position: Pos
     window.setTimeout(() => setFeedbackCell((current) => current === statistic ? undefined : current), 500);
     void onRecord(position, statistic);
   };
-  return <article className="player-stat-card"><h3>{playerLabel(player)}</h3><p className="eyebrow">{positionAbbreviation[position]}</p><div className="stat-buttons">{statistics.map((statistic) => { const count = capture.playerStatistics.find((total) => total.playerId === player.id && total.position === position && total.statistic === statistic)?.count ?? 0; const available = !SHOOTER_STATISTICS.includes(statistic as (typeof SHOOTER_STATISTICS)[number]) || position === "Goal Attack" || position === "Goal Shooter"; return <button key={statistic} className={`event-cell ${statistic === "Goals" ? "goal-event" : statistic === "Misses" ? "miss-event" : ""} ${feedbackCell === statistic ? "event-feedback" : ""}`} disabled={!available} onClick={() => record(statistic)} aria-label={available ? `Record ${statistic} for ${player.name}` : `${statistic} is unavailable for ${player.name}`}><span aria-hidden="true">{statisticIcon[statistic]}</span><span>{available ? count : "—"}</span></button>; })}</div></article>;
+  return <article className="player-stat-card"><h3>{playerLabel(player)}</h3><p className="eyebrow">{positionAbbreviation[position]}</p><div className="stat-buttons">{statistics.map((statistic) => { const count = capture.playerStatistics.find((total) => total.playerId === player.id && total.position === position && total.statistic === statistic)?.count ?? 0; const available = !SHOOTER_STATISTICS.includes(statistic as (typeof SHOOTER_STATISTICS)[number]) || position === "Goal Attack" || position === "Goal Shooter"; return <button key={statistic} className={`event-cell ${statistic === "Goals" ? "goal-event" : statistic === "Misses" ? "miss-event" : ""} ${feedbackCell === statistic ? "event-feedback" : ""}`} disabled={!available} onClick={() => record(statistic)} aria-label={available ? `Record ${statistic} for ${player.name}` : `${statistic} is unavailable for ${player.name}`}><span aria-hidden="true">{statisticHeader[statistic]}</span><span>{available ? count : "—"}</span></button>; })}</div></article>;
 }
 
 function captureActionLabel(action: CaptureAction, players: SetupSummary["players"]) {
@@ -489,53 +474,14 @@ function captureActionLabel(action: CaptureAction, players: SetupSummary["player
   return `${playerLabel(players.find((player) => player.id === action.playerId) ?? { name: "Unknown player" })} · ${positionAbbreviation[action.position]} · ${action.statistic}`;
 }
 
-function ActiveQuarterEventFeed({ capture, players, actions }: { capture: LiveQuarterCapture; players: SetupSummary["players"]; actions: MatchActions }) {
-  const [editing, setEditing] = useState<Extract<CaptureAction, { kind: "player-statistic" }>>();
+function EventFeedDrawer({ game, tab, players, actions, onClose }: { game: Game; tab: QuarterNumber | "match"; players: SetupSummary["players"]; actions: MatchActions; onClose: () => void }) {
+  const [editing, setEditing] = useState<{ quarter: QuarterNumber; action: Extract<CaptureAction, { kind: "player-statistic" }> }>();
   const [correction, setCorrection] = useState<{ playerId: string; position: Position; statistic: PlayerStatistic }>();
-  const [unreadEventCount, setUnreadEventCount] = useState(0);
-  const compactDrawer = useCompactCaptureControls();
-  const [drawerOpen, setDrawerOpen] = useState(() => !compactDrawer);
-  const scrollArea = useRef<HTMLDivElement>(null);
-  const wasAtLatest = useRef(true);
-  const previousActionCount = useRef(capture.captureActions.length);
-  useEffect(() => {
-    setDrawerOpen(!compactDrawer);
-  }, [compactDrawer]);
-  useEffect(() => {
-    const element = scrollArea.current;
-    if (element) wasAtLatest.current = element.scrollTop + element.clientHeight >= element.scrollHeight - 16;
-  }, []);
-  useEffect(() => {
-    if (capture.captureActions.length <= previousActionCount.current) {
-      previousActionCount.current = capture.captureActions.length;
-      return;
-    }
-    const newEventCount = capture.captureActions.length - previousActionCount.current;
-    previousActionCount.current = capture.captureActions.length;
-    if (wasAtLatest.current && scrollArea.current) {
-      scrollArea.current.scrollTop = scrollArea.current.scrollHeight;
-      setUnreadEventCount(0);
-    } else {
-      setUnreadEventCount((current) => current + newEventCount);
-    }
-  }, [capture.captureActions.length]);
-  const beginEditing = (action: Extract<CaptureAction, { kind: "player-statistic" }>) => {
-    setEditing(action);
+  const [deleting, setDeleting] = useState<{ quarter: QuarterNumber; actionId: string }>();
+  const quarters = tab === "match" ? game.quarters ?? [] : (game.quarters ?? []).filter((quarter) => quarter.number === tab);
+  const beginEditing = (quarter: QuarterNumber, action: Extract<CaptureAction, { kind: "player-statistic" }>) => {
+    setEditing({ quarter, action });
     setCorrection({ playerId: action.playerId, position: action.position, statistic: action.statistic });
   };
-  const latest = capture.captureActions.at(-1);
-  const latestLabel = latest ? captureActionLabel(latest, players) : "No events recorded yet";
-  const followLatest = () => {
-    if (scrollArea.current) scrollArea.current.scrollTop = scrollArea.current.scrollHeight;
-    wasAtLatest.current = true;
-    setUnreadEventCount(0);
-  };
-  return <section className="active-event-feed" aria-labelledby="active-event-feed-title"><details open={drawerOpen} onToggle={(event) => setDrawerOpen(event.currentTarget.open)}><summary>Event feed · {latestLabel}</summary><div className="event-feed-content"><h3 id="active-event-feed-title">Quarter {capture.number} event feed</h3>{unreadEventCount > 0 && <button type="button" className="new-events" onClick={followLatest}>{unreadEventCount} new event{unreadEventCount === 1 ? "" : "s"}</button>}<div ref={scrollArea} className="event-feed-scroll" aria-label={`Quarter ${capture.number} Event feed`} onScroll={(event) => { const element = event.currentTarget; wasAtLatest.current = element.scrollTop + element.clientHeight >= element.scrollHeight - 16; }}>{!capture.captureActions.length && <p>No events recorded yet.</p>}<ol>{capture.captureActions.map((action) => <li key={action.id}>{action.kind === "opposition-goal" ? <span>{captureActionLabel(action, players)}</span> : <><span>{captureActionLabel(action, players)}</span><button type="button" className="text-button" onClick={() => beginEditing(action)}>Correct event</button></>}<button type="button" className="text-button" onClick={() => void actions.deleteQuarterAction(capture.number, action.id)}>Remove event</button></li>)}</ol>{editing && correction && <form className="court-change-form" onSubmit={(event) => { event.preventDefault(); void actions.correctQuarterPlayerStatistic(capture.number, editing.id, correction).then(() => setEditing(undefined)); }}><h3>Correct event</h3><label>Player<select aria-label="Event correction player" value={correction.playerId} onChange={(event) => setCorrection({ ...correction, playerId: event.target.value })}>{players.map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label><label>Position<select aria-label="Event correction position" value={correction.position} onChange={(event) => setCorrection({ ...correction, position: event.target.value as Position })}>{POSITIONS.map((position) => <option key={position} value={position}>{positionAbbreviation[position]}</option>)}</select></label><label>Event<select aria-label="Event correction statistic" value={correction.statistic} onChange={(event) => setCorrection({ ...correction, statistic: event.target.value as PlayerStatistic })}>{PLAYER_STATISTICS.map((statistic) => <option key={statistic} value={statistic}>{statistic}</option>)}</select></label><button type="submit">Save event correction</button><button type="button" className="text-button" onClick={() => setEditing(undefined)}>Cancel correction</button></form>}</div></div></details></section>;
-}
-
-function CourtChangeForm({ court, squad, onApply }: { court: StartingLineup; squad: { id: string; name: string; nickname?: string }[]; onApply: (input: { position: Position; playerId: string }) => Promise<void> }) {
-  const [position, setPosition] = useState<Position>("Goal Keeper");
-  const [playerId, setPlayerId] = useState("");
-  const availablePlayers = squad.filter((player) => !Object.entries(court).some(([occupiedPosition, occupiedPlayerId]) => occupiedPosition !== position && occupiedPlayerId === player.id));
-  return <div className="court-change-form"><p>Record one Substitution for a Position. It takes effect for every later player event in this Quarter.</p><label>Position<select aria-label="Substitution Position" value={position} onChange={(event) => { setPosition(event.target.value as Position); setPlayerId(""); }}>{POSITIONS.map((candidate) => <option key={candidate} value={candidate}>{candidate}</option>)}</select></label><label>Player<select aria-label="Substitution Player" value={playerId} onChange={(event) => setPlayerId(event.target.value)}><option value="">Choose player</option>{availablePlayers.map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label><button disabled={!playerId} onClick={() => void onApply({ position, playerId })}>Record Substitution</button></div>;
+  return <div className="event-feed-drawer-backdrop"><section className="event-feed-drawer" role="dialog" aria-modal="true" aria-label="Event feed"><div className="section-heading"><div><p className="eyebrow">EVENT FEED</p><h2>{tab === "match" ? "All Match events" : `Quarter ${tab} events`}</h2></div><button type="button" className="text-button" onClick={onClose}>Close Event feed</button></div><div className="event-feed-drawer-scroll">{quarters.every((quarter) => !quarter.captureActions.length && <p>No events recorded yet.</p>)}<ol>{quarters.flatMap((quarter) => quarter.captureActions.map((action) => <li key={action.id}>{tab === "match" && <strong>Quarter {quarter.number} · </strong>}<span>{captureActionLabel(action, players)}</span>{action.kind === "player-statistic" && <button type="button" className="text-button" aria-label="Correct event" onClick={() => beginEditing(quarter.number, action)}><span aria-hidden="true">✎</span></button>}<button type="button" className="text-button" aria-label="Remove event" onClick={() => setDeleting({ quarter: quarter.number, actionId: action.id })}><span aria-hidden="true">×</span></button></li>))}</ol></div>{editing && correction && <div className="event-correction-modal" role="dialog" aria-modal="true" aria-label="Correct event"><form className="court-change-form" onSubmit={(event) => { event.preventDefault(); void actions.correctQuarterPlayerStatistic(editing.quarter, editing.action.id, correction).then(() => setEditing(undefined)); }}><h3>Correct event</h3><label>Player<select aria-label="Event correction player" value={correction.playerId} onChange={(event) => setCorrection({ ...correction, playerId: event.target.value })}>{players.map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label><label>Position<select aria-label="Event correction position" value={correction.position} onChange={(event) => setCorrection({ ...correction, position: event.target.value as Position })}>{POSITIONS.map((position) => <option key={position} value={position}>{positionAbbreviation[position]}</option>)}</select></label><label>Event<select aria-label="Event correction statistic" value={correction.statistic} onChange={(event) => setCorrection({ ...correction, statistic: event.target.value as PlayerStatistic })}>{PLAYER_STATISTICS.map((statistic) => <option key={statistic} value={statistic}>{statistic}</option>)}</select></label><button type="submit">Save event correction</button><button type="button" className="text-button" onClick={() => setEditing(undefined)}>Cancel correction</button></form></div>}{deleting && <DestructiveConfirmation title="Delete event?" description="This recorded event will be removed and all derived scores and summaries will update." cancelLabel="Keep event" confirmLabel="Delete event" onCancel={() => setDeleting(undefined)} onConfirm={async () => { await actions.deleteQuarterAction(deleting.quarter, deleting.actionId); setDeleting(undefined); }} />}</section></div>;
 }

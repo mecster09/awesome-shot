@@ -49,6 +49,7 @@ describe("GameSession setup", () => {
     const first = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
 
     await expect(session.createSeason({ name: "2027 Winter", teamName: " roses " })).rejects.toThrow("active");
+    await expect(session.createTeam({ name: "Violets" })).rejects.toThrow("Rename");
     await session.endSeason(first.id);
     const second = await session.createSeason({ name: "2027 Winter", teamName: " roses " });
 
@@ -71,6 +72,28 @@ describe("GameSession setup", () => {
     await session.abandonGame(match.id);
     await session.endSeason(season.id);
     await expect(session.startMatch({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id), startingLineup: { "Goal Keeper": players[0].id, "Goal Defence": players[1].id, "Wing Defence": players[2].id, Centre: players[3].id, "Wing Attack": players[4].id, "Goal Attack": players[5].id, "Goal Shooter": players[6].id } })).rejects.toThrow("active");
+  });
+
+  it("renames the active Team and Season while retaining the Team name frozen on terminal Matches", async () => {
+    const session = await GameSession.open(new InMemoryGameSessionStore());
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
+    const match = await session.startMatch({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", squadPlayerIds: players.map((player) => player.id), startingLineup: { "Goal Keeper": players[0].id, "Goal Defence": players[1].id, "Wing Defence": players[2].id, Centre: players[3].id, "Wing Attack": players[4].id, "Goal Attack": players[5].id, "Goal Shooter": players[6].id } });
+
+    await session.renameTeam(season.teamId, { name: "Violets" });
+    await session.renameSeason(season.id, { name: "2026 Spring" });
+    expect(session.setup().teams).toMatchObject([{ id: season.teamId, name: "Violets" }]);
+    expect(session.setup().seasons).toMatchObject([{ id: season.id, name: "2026 Spring" }]);
+
+    await session.abandonGame(match.id);
+    const legacyBackup = JSON.parse(session.exportBackup()) as { data: { games: Array<{ teamName?: string }> } };
+    delete legacyBackup.data.games[0].teamName;
+    await session.importBackup(JSON.stringify(legacyBackup), "replace", true);
+    await session.renameTeam(season.teamId, { name: "Orchids" });
+
+    expect(session.terminalMatchReport(match.id).teamName).toBe("Violets");
+    expect(session.setup().teams).toMatchObject([{ id: season.teamId, name: "Orchids" }]);
   });
 
   it("migrates legacy season team names into reusable teams without losing season records", async () => {
@@ -378,6 +401,37 @@ describe("GameSession live quarter capture", () => {
     await expect(abandoned.session.deleteCaptureAction(abandoned.game.id, 1, actionId)).rejects.toThrow("Only a live game");
     await expect(abandoned.session.correctPlayerStatistic(abandoned.game.id, 1, actionId, { playerId: abandoned.players[7].id, position: "Wing Defence", statistic: "Intercept" })).rejects.toThrow("Only a live game");
     await expect(abandoned.session.endQuarter(abandoned.game.id)).rejects.toThrow("no live quarter");
+  });
+
+  it("projects completed quarter and Match summaries with zero-event Player–Position rows", async () => {
+    const { session, players, game } = await startLiveMatch();
+    await session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Tip" });
+    await session.substitutePlayer(game.id, { position: "Centre", playerId: players[7].id });
+    await session.endQuarter(game.id);
+
+    const quarterSummary = session.statisticsSummary(game.id, { scope: "quarter", quarter: 1 });
+    expect(quarterSummary.availableTabs).toEqual([1, "match"]);
+    expect(quarterSummary.stints).toContainEqual({ playerId: players[3].id, position: "Centre", playerStatistics: [{ playerId: players[3].id, position: "Centre", statistic: "Tip", count: 1 }] });
+    expect(quarterSummary.stints).toContainEqual({ playerId: players[7].id, position: "Centre", playerStatistics: [] });
+    expect(quarterSummary.stints).toContainEqual({ playerId: players[0].id, position: "Goal Keeper", playerStatistics: [] });
+    expect(session.statisticsSummary(game.id, { scope: "match" }).stints).toEqual(quarterSummary.stints);
+  });
+
+  it("combines Match totals while retaining each Player–Position combination", async () => {
+    const { session, players, game } = await startLiveMatch();
+    await session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Tip" });
+    await session.endQuarter(game.id);
+    const nextCourt = session.nextQuarterCourt(game.id);
+    nextCourt.Centre = players[7].id;
+    nextCourt["Wing Attack"] = players[3].id;
+    await session.startNextQuarter(game.id, nextCourt);
+    await session.recordPlayerStatistic(game.id, { position: "Wing Attack", statistic: "Intercept" });
+    await session.endQuarter(game.id);
+
+    expect(session.statisticsSummary(game.id, { scope: "match" }).stints).toEqual(expect.arrayContaining([
+      { playerId: players[3].id, position: "Centre", playerStatistics: [{ playerId: players[3].id, position: "Centre", statistic: "Tip", count: 1 }] },
+      { playerId: players[3].id, position: "Wing Attack", playerStatistics: [{ playerId: players[3].id, position: "Wing Attack", statistic: "Intercept", count: 1 }] }
+    ]));
   });
 
   it("exposes a read-only report model only for terminal matches", async () => {

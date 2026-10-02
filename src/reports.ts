@@ -6,15 +6,18 @@ const csvCell = (value: string | number) => {
 };
 
 export function createMatchCsv(report: TerminalMatchReport): string {
-  const headers = ["match_id", "match_date", "team_name", "opposition_name", "terminal_status", "outcome", "winner", "final_own_score", "final_opposition_score", "quarter", "quarter_own_score", "quarter_opposition_score", "player_id", "position", ...PLAYER_STATISTICS];
+  const headers = ["match_id", "match_date", "team_name", "opposition_name", "terminal_status", "outcome", "winner", "final_own_score", "final_opposition_score", "quarter", "quarter_own_score", "quarter_opposition_score", "player_id", "position", ...PLAYER_STATISTICS, "event_sequence", "event_kind", "event_player_id", "event_position", "event_statistic"];
   const rows = report.quarters.flatMap((quarter) => {
+    const context = [report.id, report.date, report.teamName, report.oppositionName, report.status, report.outcome.kind, "", report.score.own, report.score.opposition, quarter.number, quarter.ownScore, quarter.oppositionScore];
     const pairs = new Map<string, { playerId: string; position: string }>();
     for (const entry of [...quarter.startingLineup, ...quarter.substitutions.filter((substitution) => substitution.playerId).map((substitution) => ({ playerId: substitution.playerId!, position: substitution.position }))]) pairs.set(`${entry.playerId}:${entry.position}`, entry);
     for (const statistic of quarter.playerStatistics) pairs.set(`${statistic.playerId}:${statistic.position}`, statistic);
-    return [...pairs.values()].map(({ playerId, position }) => {
+    const statisticsRows = [...pairs.values()].map(({ playerId, position }) => {
       const totals = new Map(quarter.playerStatistics.filter((statistic) => statistic.playerId === playerId && statistic.position === position).map((statistic) => [statistic.statistic, statistic.count]));
-      return [report.id, report.date, report.teamName, report.oppositionName, report.status, report.outcome.kind, "", report.score.own, report.score.opposition, quarter.number, quarter.ownScore, quarter.oppositionScore, playerId, position, ...PLAYER_STATISTICS.map((statistic) => totals.get(statistic) ?? 0)];
+      return [...context, playerId, position, ...PLAYER_STATISTICS.map((statistic) => totals.get(statistic) ?? 0), "", "", "", "", ""];
     });
+    const eventRows = quarter.events.map((event) => [...context, "", "", ...PLAYER_STATISTICS.map(() => 0), event.sequence, event.kind, event.kind === "player-statistic" ? event.playerId : "", event.kind === "player-statistic" ? event.position : "", event.kind === "player-statistic" ? event.statistic : ""]);
+    return [...statisticsRows, ...eventRows];
   });
   return [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
 }
@@ -34,6 +37,7 @@ export function createMatchPdf(report: TerminalMatchReport): Uint8Array {
       `Quarter ${quarter.number}: ${quarter.ownScore} - ${quarter.oppositionScore}`,
       `Starting court: ${quarter.startingLineup.map((entry) => `${entry.position}: ${entry.playerName}`).join(", ")}`,
       ...quarter.substitutions.map((substitution) => `Substitution ${substitution.sequence}: ${substitution.position}: ${substitution.playerName ?? "Vacant"}`),
+      ...quarter.events.map((event) => event.kind === "opposition-goal" ? `Event ${event.sequence}: Opposition goal` : `Event ${event.sequence}: ${event.playerName} · ${event.position} · ${event.statistic}`),
       ...quarter.playerStatistics.map((statistic) => `${statistic.position} ${statistic.playerName} - ${statistic.statistic}: ${statistic.count}`)
     ]),
     "Game totals",

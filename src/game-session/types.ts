@@ -66,7 +66,15 @@ export type Quarter = {
 export type PlayerStatisticTotal = { playerId: string; position: Position; statistic: PlayerStatistic; count: number };
 export type PlayerPositionStint = { playerId: string; position: Position; playerStatistics: PlayerStatisticTotal[] };
 export type BetweenQuarterStatistics = { previousQuarter: QuarterNumber; previousQuarterStints: PlayerPositionStint[]; matchStints: PlayerPositionStint[] };
+export type StatisticsSummary = {
+  availableTabs: Array<QuarterNumber | "match">;
+  stints: PlayerPositionStint[];
+  readOnly: boolean;
+};
 export type ReportPlayerStatisticTotal = PlayerStatisticTotal & { playerName: string };
+export type ReportEvent =
+  | { sequence: number; kind: "opposition-goal" }
+  | { sequence: number; kind: "player-statistic"; playerId: string; playerName: string; position: Position; statistic: PlayerStatistic };
 export type TerminalMatchReport = {
   id: string;
   date: string;
@@ -82,6 +90,7 @@ export type TerminalMatchReport = {
     startingLineup: Array<{ position: Position; playerId: string; playerName: string }>;
     substitutions: Array<{ sequence: number; position: Position; playerId?: string; playerName?: string }>;
     playerStatistics: ReportPlayerStatisticTotal[];
+    events: ReportEvent[];
   }>;
   gamePlayerStatistics: ReportPlayerStatisticTotal[];
 };
@@ -106,6 +115,7 @@ export type GameOutcome =
 export type Game = {
   id: string;
   seasonId: string;
+  teamName?: string;
   oppositionId: string;
   date: string;
   squadPlayerIds: string[];

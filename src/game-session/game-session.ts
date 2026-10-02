@@ -1,4 +1,4 @@
-import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, TOTAL_QUARTERS, type BetweenQuarterStatistics, type CaptureAction, type CourtSetupDraft, type Game, type GameSessionStore, type LiveQuarterCapture, type MatchIdentityDraft, type MatchSetupDraft, type MatchSquadDraft, type Opposition, type Player, type PlayerPositionStint, type PlayerStatistic, type PlayerStatisticTotal, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartMatchInput, type StartingLineup, type Team, type TerminalMatchReport } from "./types";
+import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, TOTAL_QUARTERS, type BetweenQuarterStatistics, type CaptureAction, type CourtSetupDraft, type Game, type GameSessionStore, type LiveQuarterCapture, type StatisticsSummary, type MatchIdentityDraft, type MatchSetupDraft, type MatchSquadDraft, type Opposition, type Player, type PlayerPositionStint, type PlayerStatistic, type PlayerStatisticTotal, type Position, type Quarter, type QuarterNumber, type Season, type SetupData, type SetupSummary, type StartMatchInput, type StartingLineup, type Team, type TerminalMatchReport } from "./types";
 
 const emptySetup = (): SetupData => ({ teams: [], seasons: [], players: [], opposition: [], games: [] });
 const backupFormat = "natball-insights-backup";
@@ -133,10 +133,23 @@ export class GameSession {
     const name = requireText(input.name, "Team name");
     const existing = this.data.teams.find((team) => nameKey(team.name) === nameKey(name));
     if (existing) return structuredClone(existing);
+    if (this.data.teams.length) throw new Error("Rename the saved team instead of creating another.");
     const team = { id: crypto.randomUUID(), name };
     this.data.teams.push(team);
     await this.persist();
     return structuredClone(team);
+  }
+
+  async renameTeam(id: string, input: { name: string }): Promise<void> {
+    const team = this.requireTeam(id);
+    const name = requireText(input.name, "Team name");
+    const duplicate = this.data.teams.find((candidate) => candidate.id !== id && nameKey(candidate.name) === nameKey(name));
+    if (duplicate) throw new Error("A team with this name already exists.");
+    for (const game of this.data.games) {
+      if (isTerminalMatch(game) && !game.teamName && this.requireSeason(game.seasonId).teamId === id) game.teamName = team.name;
+    }
+    team.name = name;
+    await this.persist();
   }
 
   async createSeason(input: { name: string; teamId?: string; teamName?: string }): Promise<Season> {
@@ -152,6 +165,12 @@ export class GameSession {
     this.data.seasons.push(season);
     await this.persist();
     return structuredClone(season);
+  }
+
+  async renameSeason(id: string, input: { name: string }): Promise<void> {
+    const season = this.requireActiveSeason(id);
+    season.name = requireText(input.name, "Season name");
+    await this.persist();
   }
 
   async endSeason(id: string): Promise<void> {
@@ -270,12 +289,15 @@ export class GameSession {
       oppositionScore: this.score(quarter.captureActions).opposition,
       startingLineup: lineup(quarter.startingLineup),
       substitutions: quarter.substitutions.map((substitution) => ({ ...substitution, ...(substitution.playerId ? { playerName: playerName(substitution.playerId) } : {}) })),
-      playerStatistics: this.statisticTotals(quarter.captureActions).map((statistic) => ({ ...statistic, playerName: playerName(statistic.playerId) }))
+      playerStatistics: this.statisticTotals(quarter.captureActions).map((statistic) => ({ ...statistic, playerName: playerName(statistic.playerId) })),
+      events: quarter.captureActions.map((action, index) => action.kind === "opposition-goal"
+        ? { sequence: index + 1, kind: "opposition-goal" as const }
+        : { sequence: index + 1, kind: "player-statistic" as const, playerId: action.playerId, playerName: playerName(action.playerId), position: action.position, statistic: action.statistic })
     }));
     return structuredClone({
       id: game.id,
       date: game.date,
-      teamName: this.requireTeam(this.requireSeason(game.seasonId).teamId).name,
+      teamName: game.teamName ?? this.teamNameFor(game),
       oppositionName: this.data.opposition.find((opposition) => opposition.id === game.oppositionId)?.name ?? "Unknown opposition",
       status: game.status,
       outcome: game.outcome,
@@ -415,6 +437,19 @@ export class GameSession {
     return this.capture(game, quarter);
   }
 
+  statisticsSummary(id: string, selection: { scope: "match" } | { scope: "quarter"; quarter: QuarterNumber }): StatisticsSummary {
+    const game = this.data.games.find((candidate) => candidate.id === id);
+    if (!game) throw new Error("Match was not found.");
+    const quarters = game.quarters ?? [];
+    const selectedQuarters = selection.scope === "match" ? quarters : quarters.filter((quarter) => quarter.number === selection.quarter);
+    if (!selectedQuarters.length) throw new Error("Quarter was not found.");
+    return structuredClone({
+      availableTabs: [...quarters.map((quarter) => quarter.number), "match"],
+      stints: this.playerPositionStints(game, selectedQuarters),
+      readOnly: isTerminalMatch(game)
+    });
+  }
+
   async deleteCaptureAction(id: string, number: QuarterNumber, actionId: string): Promise<void> {
     const game = this.requireLiveGame(id);
     const quarter = this.requireUnfinalisedQuarter(game, number);
@@ -443,6 +478,7 @@ export class GameSession {
     game.status = "finalised";
     game.outcome = { kind: "completed" };
     game.finalScore = score;
+    game.teamName = this.teamNameFor(game);
     await this.persist();
   }
 
@@ -456,6 +492,7 @@ export class GameSession {
     game.outcome = outcome;
     game.incomplete = true;
     game.finalScore = this.gameScore(id);
+    game.teamName = this.teamNameFor(game);
     await this.persist();
   }
 
@@ -510,12 +547,17 @@ export class GameSession {
   }
 
   async substitutePlayer(id: string, input: { position: Position; playerId: string }): Promise<void> {
+    const { quarter } = this.requireLiveQuarter(id);
+    await this.saveSubstitutions(id, { ...this.currentLineup(quarter), [input.position]: input.playerId });
+  }
+
+  async saveSubstitutions(id: string, nextCourt: StartingLineup): Promise<void> {
     const { game, quarter } = this.requireLiveQuarter(id);
-    if (!game.squadPlayerIds.includes(input.playerId)) throw new Error("Choose a player from the match squad.");
     const court = this.currentLineup(quarter);
-    if (court[input.position] === input.playerId) throw new Error("This player already occupies the Position.");
-    if (Object.entries(court).some(([position, playerId]) => position !== input.position && playerId === input.playerId)) throw new Error("A player can occupy only one Position.");
-    quarter.substitutions.push({ sequence: quarter.substitutions.length + 1, ...input });
+    this.validateCourt(game, nextCourt);
+    const changes = POSITIONS.filter((position) => court[position] !== nextCourt[position]);
+    if (!changes.length) throw new Error("Change at least one Court Position before saving.");
+    quarter.substitutions.push(...changes.map((position, index) => ({ sequence: quarter.substitutions.length + index + 1, position, ...(nextCourt[position] ? { playerId: nextCourt[position] } : {}) })));
     await this.persist();
   }
 
@@ -529,6 +571,10 @@ export class GameSession {
     const team = this.data.teams.find((candidate) => candidate.id === id);
     if (!team) throw new Error("Team was not found.");
     return team;
+  }
+
+  private teamNameFor(game: Game): string {
+    return this.requireTeam(this.requireSeason(game.seasonId).teamId).name;
   }
 
   private requireActiveOpposition(id: string): Opposition {
@@ -634,7 +680,6 @@ export class GameSession {
       }
     }
     for (const statistic of this.statisticTotals(quarters.flatMap((quarter) => quarter.captureActions))) {
-      addStint(statistic.playerId, statistic.position);
       const stint = stints.get(`${statistic.playerId}:${statistic.position}`);
       if (stint) stint.playerStatistics.push(statistic);
     }
