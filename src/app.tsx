@@ -106,10 +106,14 @@ export function App({ store }: AppProps) {
   const courtSetupDraft = setup.matchSetupDraft?.stage === "court-setup" ? setup.matchSetupDraft : undefined;
   const currentView = deriveCurrentView({ matchView, setup, liveMatch, latestTerminalMatch, nextQuarterCourt: (gameId) => session.nextQuarterCourt(gameId) });
   const navigationView = currentView.kind === "history" ? "history" : currentView.kind === "settings" || currentView.kind === "settings-section" ? "settings" : "match";
+  const navigationTitle = navigationView === "history" ? "Match History" : navigationView === "settings" ? "Dashboard Settings" : liveMatch ? `${editableTeam?.name ?? "Team"} vs ${setup.activeOpposition.find((opposition) => opposition.id === liveMatch.oppositionId)?.name ?? "Opposition"}` : "Pre-Match Setup";
+  const liveScore = liveMatch ? session.gameScore(liveMatch.id) : undefined;
 
   return <main className="app-shell">
     <CoachNavigation
       activeView={navigationView}
+      title={navigationTitle}
+      score={navigationView === "match" ? liveScore : undefined}
       onOpenMatch={() => setMatchView(undefined)}
       onOpenHistory={() => setMatchView({ kind: "history" })}
       onOpenSettings={() => setMatchView({ kind: "settings" })}
@@ -190,24 +194,40 @@ export function App({ store }: AppProps) {
     </div>
   </main>;
 }
-function CoachNavigation({ activeView, onOpenMatch, onOpenHistory, onOpenSettings }: { activeView?: "match" | "history" | "settings"; onOpenMatch: () => void; onOpenHistory: () => void; onOpenSettings: () => void }) {
-  const compactRail = useCompactCoachRail();
+function CoachNavigation({ activeView, title, score, onOpenMatch, onOpenHistory, onOpenSettings }: { activeView?: "match" | "history" | "settings"; title: string; score?: { own: number; opposition: number }; onOpenMatch: () => void; onOpenHistory: () => void; onOpenSettings: () => void }) {
+  const [open, setOpen] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
+  const closeDrawer = () => { setOpen(false); requestAnimationFrame(() => menuButton.current?.focus()); };
+  useEffect(() => {
+    if (!open) return;
+    closeButton.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeDrawer();
+      if (event.key === "Tab") {
+        const drawer = closeButton.current?.closest(".navigation-drawer");
+        const focusable = drawer ? Array.from(drawer.querySelectorAll<HTMLElement>("button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled)")) : [];
+        const first = focusable[0]; const last = focusable.at(-1);
+        if (first && last && ((event.shiftKey && document.activeElement === first) || (!event.shiftKey && document.activeElement === last))) { event.preventDefault(); (event.shiftKey ? last : first).focus(); }
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open]);
   const items: Array<{ key: "match" | "history" | "settings"; label: string; icon: "court" | "history" | "settings"; onClick: () => void }> = [
     { key: "match" as const, label: "Match", icon: "court", onClick: onOpenMatch },
     { key: "history" as const, label: "History", icon: "history", onClick: onOpenHistory },
     { key: "settings" as const, label: "Settings", icon: "settings", onClick: onOpenSettings }
   ];
 
-  return <nav className="coach-navigation" aria-label="Coach navigation" data-layout={compactRail ? "compact-rail" : "labeled-bottom"}>
-    <div className="app-identity"><AppMark /><span><strong>Natball</strong><small>Insights</small></span></div>
-    <div className="coach-navigation-items">{items.map((item) => <button key={item.key} type="button" className="coach-navigation-item" aria-current={activeView === item.key ? "page" : undefined} onClick={item.onClick}><NavigationIcon name={item.icon} /><span>{item.label}</span></button>)}</div>
-  </nav>;
+  const choose = (item: typeof items[number]) => { item.onClick(); closeDrawer(); };
+  return <>
+    <header className="app-top-bar"><button ref={menuButton} type="button" className="menu-button" aria-label="Open navigation menu" aria-expanded={open} onClick={() => setOpen(true)}><MenuIcon /></button><AppMark /><div className="top-bar-identity"><span>Natball Insights</span><strong>{title}</strong></div>{score && <p className="top-bar-score" aria-label={`Live score ${score.own} to ${score.opposition}`}>{score.own}<span>–</span>{score.opposition}</p>}</header>
+    {open && <div className="navigation-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDrawer(); }}><aside className="navigation-drawer" role="dialog" aria-modal="true" aria-label="Coach navigation"><div className="drawer-heading"><div className="app-identity"><AppMark /><span><strong>Natball</strong><small>Insights</small></span></div><button ref={closeButton} type="button" className="drawer-close" aria-label="Close navigation menu" onClick={closeDrawer}>×</button></div><nav aria-label="Coach destinations">{items.map((item) => <button key={item.key} type="button" className="drawer-navigation-item" aria-current={activeView === item.key ? "page" : undefined} onClick={() => choose(item)}><NavigationIcon name={item.icon} /><span>{item.label}</span></button>)}</nav></aside></div>}
+  </>;
 }
 
-function useCompactCoachRail() {
-  const query = "(min-width: 768px) and (orientation: landscape)";
-  return useMediaQuery(query);
-}
+function MenuIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>; }
 
 function useMediaQuery(query: string) {
   const [matches, setMatches] = useState(() => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(query).matches);
@@ -218,7 +238,7 @@ function useMediaQuery(query: string) {
     update();
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
-  }, []);
+  }, [query]);
   return matches;
 }
 
