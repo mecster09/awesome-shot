@@ -158,7 +158,7 @@ describe("Natball Insights setup", () => {
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
     const opposition = await session.addOpposition({ name: "Thunder" });
     const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia", "Hana"].map((name) => session.addPlayer({ name })));
-    await startLiveMatch(session, season.id, opposition.id, players);
+    const game = await startLiveMatch(session, season.id, opposition.id, players);
     const user = userEvent.setup();
     render(<App store={store} />);
 
@@ -950,6 +950,27 @@ describe("Natball Insights setup", () => {
     expect(screen.getByLabelText("Current court event grid")).toBe(grid);
     await user.click(screen.getByRole("button", { name: "Record Goals for Faye" }));
     expect(await screen.findByRole("button", { name: "Event Feed (1)" })).toBeInTheDocument();
+  });
+
+  it("keeps every live Event cell reachable in its contained phone-width matrix", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
+    const game = await startLiveMatch(session, season.id, opposition.id, players);
+    const user = userEvent.setup();
+    render(<App store={store} />);
+
+    const matrix = await screen.findByRole("region", { name: "Current court event grid" });
+    expect(matrix).toHaveClass("current-court-scroll");
+    expect(within(matrix).getAllByRole("heading", { level: 3 })).toHaveLength(7);
+    expect(within(matrix).getAllByRole("button", { name: /for/ })).toHaveLength(56);
+    expect(within(matrix).getByRole("button", { name: "Goals is unavailable for Ava" })).toBeDisabled();
+    expect(within(matrix).getByRole("button", { name: "Record Goals for Faye" })).toBeEnabled();
+
+    await user.click(within(matrix).getByRole("button", { name: "Record Goals for Faye" }));
+    await waitFor(async () => expect((await GameSession.open(store)).gameScore(game.id)).toEqual({ own: 1, opposition: 0 }));
   });
 
   it("confirms the live count badge before removing its most recent matching event", async () => {
