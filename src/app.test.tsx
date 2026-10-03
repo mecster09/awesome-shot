@@ -804,6 +804,37 @@ describe("Natball Insights setup", () => {
     expect(screen.getByLabelText("Quarter 1 statistics")).toHaveTextContent("No events");
   });
 
+  it("shows Live match context in the top bar and records an opposition goal from it", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
+    const game = await startLiveMatch(session, season.id, opposition.id, players);
+    const user = userEvent.setup();
+    render(<App store={store} />);
+
+    const topBar = await screen.findByRole("banner", { name: "Live match context" });
+    expect(within(topBar).getByText("Roses vs Thunder")).toBeInTheDocument();
+    expect(within(topBar).getByText("Match 0 – 0")).toBeInTheDocument();
+    expect(within(topBar).getByText("Q1 0 – 0")).toBeInTheDocument();
+    await user.click(within(topBar).getByRole("button", { name: "Add opposition goal" }));
+    expect(await within(topBar).findByText("Match 0 – 1")).toBeInTheDocument();
+    expect(within(topBar).getByText("Q1 0 – 1")).toBeInTheDocument();
+    await waitFor(async () => expect((await GameSession.open(store)).gameScore(game.id)).toEqual({ own: 0, opposition: 1 }));
+    expect((await GameSession.open(store)).liveQuarter(game.id).captureActions).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: /Open Event feed/ }));
+    const eventFeed = await screen.findByRole("dialog", { name: "Event feed" });
+    expect(eventFeed).toHaveTextContent("Opponent goal");
+    await user.click(within(eventFeed).getByRole("button", { name: "Close Event feed" }));
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(async () => expect((await GameSession.open(store)).gameScore(game.id)).toEqual({ own: 0, opposition: 0 }));
+    expect((await GameSession.open(store)).liveQuarter(game.id).captureActions).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "End Quarter" }));
+    expect(await screen.findByRole("dialog", { name: "Quarter 1 summary" })).toBeInTheDocument();
+    expect(screen.queryByRole("banner", { name: "Live match context" })).not.toBeInTheDocument();
+  });
+
   it("keeps compact Match capture actions reachable without an overlay", async () => {
     vi.stubGlobal("matchMedia", vi.fn().mockImplementation(() => ({
       matches: true,
