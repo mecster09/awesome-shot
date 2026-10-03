@@ -706,6 +706,11 @@ describe("Natball Insights setup", () => {
     expect((await GameSession.open(store)).match(game.id)?.quarters?.[0].substitutions).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: /Event Feed/ }));
     expect(screen.getByRole("heading", { name: "Quarter 1 events" })).toBeInTheDocument();
+    expect(within(screen.getByRole("dialog", { name: "Event feed" })).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "Faye · GA · Goals✎×",
+      "Opponent goal×",
+      "Substitution · C: Hana"
+    ]);
     expect(screen.getAllByText("Opponent goal")).toHaveLength(2);
     expect(screen.getByText((_, element) => element?.textContent === "Faye · GA · Goals")).toBeInTheDocument();
     expect(screen.getByText("GA")).toBeInTheDocument();
@@ -890,6 +895,24 @@ describe("Natball Insights setup", () => {
     expect(screen.getByLabelText("Current court event grid")).toBe(grid);
     await user.click(screen.getByRole("button", { name: "Record Goals for Faye" }));
     expect(await screen.findByRole("button", { name: "Event Feed (1)" })).toBeInTheDocument();
+  });
+
+  it("confirms the live count badge before removing its most recent matching event", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
+    const game = await startLiveMatch(session, season.id, opposition.id, players);
+    const user = userEvent.setup();
+    render(<App store={store} />);
+
+    await user.click(await screen.findByRole("button", { name: "Record Goals for Faye" }));
+    await user.click(screen.getByRole("button", { name: "Remove most recent Goals for Faye" }));
+    expect(screen.getByRole("alertdialog", { name: "Remove most recent event?" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Remove event" }));
+    await waitFor(async () => expect((await GameSession.open(store)).gameScore(game.id)).toEqual({ own: 0, opposition: 0 }));
+    expect(screen.queryByRole("button", { name: "Remove most recent Goals for Faye" })).not.toBeInTheDocument();
   });
 
   it("scopes drawer events to its selected tab and corrects or deletes them with confirmation", async () => {

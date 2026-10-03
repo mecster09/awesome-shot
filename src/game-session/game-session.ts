@@ -530,13 +530,13 @@ export class GameSession {
     }
     const playerId = this.currentLineup(quarter)[input.position];
     if (!playerId) throw new Error("Assign a player to this position before recording a statistic.");
-    quarter.captureActions.push({ id: crypto.randomUUID(), kind: "player-statistic", playerId, position: input.position, statistic: input.statistic });
+    quarter.captureActions.push({ id: crypto.randomUUID(), kind: "player-statistic", playerId, position: input.position, statistic: input.statistic, captureOrder: this.nextCaptureOrder(quarter) });
     await this.persist();
   }
 
   async recordOppositionGoal(id: string): Promise<void> {
     const { quarter } = this.requireLiveQuarter(id);
-    quarter.captureActions.push({ id: crypto.randomUUID(), kind: "opposition-goal" });
+    quarter.captureActions.push({ id: crypto.randomUUID(), kind: "opposition-goal", captureOrder: this.nextCaptureOrder(quarter) });
     await this.persist();
   }
 
@@ -558,8 +558,13 @@ export class GameSession {
     this.validateCourt(game, nextCourt);
     const changes = POSITIONS.filter((position) => court[position] !== nextCourt[position]);
     if (!changes.length) throw new Error("Change at least one Court Position before saving.");
-    quarter.substitutions.push(...changes.map((position, index) => ({ sequence: quarter.substitutions.length + index + 1, position, ...(nextCourt[position] ? { playerId: nextCourt[position] } : {}) })));
+    const captureOrder = this.nextCaptureOrder(quarter);
+    quarter.substitutions.push(...changes.map((position, index) => ({ sequence: quarter.substitutions.length + index + 1, captureOrder: captureOrder + index, position, ...(nextCourt[position] ? { playerId: nextCourt[position] } : {}) })));
     await this.persist();
+  }
+
+  private nextCaptureOrder(quarter: Quarter): number {
+    return Math.max(0, ...quarter.captureActions.map((action) => action.captureOrder ?? 0), ...quarter.substitutions.map((substitution) => substitution.captureOrder ?? 0)) + 1;
   }
 
   private requireSeason(id: string): Season {

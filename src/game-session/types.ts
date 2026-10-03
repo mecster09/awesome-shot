@@ -50,10 +50,10 @@ export const PLAYER_STATISTICS = [...GENERAL_STATISTICS, ...SHOOTER_STATISTICS] 
 export type PlayerStatistic = (typeof PLAYER_STATISTICS)[number];
 
 export type CaptureAction =
-  | { id: string; kind: "player-statistic"; playerId: string; position: Position; statistic: PlayerStatistic }
-  | { id: string; kind: "opposition-goal" };
+  | { id: string; kind: "player-statistic"; playerId: string; position: Position; statistic: PlayerStatistic; captureOrder?: number }
+  | { id: string; kind: "opposition-goal"; captureOrder?: number };
 
-export type Substitution = { sequence: number; position: Position; playerId?: string };
+export type Substitution = { sequence: number; position: Position; playerId?: string; captureOrder?: number };
 export type QuarterNumber = 1 | 2 | 3 | 4;
 export type Quarter = {
   number: QuarterNumber;
