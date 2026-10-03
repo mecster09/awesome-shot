@@ -122,6 +122,7 @@ export function App({ store }: AppProps) {
   const navigationView = currentView.kind === "history" ? "history" : currentView.kind === "settings" || currentView.kind === "settings-section" ? "settings" : "match";
   const navigationTitle = navigationView === "history" ? "Match History" : navigationView === "settings" ? "Dashboard Settings" : liveMatch ? `${editableTeam?.name ?? "Team"} vs ${setup.activeOpposition.find((opposition) => opposition.id === liveMatch.oppositionId)?.name ?? "Opposition"}` : "Pre-Match Setup";
   const liveScore = liveMatch ? session.gameScore(liveMatch.id) : undefined;
+  const liveQuarterScore = liveMatch?.activeQuarter ? session.quarterScore(liveMatch.id, liveMatch.activeQuarter) : undefined;
 
   return <main className="app-shell">
     <CoachNavigation
@@ -133,6 +134,7 @@ export function App({ store }: AppProps) {
       onOpenSettings={() => setMatchView({ kind: "settings" })}
     />
     <div className="app-content">
+    {liveMatch && liveScore && liveQuarterScore && <LiveMatchTopBar title={navigationTitle} matchScore={liveScore} quarterNumber={liveMatch.activeQuarter!} quarterScore={liveQuarterScore} onRecordOppositionGoal={() => perform(() => session.recordOppositionGoal(liveMatch.id))} />}
     {error && <p className="error" role="alert">{error}</p>}
     {currentView.kind === "team-setup" && <section className="match-area focused-screen setup-screen setup-flow-screen" aria-labelledby="team-setup-title">
       <div className="setup-flow-card">
@@ -221,6 +223,16 @@ export function App({ store }: AppProps) {
     </div>
   </main>;
 }
+
+function LiveMatchTopBar({ title, matchScore, quarterNumber, quarterScore, onRecordOppositionGoal }: { title: string; matchScore: { own: number; opposition: number }; quarterNumber: QuarterNumber; quarterScore: { own: number; opposition: number }; onRecordOppositionGoal: () => void }) {
+  return <header className="live-match-top-bar" aria-label="Live match context">
+    <div className="live-match-top-bar-identity"><AppMark /><strong>{title}</strong></div>
+    <p>Match {matchScore.own} – {matchScore.opposition}</p>
+    <p>Q{quarterNumber} {quarterScore.own} – {quarterScore.opposition}</p>
+    <button type="button" className="opposition-goal live-match-opposition-goal" aria-label="Add opposition goal" onClick={onRecordOppositionGoal}>+ Opp Goal</button>
+  </header>;
+}
+
 function CoachNavigation({ activeView, title, score, onOpenMatch, onOpenHistory, onOpenSettings }: { activeView?: "match" | "history" | "settings"; title: string; score?: { own: number; opposition: number }; onOpenMatch: () => void; onOpenHistory: () => void; onOpenSettings: () => void }) {
   const items: Array<{ key: "match" | "history" | "settings"; label: string; icon: "court" | "history" | "settings"; onClick: () => void }> = [
     { key: "match" as const, label: "Match", icon: "court", onClick: onOpenMatch },
