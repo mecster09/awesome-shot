@@ -48,10 +48,12 @@ form { display: grid; gap: 13px; margin-top: 20px; }
 .no-match-screen h2 { margin: 0; }
 .no-match-screen p { max-width: 410px; margin: 12px auto 0; color: #636366; line-height: 1.5; }
 .no-match-screen button { margin-top: 24px; border-radius: 12px; }
-.settings-root-actions { display: grid; gap: 1px; margin-top: 22px; overflow: hidden; border: 1px solid #e5e5ea; border-radius: 16px; }
-.settings-group { margin-top: 22px; }.settings-group h3 { margin: 0; color: #636366; font-size: .78rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }.settings-group .settings-root-actions { margin-top: 8px; }
-.settings-root-actions .text-button { display: flex; align-items: center; width: 100%; min-height: 48px; border: 0; border-radius: 0; border-bottom: 1px solid #e5e5ea; color: #1c1c1e; text-align: left; }
-.settings-root-actions .text-button:last-child { border-bottom: 0; }
+.settings-card-grid { display: grid; gap: 16px; margin-top: 22px; }
+.settings-card { display: flex; flex-direction: column; min-height: 172px; padding: 18px; border: 1px solid var(--management-border); border-radius: 16px; background: var(--management-surface); box-shadow: 0 3px 10px rgb(15 23 42 / .04); }
+.settings-card h3 { margin: 0; color: var(--management-text); font-size: 1rem; }.settings-card > p { margin: 8px 0 0; color: var(--management-muted-text); line-height: 1.45; }
+.settings-card-actions { display: grid; gap: 8px; margin-top: auto; padding-top: 18px; }.settings-card-actions .text-button { width: 100%; min-height: 42px; border: 1px solid var(--management-border); border-radius: 10px; text-align: left; }
+.settings-card-actions .overflow-actions { margin: 0; }.settings-card-actions .secondary-button { width: 100%; }.settings-card .settings-guidance { margin: 0; }
+.settings-card-danger { border-color: #f5b8c1; background: #fff7f8; }.settings-card-danger h3 { color: var(--management-warning); }.settings-card-danger .secondary-button { border-color: #f5b8c1; color: var(--management-warning); background: #fff; }
 .focused-screen { min-height: min(620px, calc(100vh - 150px)); display: flex; flex-direction: column; }
 .setup-screen { height: min(620px, calc(100vh - 150px)); overflow: hidden; }
 .setup-flow-screen { display: grid; place-items: center; padding: clamp(20px, 5vw, 48px); background: #f1f3f5; }
@@ -224,10 +226,8 @@ form { display: grid; gap: 13px; margin-top: 20px; }
 @media (min-width: 768px) and (orientation: landscape) {
   .management-screen { min-height: 0; }
   .management-screen.match-history .match-list { grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; overflow: auto; padding-right: 4px; }
-  .settings-root { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 18px; align-content: start; }
-  .settings-root > .eyebrow, .settings-root > h2, .settings-root > p { grid-column: 1 / -1; }
-  .settings-root > p { margin-bottom: 0; }
-  .settings-group { margin-top: 16px; }
+  .settings-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; }
+  .settings-card-danger { grid-column: 1 / -1; }
   .backup-card { grid-template-columns: minmax(230px, .8fr) minmax(360px, 1.2fr); align-items: start; }
   .backup-action, .restore-action { min-height: 100%; }
 }

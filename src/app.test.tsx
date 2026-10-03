@@ -373,6 +373,31 @@ describe("Natball Insights setup", () => {
     expect(screen.getByText("End season is unavailable while a live Match is in progress.")).toBeInTheDocument();
   });
 
+  it("offers prototype-style Settings cards and safely abandons a live Match from Settings", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
+    await startLiveMatch(session, season.id, opposition.id, players);
+    const user = userEvent.setup();
+    render(<App store={store} />);
+
+    await screen.findByRole("button", { name: "Open navigation menu" });
+    await user.click(coachNavigation().getByRole("button", { name: "Settings" }));
+
+    expect(screen.getByRole("heading", { name: "Team profile" }).closest("article")).toHaveClass("settings-card");
+    expect(screen.getByRole("heading", { name: "Season" }).closest("article")).toHaveClass("settings-card");
+    expect(screen.getByRole("heading", { name: "Backup & restore" }).closest("article")).toHaveClass("settings-card");
+    expect(screen.getByRole("heading", { name: "Abandon active Match" }).closest("article")).toHaveClass("settings-card", "settings-card-danger");
+    await user.click(screen.getByRole("button", { name: "Abandon match" }));
+    expect(screen.getByRole("alertdialog", { name: "Abandon this Match?" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Confirm abandonment" }));
+
+    expect(await screen.findByText("READ-ONLY MATCH EVENTS")).toBeInTheDocument();
+    expect((await GameSession.open(store)).matches().find((game) => game.status === "abandoned")).toBeDefined();
+  });
+
   it("separates safe backup from destructive data replacement", async () => {
     const user = userEvent.setup();
     render(<App store={new InMemoryGameSessionStore()} />);
