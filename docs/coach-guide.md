@@ -64,7 +64,7 @@ If a Match cannot be completed, open **More match actions** during live capture 
 
 ## History, reports, and recovery
 
-Open **History** from Coach navigation to view terminal Matches. The read-only Match Events view shows Quarter scores, Courts, substitutions, and Player–Position events. Use **Download CSV** for spreadsheet analysis (see [the CSV schema](reports/csv-schema.md)) or **Download PDF** for a coach-readable record. Legacy terminal records remain readable and exportable.
+Open **History** from Coach navigation to view terminal Matches, newest first within each Season. Each Match card shows the Team and Opposition, date, final score, and outcome. Opening a card shows a read-only Match review or a Quarter review with retained scores, Starting Court, Substitutions, events, and Player–Position statistics. Use **Download CSV** for spreadsheet analysis (see [the CSV schema](reports/csv-schema.md)) or **Download PDF** for a coach-readable record. Legacy terminal records remain readable and exportable.
 
 Open **Settings**, then **Backup & restore**, to download all locally stored Team, Season, Match, Court, event, and result data as JSON. To restore, paste backup JSON into **Backup data** and choose:
 
