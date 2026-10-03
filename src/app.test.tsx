@@ -584,8 +584,7 @@ describe("Natball Insights setup", () => {
 
     expect(await screen.findByRole("heading", { name: "Set up Quarter 2 Court" })).toBeInTheDocument();
     expect(screen.getByLabelText("Goal Keeper")).toHaveValue(players[0].id);
-    expect(screen.getByRole("option", { name: "Ava" })).toBeInTheDocument();
-    expect(screen.getAllByRole("option", { name: "Ava" })).toHaveLength(1);
+    expect(screen.getAllByRole("option", { name: "Ava" })).toHaveLength(7);
     expect(screen.getByRole("button", { name: "Review previous Quarter on Match Events" })).toBeInTheDocument();
     expect(screen.getByText("Court ready — 7 Players assigned. You can start Quarter 2.")).toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("Centre"), "");
@@ -600,6 +599,44 @@ describe("Natball Insights setup", () => {
     expect(await screen.findByText("LIVE MATCH · QUARTER 2")).toBeInTheDocument();
     expect(screen.queryByLabelText("Late player name")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add player to squad" })).not.toBeInTheDocument();
+  });
+
+  it("shows switchable previous-quarter and Match statistics beside a prefilled Court", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
+    const game = await startLiveMatch(session, season.id, opposition.id, players);
+    await session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Tip" });
+    await session.endQuarter(game.id);
+    const user = userEvent.setup();
+    render(<App store={store} />);
+
+    expect(await screen.findByRole("heading", { name: "Previous quarter statistics" })).toBeInTheDocument();
+    expect(screen.getByText((_, element) => element?.tagName === "LI" && element.textContent === "Demi · C · Tip: 1")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "All Match" }));
+    expect(screen.getByRole("heading", { name: "All Match statistics" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Goal Keeper")).toHaveValue(players[0].id);
+  });
+
+  it("moves a Player to a newly selected Court Position without duplicating the Court", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"].map((name) => session.addPlayer({ name })));
+    const game = await startLiveMatch(session, season.id, opposition.id, players);
+    await session.endQuarter(game.id);
+    const user = userEvent.setup();
+    render(<App store={store} />);
+
+    await screen.findByRole("heading", { name: "Set up Quarter 2 Court" });
+    await user.selectOptions(screen.getByLabelText("Goal Defence"), players[0].id);
+
+    expect(screen.getByLabelText("Goal Keeper")).toHaveValue("");
+    expect(screen.getByLabelText("Goal Defence")).toHaveValue(players[0].id);
+    expect(screen.getByRole("button", { name: "Start Quarter 2" })).toBeEnabled();
   });
 
   it("retains an unsaved next Court while visiting History or Backup", async () => {
