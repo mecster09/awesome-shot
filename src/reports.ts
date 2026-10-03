@@ -6,7 +6,7 @@ const csvCell = (value: string | number) => {
 };
 
 export function createMatchCsv(report: TerminalMatchReport): string {
-  const headers = ["match_id", "match_date", "team_name", "opposition_name", "terminal_status", "outcome", "winner", "final_own_score", "final_opposition_score", "quarter", "quarter_own_score", "quarter_opposition_score", "player_id", "position", ...PLAYER_STATISTICS, "event_sequence", "event_kind", "event_player_id", "event_position", "event_statistic"];
+  const headers = ["match_id", "match_date", "team_name", "opposition_name", "terminal_status", "outcome", "winner", "final_own_score", "final_opposition_score", "quarter", "quarter_own_score", "quarter_opposition_score", "player_id", "position", ...PLAYER_STATISTICS, "event_sequence", "event_kind", "event_player_id", "event_position", "event_statistic", "substitution_sequence", "substitution_position", "substitution_player_id"];
   const rows = report.quarters.flatMap((quarter) => {
     const context = [report.id, report.date, report.teamName, report.oppositionName, report.status, report.outcome.kind, "", report.score.own, report.score.opposition, quarter.number, quarter.ownScore, quarter.oppositionScore];
     const pairs = new Map<string, { playerId: string; position: string }>();
@@ -14,10 +14,11 @@ export function createMatchCsv(report: TerminalMatchReport): string {
     for (const statistic of quarter.playerStatistics) pairs.set(`${statistic.playerId}:${statistic.position}`, statistic);
     const statisticsRows = [...pairs.values()].map(({ playerId, position }) => {
       const totals = new Map(quarter.playerStatistics.filter((statistic) => statistic.playerId === playerId && statistic.position === position).map((statistic) => [statistic.statistic, statistic.count]));
-      return [...context, playerId, position, ...PLAYER_STATISTICS.map((statistic) => totals.get(statistic) ?? 0), "", "", "", "", ""];
+      return [...context, playerId, position, ...PLAYER_STATISTICS.map((statistic) => totals.get(statistic) ?? 0), "", "", "", "", "", "", "", ""];
     });
-    const eventRows = quarter.events.map((event) => [...context, "", "", ...PLAYER_STATISTICS.map(() => 0), event.sequence, event.kind, event.kind === "player-statistic" ? event.playerId : "", event.kind === "player-statistic" ? event.position : "", event.kind === "player-statistic" ? event.statistic : ""]);
-    return [...statisticsRows, ...eventRows];
+    const eventRows = quarter.events.map((event) => [...context, "", "", ...PLAYER_STATISTICS.map(() => 0), event.sequence, event.kind, event.kind === "player-statistic" ? event.playerId : "", event.kind === "player-statistic" ? event.position : "", event.kind === "player-statistic" ? event.statistic : "", "", "", ""]);
+    const substitutionRows = quarter.substitutions.map((substitution) => [...context, "", "", ...PLAYER_STATISTICS.map(() => 0), "", "", "", "", "", substitution.sequence, substitution.position, substitution.playerId ?? ""]);
+    return [...statisticsRows, ...eventRows, ...substitutionRows];
   });
   return [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
 }

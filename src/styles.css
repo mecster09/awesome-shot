@@ -172,6 +172,11 @@ form { display: grid; gap: 13px; margin-top: 20px; }
 .destructive-confirmation-card h3 { margin: 0; }.destructive-confirmation-card p { color: #636366; line-height: 1.45; }.destructive-confirmation-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }.destructive-confirmation-actions button:last-child { background: #ff3b30; }
 @media (min-width: 1024px) { .destructive-confirmation { align-items: center; } .destructive-confirmation-card { border-radius: 16px; box-shadow: 0 14px 38px #1c1c1e29; } }
 
+.substitution-modal-backdrop { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; padding: 16px; background: rgb(28 28 30 / .34); }
+.substitution-modal { width: min(100%, 540px); padding: 20px; border-radius: 16px; background: #fff; box-shadow: 0 14px 38px #1c1c1e29; }
+.substitution-modal h2 { margin: 0; }.substitution-modal > p { color: #636366; line-height: 1.45; }.substitution-modal label { display: grid; gap: 6px; margin-top: 14px; color: #48484a; font-size: .82rem; font-weight: 800; }.substitution-readiness { margin: 16px 0 0; padding: 10px 12px; border-radius: 10px; background: #f2f2f7; color: #48484a !important; font-size: .86rem; font-weight: 750; }.substitution-modal-actions { display: flex; justify-content: end; gap: 10px; margin-top: 20px; }
+@media (max-width: 520px) { .substitution-modal-actions { display: grid; grid-template-columns: 1fr; }.substitution-modal-actions button:first-child { grid-row: 2; } }
+
 /* Management-screen visual tokens and compact landscape composition */
 :root {
   --management-text: #1c1c1e;

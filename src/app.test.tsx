@@ -696,9 +696,10 @@ describe("Natball Insights setup", () => {
     await user.click(screen.getByRole("button", { name: "Record Goals for Faye" }));
     await user.click(screen.getByRole("button", { name: "Opponent goal" }));
     await user.click(screen.getByRole("button", { name: "Record Substitution" }));
-    expect(await screen.findByRole("heading", { name: "Stage substitutions" })).toBeInTheDocument();
-    await user.selectOptions(screen.getByLabelText("Centre"), players[7].id);
-    await user.click(screen.getByRole("button", { name: "Save substitutions" }));
+    const substitution = await screen.findByRole("dialog", { name: "Record Substitution" });
+    await user.selectOptions(within(substitution).getByLabelText("Court position"), "Centre");
+    await user.selectOptions(within(substitution).getByLabelText("Incoming player"), players[7].id);
+    await user.click(within(substitution).getByRole("button", { name: "Confirm substitution" }));
 
     expect(await screen.findByText("Roses 1 — Thunder 1")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Hana" })).toBeInTheDocument();
@@ -712,6 +713,46 @@ describe("Natball Insights setup", () => {
     expect(screen.getAllByRole("button", { name: "Remove event" })).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
     expect(await screen.findByText("Roses 1 — Thunder 1")).toBeInTheDocument();
+  });
+
+  it("repositions Court Players, fills the resulting vacancy, and retains the original event attribution", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const opposition = await session.addOpposition({ name: "Thunder" });
+    const players = await Promise.all(["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia", "Hana"].map((name) => session.addPlayer({ name })));
+    const game = await startLiveMatch(session, season.id, opposition.id, players);
+    const user = userEvent.setup();
+    const view = render(<App store={store} />);
+
+    await screen.findByText("LIVE MATCH · QUARTER 1");
+    await user.click(screen.getByRole("button", { name: "Record Goals for Faye" }));
+    await user.click(screen.getByRole("button", { name: "Record Substitution" }));
+    let substitution = await screen.findByRole("dialog", { name: "Record Substitution" });
+    await user.selectOptions(within(substitution).getByLabelText("Court position"), "Centre");
+    await user.selectOptions(within(substitution).getByLabelText("Incoming player"), players[5].id);
+    await user.click(within(substitution).getByRole("button", { name: "Confirm substitution" }));
+
+    expect((await GameSession.open(store)).liveQuarter(game.id).lineup).toMatchObject({ Centre: players[5].id });
+    expect((await GameSession.open(store)).liveQuarter(game.id).lineup["Goal Attack"]).toBeUndefined();
+    expect((await GameSession.open(store)).liveQuarter(game.id).playerStatistics).toContainEqual({ playerId: players[5].id, position: "Goal Attack", statistic: "Goals", count: 1 });
+
+    await user.click(screen.getByRole("button", { name: "Record Substitution" }));
+    substitution = await screen.findByRole("dialog", { name: "Record Substitution" });
+    await user.selectOptions(within(substitution).getByLabelText("Court position"), "Goal Attack");
+    await user.selectOptions(within(substitution).getByLabelText("Incoming player"), players[7].id);
+    await user.click(within(substitution).getByRole("button", { name: "Confirm substitution" }));
+    expect(await screen.findByRole("heading", { name: "Hana" })).toBeInTheDocument();
+
+    view.unmount();
+    await (await GameSession.open(store)).abandonGame(game.id);
+    render(<App store={store} />);
+    await user.click(await screen.findByRole("button", { name: "Open navigation menu" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Coach navigation" })).getByRole("button", { name: "History" }));
+    await user.click(within(await screen.findByRole("group", { name: "2026 Winter History" })).getByRole("button", { name: "View Match Events" }));
+    expect(await screen.findByText("Substitution 1: Centre: Faye")).toBeInTheDocument();
+    expect(screen.getByText("Substitution 2: Goal Attack: Vacant")).toBeInTheDocument();
+    expect(screen.getByText("Substitution 3: Goal Attack: Hana")).toBeInTheDocument();
   });
 
   it("keeps five Match Events tabs available and reviews completed Quarter statistics while a later Quarter is live", async () => {
@@ -779,10 +820,11 @@ describe("Natball Insights setup", () => {
     await waitFor(async () => expect((await GameSession.open(store)).gameScore(game.id)).toEqual({ own: 1, opposition: 1 }));
 
     await user.click(screen.getByRole("button", { name: "Record Substitution" }));
-    expect(screen.getByRole("heading", { name: "Stage substitutions" })).toBeInTheDocument();
-    await user.selectOptions(screen.getByLabelText("Centre"), players[7].id);
-    await user.click(screen.getByRole("button", { name: "Cancel Substitution" }));
-    expect(screen.queryByRole("heading", { name: "Stage substitutions" })).not.toBeInTheDocument();
+    const substitution = await screen.findByRole("dialog", { name: "Record Substitution" });
+    await user.selectOptions(within(substitution).getByLabelText("Court position"), "Centre");
+    await user.selectOptions(within(substitution).getByLabelText("Incoming player"), players[7].id);
+    await user.click(within(substitution).getByRole("button", { name: "Cancel substitution" }));
+    expect(screen.queryByRole("dialog", { name: "Record Substitution" })).not.toBeInTheDocument();
     expect((await GameSession.open(store)).liveQuarter(game.id).lineup.Centre).toBe(players[3].id);
     expect((await GameSession.open(store)).match(game.id)?.quarters?.[0].substitutions).toHaveLength(0);
     await user.click(screen.getByRole("button", { name: "End Quarter" }));

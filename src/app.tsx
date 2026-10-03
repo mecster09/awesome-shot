@@ -473,16 +473,39 @@ function DestructiveConfirmation({ title, description, cancelLabel, confirmLabel
 }
 
 function LiveQuarterCard({ game, setup, capture, actions, onOpenHistory, onOpenEventFeed, unreadEventCount }: { game: Game; setup: SetupSummary; capture: LiveQuarterCapture; actions: MatchActions; onOpenHistory: () => void; onOpenEventFeed: () => void; unreadEventCount: number }) {
-  const [changingCourt, setChangingCourt] = useState(false);
+  const [substitutionOpen, setSubstitutionOpen] = useState(false);
   const [showOverflow, setShowOverflow] = useState(false);
   const compactCaptureControls = useCompactCaptureControls();
   const teamName = setup.teams.find((team) => team.id === setup.seasons.find((season) => season.id === game.seasonId)?.teamId)?.name ?? "Our team";
   const oppositionName = setup.opposition.find((opposition) => opposition.id === game.oppositionId)?.name ?? "Opposition";
   const openSubstitution = () => {
-    setChangingCourt((current) => !current);
+    setSubstitutionOpen(true);
     setShowOverflow(false);
   };
-  return <section className="live-capture" aria-labelledby="live-quarter-title"><div className="score-strip"><div><p className="eyebrow">LIVE MATCH · QUARTER {capture.number}</p><h2 id="live-quarter-title">{teamName} {capture.ownGameScore} — {oppositionName} {capture.oppositionGameScore}</h2><p>Quarter: {teamName} {capture.ownScore} — {oppositionName} {capture.oppositionScore}</p></div><button className="opposition-goal" onClick={() => void actions.recordOppositionGoal()}>Opponent goal</button></div><div className="court-toolbar" aria-label="Live match actions"><div><button className="text-button" onClick={openSubstitution}>{changingCourt ? "Cancel Substitution" : "Record Substitution"}</button><button className="text-button" disabled={!capture.canUndo} onClick={() => void actions.undoCaptureAction()}>Undo</button><button className="text-button" onClick={onOpenEventFeed}>Event Feed{unreadEventCount ? ` (${unreadEventCount})` : ""}</button><button className="end-quarter-action" onClick={() => void actions.endQuarter()}>End Quarter</button></div>{compactCaptureControls ? <AbandonMatchAction onAbandon={actions.abandon} /> : <button className="text-button" aria-expanded={showOverflow} onClick={() => setShowOverflow((current) => !current)}>More</button>}</div>{showOverflow && <div className="overflow-actions"><button className="text-button" onClick={onOpenHistory}>History</button><AbandonMatchAction onAbandon={actions.abandon} /></div>}{changingCourt && <QuarterSetupCard match={game} startingLineup={capture.lineup} quarterNumber={capture.number} setup={setup} mode="substitution" onStart={async (lineup) => { await actions.saveSubstitutions(lineup); setChangingCourt(false); }} />}<div className="live-quarter-layout"><div className="current-court" aria-label="Current court event grid"><div className="court-matrix-header"><span>Player / Position</span><div>{PLAYER_STATISTICS.map((statistic) => <span key={statistic}>{statisticPresentation[statistic].label}</span>)}</div></div>{POSITIONS.map((position) => <PlayerStatCard key={position} position={position} player={setup.players.find((candidate) => candidate.id === capture.lineup[position])} capture={capture} onRecord={actions.recordPlayerStatistic} />)}</div></div></section>;
+  return <section className="live-capture" aria-labelledby="live-quarter-title"><div className="score-strip"><div><p className="eyebrow">LIVE MATCH · QUARTER {capture.number}</p><h2 id="live-quarter-title">{teamName} {capture.ownGameScore} — {oppositionName} {capture.oppositionGameScore}</h2><p>Quarter: {teamName} {capture.ownScore} — {oppositionName} {capture.oppositionScore}</p></div><button className="opposition-goal" onClick={() => void actions.recordOppositionGoal()}>Opponent goal</button></div><div className="court-toolbar" aria-label="Live match actions"><div><button className="text-button" onClick={openSubstitution}>Record Substitution</button><button className="text-button" disabled={!capture.canUndo} onClick={() => void actions.undoCaptureAction()}>Undo</button><button className="text-button" onClick={onOpenEventFeed}>Event Feed{unreadEventCount ? ` (${unreadEventCount})` : ""}</button><button className="end-quarter-action" onClick={() => void actions.endQuarter()}>End Quarter</button></div>{compactCaptureControls ? <AbandonMatchAction onAbandon={actions.abandon} /> : <button className="text-button" aria-expanded={showOverflow} onClick={() => setShowOverflow((current) => !current)}>More</button>}</div>{showOverflow && <div className="overflow-actions"><button className="text-button" onClick={onOpenHistory}>History</button><AbandonMatchAction onAbandon={actions.abandon} /></div>}{substitutionOpen && <SubstitutionModal lineup={capture.lineup} squad={setup.players.filter((player) => game.squadPlayerIds.includes(player.id))} onCancel={() => setSubstitutionOpen(false)} onConfirm={async (lineup) => { await actions.saveSubstitutions(lineup); setSubstitutionOpen(false); }} />}<div className="live-quarter-layout"><div className="current-court" aria-label="Current court event grid"><div className="court-matrix-header"><span>Player / Position</span><div>{PLAYER_STATISTICS.map((statistic) => <span key={statistic}>{statisticPresentation[statistic].label}</span>)}</div></div>{POSITIONS.map((position) => <PlayerStatCard key={position} position={position} player={setup.players.find((candidate) => candidate.id === capture.lineup[position])} capture={capture} onRecord={actions.recordPlayerStatistic} />)}</div></div></section>;
+}
+
+function SubstitutionModal({ lineup, squad, onCancel, onConfirm }: { lineup: StartingLineup; squad: SetupSummary["players"]; onCancel: () => void; onConfirm: (lineup: StartingLineup) => Promise<void> }) {
+  const [position, setPosition] = useState<Position>(POSITIONS[0]);
+  const [playerId, setPlayerId] = useState(lineup[POSITIONS[0]] ?? "");
+  const nextLineup = () => {
+    const next = { ...lineup };
+    if (playerId) {
+      const previousPosition = POSITIONS.find((candidate) => candidate !== position && lineup[candidate] === playerId);
+      if (previousPosition) delete next[previousPosition];
+      next[position] = playerId;
+    } else delete next[position];
+    return next;
+  };
+  const next = nextLineup();
+  const assignedPlayers = POSITIONS.filter((candidate) => next[candidate]).length;
+  const hasChanged = POSITIONS.some((candidate) => lineup[candidate] !== next[candidate]);
+  const canConfirm = hasChanged && assignedPlayers >= 5;
+  const selectPosition = (value: Position) => {
+    setPosition(value);
+    setPlayerId(lineup[value] ?? "");
+  };
+  return <div className="substitution-modal-backdrop"><section className="substitution-modal" role="dialog" aria-modal="true" aria-label="Record Substitution"><div className="section-heading"><div><p className="eyebrow">LIVE QUARTER</p><h2>Record Substitution</h2></div><button type="button" className="text-button" onClick={onCancel}>Close substitution</button></div><p>Choose a Court Position and a Match Squad Player. Choosing someone already on Court repositions them and leaves their previous Position vacant.</p><label>Court position<select aria-label="Court position" value={position} onChange={(event) => selectPosition(event.target.value as Position)}>{POSITIONS.map((candidate) => <option key={candidate} value={candidate}>{positionAbbreviation[candidate]} — {lineup[candidate] ? playerLabel(squad.find((player) => player.id === lineup[candidate]) ?? { name: "Unknown player" }) : "Vacant"}</option>)}</select></label><label>Incoming player<select aria-label="Incoming player" value={playerId} onChange={(event) => setPlayerId(event.target.value)}><option value="">Vacate this Position</option>{squad.map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label><p className="substitution-readiness" role="status">{assignedPlayers}/7 Players will be on Court.{assignedPlayers < 5 && " Choose a Player to keep at least five on Court."}</p><div className="substitution-modal-actions"><button type="button" className="secondary-button" onClick={onCancel}>Cancel substitution</button><button type="button" disabled={!canConfirm} onClick={() => void onConfirm(next)}>Confirm substitution</button></div></section></div>;
 }
 
 function useCompactCaptureControls() {

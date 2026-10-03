@@ -104,7 +104,7 @@ The task screen for entering the Match date and opposition and selecting the Mat
 _Avoid_: New match, match home
 
 **Setup Quarter**:
-The task screen for assigning the Court before a Quarter or staging a Substitution during a live Quarter. Its Starting Court, Next Quarter Court, and Substitution modes share the same position-focused layout while exposing mode-specific actions.
+The task screen for assigning the Court before a Quarter. Its Starting Court and Next Quarter Court modes share the same position-focused layout while exposing mode-specific actions. A live-Quarter Substitution is recorded from Match Events in a contained Position-and-Player modal.
 _Avoid_: Quarter Setup, Court Setup
 
 **No Match in progress**:
