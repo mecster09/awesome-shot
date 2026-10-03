@@ -3,10 +3,11 @@ import { GameSession } from "./game-session/game-session";
 import { IndexedDbGameSessionStore } from "./game-session/indexed-db-game-session-store";
 import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, TOTAL_QUARTERS, type BetweenQuarterStatistics, type CaptureAction, type Game, type GameSessionStore, type LiveQuarterCapture, type StatisticsSummary, type PlayerStatistic, type Position, type QuarterNumber, type SetupSummary, type StartMatchInput, type StartingLineup, type TerminalMatchReport } from "./game-session/types";
 import { createMatchCsv, createMatchPdf } from "./reports";
+import { FoundationPreview } from "./foundation-preview";
 import "./styles.css";
 
 type AppProps = { store?: GameSessionStore };
-type MatchView = { kind: "team-setup" } | { kind: "season-setup" } | { kind: "no-match" } | { kind: "match-setup" } | { kind: "court-setup" } | { kind: "settings" } | { kind: "settings-section"; section: "team" | "season" | "backup" } | { kind: "history" } | { kind: "next-quarter-setup"; gameId: string; startingLineup: StartingLineup } | { kind: "game"; gameId: string };
+type MatchView = { kind: "team-setup" } | { kind: "season-setup" } | { kind: "no-match" } | { kind: "match-setup" } | { kind: "court-setup" } | { kind: "settings" } | { kind: "foundation" } | { kind: "settings-section"; section: "team" | "season" | "backup" } | { kind: "history" } | { kind: "next-quarter-setup"; gameId: string; startingLineup: StartingLineup } | { kind: "game"; gameId: string };
 type MatchActions = {
   recordPlayerStatistic: (position: Position, statistic: PlayerStatistic) => Promise<void>;
   recordOppositionGoal: () => Promise<void>;
@@ -119,7 +120,7 @@ export function App({ store }: AppProps) {
   const matchSetupDraft = setup.matchSetupDraft;
   const courtSetupDraft = setup.matchSetupDraft?.stage === "court-setup" ? setup.matchSetupDraft : undefined;
   const currentView = deriveCurrentView({ matchView, setup, liveMatch, latestTerminalMatch, nextQuarterCourt: (gameId) => session.nextQuarterCourt(gameId) });
-  const navigationView = currentView.kind === "history" ? "history" : currentView.kind === "settings" || currentView.kind === "settings-section" ? "settings" : "match";
+  const navigationView = currentView.kind === "history" ? "history" : currentView.kind === "settings" || currentView.kind === "foundation" || currentView.kind === "settings-section" ? "settings" : "match";
   const navigationTitle = navigationView === "history" ? "Match History" : navigationView === "settings" ? "Dashboard Settings" : liveMatch ? `${editableTeam?.name ?? "Team"} vs ${setup.activeOpposition.find((opposition) => opposition.id === liveMatch.oppositionId)?.name ?? "Opposition"}` : "Pre-Match Setup";
   const liveScore = liveMatch ? session.gameScore(liveMatch.id) : undefined;
   const liveQuarterScore = liveMatch?.activeQuarter ? session.quarterScore(liveMatch.id, liveMatch.activeQuarter) : undefined;
@@ -160,9 +161,11 @@ export function App({ store }: AppProps) {
           {liveMatch && <p className="settings-guidance">End season is unavailable while a live Match is in progress.</p>}
         </SettingsCard>
         <SettingsCard title="Backup & restore" description="Export every saved record or restore a valid Natball Insights backup."><button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "backup" })}>Backup & restore</button></SettingsCard>
+        <SettingsCard title="Prototype foundation" description="Preview the reusable Tailwind and shadcn/ui controls prepared for upcoming Match screens."><button type="button" className="text-button" onClick={() => setMatchView({ kind: "foundation" })}>Preview foundation</button></SettingsCard>
         {liveMatch && <SettingsCard title="Abandon active Match" description="This ends the live Match safely. Its recorded score, events, and statistics remain available read-only." tone="danger"><AbandonMatchAction onAbandon={() => perform(async () => { await session.abandonGame(liveMatch.id); setMatchView({ kind: "game", gameId: liveMatch.id }); })} /></SettingsCard>}
       </div>
     </section>}
+    {currentView.kind === "foundation" && <FoundationPreview onBack={() => setMatchView({ kind: "settings" })} />}
     {currentView.kind === "settings-section" && <section className="match-area focused-screen management-screen" aria-labelledby="settings-section-title"><div className="section-heading"><h2 id="settings-section-title">{currentView.section === "team" ? "Team Setup" : currentView.section === "season" ? "Season Setup" : "Backup & restore"}</h2><button className="text-button" onClick={() => setMatchView({ kind: "settings" })}>Back to Settings</button></div>{currentView.section === "team" && editableTeam && <TeamForm initialName={editableTeam.name} submitLabel="Save changes" cancelLabel="Cancel" onCancel={() => setMatchView({ kind: "settings" })} onSubmit={(input) => perform(async () => { await session.renameTeam(editableTeam.id, input); setMatchView({ kind: "settings" }); })} />}{currentView.section === "season" && activeSeason && <><SeasonForm team={setup.teams.find((team) => team.id === activeSeason.teamId)!} initialName={activeSeason.name} submitLabel="Save changes" cancelLabel="Cancel" onCancel={() => setMatchView({ kind: "settings" })} onSubmit={(input) => perform(async () => { await session.renameSeason(activeSeason.id, input); setMatchView({ kind: "settings" }); })} />{!liveMatch && <EndSeasonControl season={activeSeason} onConfirm={() => perform(async () => { await session.endSeason(activeSeason.id); setMatchView(undefined); })} />}</>}{currentView.section === "backup" && <BackupCard exportBackup={() => session.exportBackup()} onImport={(serialized, mode, confirmed) => perform(async () => { await session.importBackup(serialized, mode, confirmed); if (mode === "replace") setUnsavedCourts({}); })} />}</section>}
 
     {currentView.kind === "no-match" && activeSeason && <section className="match-area focused-screen no-match-screen" aria-labelledby="no-match-title"><div className="no-match-card"><div className="no-match-icon" aria-hidden="true"><MatchIcon /></div><p className="eyebrow">ACTIVE SEASON</p><h2 id="no-match-title">No Match in progress</h2><p><strong>{activeSeason.name}</strong> is ready for your next Match. Add an Opposition and date when you are ready to prepare.</p><button type="button" onClick={() => setMatchView({ kind: "match-setup" })}>Start Match setup</button></div></section>}

@@ -13,6 +13,33 @@ const coachNavigation = () => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Natball Insights setup", () => {
+  it("opens the prototype foundation preview without changing the Match journey", async () => {
+    const user = userEvent.setup();
+    render(<App store={new InMemoryGameSessionStore()} />);
+
+    await screen.findByRole("navigation", { name: "Coach navigation" });
+    await user.click(coachNavigation().getByRole("button", { name: "Settings" }));
+    await user.click(await screen.findByRole("button", { name: "Preview foundation" }));
+
+    expect(await screen.findByRole("heading", { name: "Prototype foundation" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Team name" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Disabled team name" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Surface" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "Disabled action" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Open drawer" }));
+    expect(screen.getByRole("dialog", { name: "Foundation drawer" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close drawer" }));
+
+    await user.click(screen.getByRole("button", { name: "Open confirmation" }));
+    expect(screen.getByRole("alertdialog", { name: "Confirm destructive action" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await user.click(screen.getByRole("button", { name: "Open dialog" }));
+    expect(screen.getByRole("dialog", { name: "Foundation dialog" })).toBeInTheDocument();
+  });
+
   it("shows the prototype-style Setup Team card and advances to Setup Season after saving a Team", async () => {
     const user = userEvent.setup();
     render(<App store={new InMemoryGameSessionStore()} />);
