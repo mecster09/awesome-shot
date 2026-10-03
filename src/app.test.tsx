@@ -940,6 +940,7 @@ describe("Natball Insights setup", () => {
     const user = userEvent.setup();
     render(<App store={store} />);
     const grid = await screen.findByLabelText("Current court event grid");
+    expect(grid.parentElement?.children).toHaveLength(1);
     expect(screen.queryByRole("dialog", { name: "Event feed" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Event Feed/ }));
     expect(screen.getByRole("dialog", { name: "Event feed" })).toBeInTheDocument();
