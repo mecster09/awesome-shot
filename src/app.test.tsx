@@ -676,9 +676,9 @@ describe("Natball Insights setup", () => {
 
     render(<App store={store} />);
 
-    expect(await screen.findByRole("heading", { name: "Quarter 4 has ended" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Quarter 4 summary" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Match" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("button", { name: "Finalise Match" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm final score and finalise Match" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Set up Quarter 5 Court" })).not.toBeInTheDocument();
   });
 
@@ -834,7 +834,11 @@ describe("Natball Insights setup", () => {
     expect((await GameSession.open(store)).match(game.id)?.quarters?.[0].substitutions).toHaveLength(0);
     await user.click(screen.getByRole("button", { name: "End Quarter" }));
     expect(await screen.findByLabelText("Quarter 1 statistics")).toHaveTextContent("Faye");
-    await user.click(screen.getByRole("button", { name: "Set up Quarter 2" }));
+    const quarterSummary = screen.getByRole("dialog", { name: "Quarter 1 summary" });
+    expect(quarterSummary).toHaveTextContent("Quarter score1 — 1");
+    expect(quarterSummary).toHaveTextContent("Match score1 — 1");
+    expect(quarterSummary).toHaveTextContent("Recorded events2");
+    await user.click(within(quarterSummary).getByRole("button", { name: "Prepare Quarter 2 Court" }));
     expect(await screen.findByRole("heading", { name: "Set up Quarter 2 Court" })).toBeInTheDocument();
     const persistedSession = await GameSession.open(store);
     expect(persistedSession.match(game.id)?.status).toBe("live");
@@ -854,12 +858,13 @@ describe("Natball Insights setup", () => {
     for (const quarter of [1, 2, 3] as const) {
       await user.click(await screen.findByRole("button", { name: "End Quarter" }));
       expect(await screen.findByLabelText(`Quarter ${quarter} statistics`)).toBeInTheDocument();
-      await user.click(screen.getByRole("button", { name: `Set up Quarter ${quarter + 1}` }));
+      await user.click(screen.getByRole("button", { name: `Prepare Quarter ${quarter + 1} Court` }));
       await user.click(await screen.findByRole("button", { name: `Start Quarter ${quarter + 1}` }));
     }
     await user.click(await screen.findByRole("button", { name: "End Quarter" }));
-    expect(await screen.findByRole("button", { name: "Finalise Match" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Finalise Match" }));
+    const finalSummary = await screen.findByRole("dialog", { name: "Quarter 4 summary" });
+    expect(finalSummary).toHaveTextContent("Match score0 — 0");
+    await user.click(within(finalSummary).getByRole("button", { name: "Confirm final score and finalise Match" }));
     expect(await screen.findByText("READ-ONLY MATCH EVENTS")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download CSV" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download PDF" })).toBeInTheDocument();

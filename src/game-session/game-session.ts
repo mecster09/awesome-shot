@@ -438,6 +438,13 @@ export class GameSession {
     return this.capture(game, quarter);
   }
 
+  quarterScore(id: string, number: QuarterNumber): { own: number; opposition: number } {
+    const game = this.data.games.find((candidate) => candidate.id === id);
+    const quarter = game?.quarters?.find((candidate) => candidate.number === number);
+    if (!quarter) throw new Error("Quarter was not found.");
+    return this.score(quarter.captureActions);
+  }
+
   statisticsSummary(id: string, selection: { scope: "match" } | { scope: "quarter"; quarter: QuarterNumber }): StatisticsSummary {
     const game = this.data.games.find((candidate) => candidate.id === id);
     if (!game) throw new Error("Match was not found.");
