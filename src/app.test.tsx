@@ -703,7 +703,7 @@ describe("Natball Insights setup", () => {
     expect(await screen.findByText("Roses 1 — Thunder 1")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Hana" })).toBeInTheDocument();
     expect((await GameSession.open(store)).match(game.id)?.quarters?.[0].substitutions).toHaveLength(1);
-    await user.click(screen.getByRole("button", { name: /Open Event feed/ }));
+    await user.click(screen.getByRole("button", { name: /Event Feed/ }));
     expect(screen.getByRole("heading", { name: "Quarter 1 events" })).toBeInTheDocument();
     expect(screen.getAllByText("Opponent goal")).toHaveLength(2);
     expect(screen.getByText((_, element) => element?.textContent === "Faye · GA · Goals")).toBeInTheDocument();
@@ -761,11 +761,16 @@ describe("Natball Insights setup", () => {
     expect(screen.getByRole("button", { name: "Record Goals for Faye" })).toHaveTextContent("Goal");
     expect(screen.queryByText("Quarter 1 review")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Record Substitution" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "End quarter" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Event Feed" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "End Quarter" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Abandon match" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "More" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Opponent goal" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Event Feed" }));
+    expect(screen.getByRole("heading", { name: "Quarter 1 events" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close Event feed" }));
 
     await user.click(screen.getByRole("button", { name: "Record Goals for Faye" }));
     await user.click(screen.getByRole("button", { name: "Opponent goal" }));
@@ -780,7 +785,7 @@ describe("Natball Insights setup", () => {
     expect(screen.queryByRole("heading", { name: "Stage substitutions" })).not.toBeInTheDocument();
     expect((await GameSession.open(store)).liveQuarter(game.id).lineup.Centre).toBe(players[3].id);
     expect((await GameSession.open(store)).match(game.id)?.quarters?.[0].substitutions).toHaveLength(0);
-    await user.click(screen.getByRole("button", { name: "End quarter" }));
+    await user.click(screen.getByRole("button", { name: "End Quarter" }));
     expect(await screen.findByLabelText("Quarter 1 statistics")).toHaveTextContent("Faye");
     await user.click(screen.getByRole("button", { name: "Set up Quarter 2" }));
     expect(await screen.findByRole("heading", { name: "Set up Quarter 2 Court" })).toBeInTheDocument();
@@ -800,12 +805,12 @@ describe("Natball Insights setup", () => {
     render(<App store={store} />);
 
     for (const quarter of [1, 2, 3] as const) {
-      await user.click(await screen.findByRole("button", { name: "End quarter" }));
+      await user.click(await screen.findByRole("button", { name: "End Quarter" }));
       expect(await screen.findByLabelText(`Quarter ${quarter} statistics`)).toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: `Set up Quarter ${quarter + 1}` }));
       await user.click(await screen.findByRole("button", { name: `Start Quarter ${quarter + 1}` }));
     }
-    await user.click(await screen.findByRole("button", { name: "End quarter" }));
+    await user.click(await screen.findByRole("button", { name: "End Quarter" }));
     expect(await screen.findByRole("button", { name: "Finalise Match" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Finalise Match" }));
     expect(await screen.findByText("READ-ONLY MATCH EVENTS")).toBeInTheDocument();
@@ -835,14 +840,14 @@ describe("Natball Insights setup", () => {
     render(<App store={store} />);
     const grid = await screen.findByLabelText("Current court event grid");
     expect(screen.queryByRole("dialog", { name: "Event feed" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Open Event feed/ }));
+    await user.click(screen.getByRole("button", { name: /Event Feed/ }));
     expect(screen.getByRole("dialog", { name: "Event feed" })).toBeInTheDocument();
     expect(screen.getByText("Faye · GA · Goals")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Close Event feed" }));
     expect(screen.queryByRole("dialog", { name: "Event feed" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Current court event grid")).toBe(grid);
     await user.click(screen.getByRole("button", { name: "Record Goals for Faye" }));
-    expect(await screen.findByRole("button", { name: "Open Event feed, 1 new event" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Event Feed (1)" })).toBeInTheDocument();
   });
 
   it("scopes drawer events to its selected tab and corrects or deletes them with confirmation", async () => {
