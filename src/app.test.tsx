@@ -314,6 +314,7 @@ describe("Natball Insights setup", () => {
     await user.click(coachNavigation().getByRole("button", { name: "Settings" }));
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "End season" }));
+    await screen.findByRole("heading", { name: "Setup Season" });
     await user.click(screen.getByRole("button", { name: "End season" }));
     await user.click(screen.getByRole("button", { name: "Confirm end season" }));
 
@@ -340,7 +341,7 @@ describe("Natball Insights setup", () => {
     await screen.findByRole("button", { name: "Open coach navigation" });
     await user.click(coachNavigation().getByRole("button", { name: "Settings" }));
     await user.click(screen.getByRole("button", { name: "Edit team" }));
-    expect(await screen.findByRole("heading", { name: "Team Setup" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Setup Team" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
     await user.clear(screen.getByLabelText("Team name"));
     await user.type(screen.getByLabelText("Team name"), "Violets");
@@ -356,7 +357,7 @@ describe("Natball Insights setup", () => {
     expect((await GameSession.open(store)).setup().teams).toMatchObject([{ name: "Violets" }]);
 
     await user.click(screen.getByRole("button", { name: "Edit season" }));
-    expect(await screen.findByRole("heading", { name: "Season Setup" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Setup Season" })).toBeInTheDocument();
     await user.clear(screen.getByLabelText("Season title"));
     await user.type(screen.getByLabelText("Season title"), "2026 Spring");
     await user.click(screen.getByRole("button", { name: "Cancel" }));
@@ -371,6 +372,33 @@ describe("Natball Insights setup", () => {
     expect((await GameSession.open(store)).setup().seasons).toMatchObject([{ name: "2026 Spring" }]);
   });
 
+  it("uses the setup-card composition when editing persisted Team and Season data", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const user = userEvent.setup();
+    render(<App store={store} />);
+
+    await screen.findByRole("button", { name: "Open coach navigation" });
+    await user.click(coachNavigation().getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "Edit team" }));
+
+    const teamCard = screen.getByRole("heading", { name: "Setup Team" }).closest(".setup-flow-card");
+    expect(teamCard).toBeInTheDocument();
+    expect(teamCard?.parentElement).toHaveClass("setup-flow-screen");
+    expect(screen.getByText("STEP 1 OF 4")).toBeInTheDocument();
+    expect(screen.getByLabelText("Team name")).toHaveValue("Roses");
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Edit season" }));
+
+    const seasonCard = screen.getByRole("heading", { name: "Setup Season" }).closest(".setup-flow-card");
+    expect(seasonCard).toBeInTheDocument();
+    expect(seasonCard?.parentElement).toHaveClass("setup-flow-screen");
+    expect(screen.getByText("STEP 2 OF 4")).toBeInTheDocument();
+    expect(screen.getByLabelText("Season title")).toHaveValue("2026 Winter");
+  });
+
   it("uses explicit destructive confirmations for ending a Season and replacing local data", async () => {
     const store = new InMemoryGameSessionStore();
     const session = await GameSession.open(store);
@@ -381,12 +409,13 @@ describe("Natball Insights setup", () => {
     await screen.findByRole("button", { name: "Open coach navigation" });
     await user.click(coachNavigation().getByRole("button", { name: "Settings" }));
     await user.click(screen.getByRole("button", { name: "End season" }));
+    await screen.findByRole("heading", { name: "Setup Season" });
     await user.click(screen.getByRole("button", { name: "End season" }));
     expect(screen.getByRole("alertdialog", { name: "End this Season?" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Keep season active" }));
     expect(session.setup().seasons[0].status).toBe("active");
 
-    await user.click(screen.getByRole("button", { name: "Back to Settings" }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
     await user.click(screen.getByRole("button", { name: "Backup & restore" }));
     await user.selectOptions(screen.getByLabelText("Import mode"), "replace");
     await user.click(screen.getByLabelText("Backup data"));
