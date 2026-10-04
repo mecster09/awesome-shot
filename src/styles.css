@@ -227,6 +227,20 @@ form { display: grid; gap: 13px; margin-top: 20px; }
 .season-history-group summary span:last-child { color: var(--management-muted-text); font-size: .84rem; font-weight: 600; }
 .season-history-group .match-list { margin: 0; padding: 0 12px 12px; }
 .empty-history { margin: 0; padding: 0 14px 14px; color: var(--management-muted-text); }
+.match-history { gap: 16px; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.match-history > .section-heading { padding: 18px 20px; border: 1px solid var(--ui-border); border-radius: 16px; background: var(--ui-surface); box-shadow: 0 3px 10px rgb(15 23 42 / .04); }
+.season-history-group { margin-top: 0; overflow: visible; border: 0; background: transparent; }
+.season-history-group summary { min-height: 56px; padding: 14px 18px; border: 1px solid var(--ui-border); border-radius: 14px; background: var(--ui-surface); box-shadow: 0 2px 8px rgb(15 23 42 / .03); color: var(--slate); }
+.season-history-group[open] summary { border-color: #fecdd3; background: var(--rose-soft); }
+.season-history-group .match-list { gap: 12px; margin: 12px 0 0; padding: 0; }
+.history-card { min-height: 104px; padding: 18px 20px !important; border-color: var(--ui-border) !important; background: var(--ui-surface) !important; }
+.history-card-copy > strong { font-size: 1.05rem; }.history-card-date { margin-top: 4px !important; }
+.history-card-result { min-width: 178px; }.history-card-result .text-button { border-color: #fecdd3; color: #be123c; }
+.history-card[data-status="finalised"] { border-left: 4px solid #059669 !important; }.history-card[data-status="abandoned"], .history-card[data-status="terminated"] { border-left: 4px solid #d97706 !important; }
+.match-events:not(.live-match-events) .match-event-tabs { padding: 4px; border-radius: 12px; background: #f1f5f9; }
+.match-events:not(.live-match-events) .match-event-tabs button { min-height: 34px; border: 0; border-radius: 8px; background: transparent; color: var(--slate-muted); box-shadow: none; font-size: .75rem; font-weight: 850; }
+.match-events:not(.live-match-events) .match-event-tabs button[aria-selected="true"] { background: var(--rose); color: #fff; }
+.match-events:not(.live-match-events) .match-event-tabs button:disabled { background: transparent; color: #94a3b8; cursor: not-allowed; }
 .terminal-match-review { margin-bottom: 14px; padding: 18px; border: 1px solid #e2e8f0; border-radius: 20px; background: #fff; box-shadow: 0 5px 18px rgb(15 23 42 / .06); }.terminal-match-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 16px; }.terminal-match-heading h2 { margin: 0; color: var(--slate); font-size: clamp(1.2rem, 3vw, 1.55rem); }.terminal-match-heading p:not(.eyebrow) { margin: 5px 0 0; color: var(--slate-muted); font-size: .85rem; }.terminal-match-score { display: grid; justify-items: end; }.terminal-match-score strong { color: var(--rose); font-size: 1.5rem; }.terminal-match-score span { color: var(--slate-muted); font-size: .7rem; font-weight: 800; text-transform: uppercase; }.terminal-read-only-note { margin: 16px 0; padding: 9px 11px; border-radius: 10px; background: #f8fafc; color: var(--slate-muted); font-size: .82rem; }.quarter-review { display: grid; gap: 10px; }.quarter-review article { padding: 14px; border: 1px solid #e2e8f0; border-radius: 14px; background: #f8fafc; }.quarter-review-heading { display: flex; justify-content: space-between; gap: 16px; align-items: baseline; }.quarter-review-heading h3 { margin: 0; color: var(--slate); font-size: .98rem; }.quarter-review-heading > strong { color: var(--rose); }.quarter-review dl { display: grid; gap: 8px; margin: 12px 0 0; }.quarter-review dl div { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 10px; }.quarter-review dt { color: var(--slate-muted); font-size: .72rem; font-weight: 900; text-transform: uppercase; }.quarter-review dd { margin: 0; color: var(--slate); font-size: .82rem; line-height: 1.4; }.quarter-review ul { margin: 12px 0 0; padding-left: 18px; color: var(--slate-muted); font-size: .8rem; }.quarter-review li + li { margin-top: 4px; }
 .backup-card { display: grid; gap: 16px; margin-top: 22px; }
 .backup-action, .restore-action { padding: 18px; border: 1px solid var(--management-border); border-radius: 16px; background: var(--management-surface); }
@@ -239,7 +253,7 @@ form { display: grid; gap: 13px; margin-top: 20px; }
 
 @media (min-width: 768px) and (orientation: landscape) {
   .management-screen { min-height: 0; }
-  .management-screen.match-history .match-list { grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; overflow: auto; padding-right: 4px; }
+  .management-screen.match-history .match-list { grid-template-columns: minmax(0, 1fr); align-content: start; overflow: auto; padding-right: 4px; }
   .settings-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; }
   .settings-card-danger { grid-column: 1 / -1; }
   .backup-card { grid-template-columns: minmax(230px, .8fr) minmax(360px, 1.2fr); align-items: start; }

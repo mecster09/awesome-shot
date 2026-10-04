@@ -121,8 +121,12 @@ export function App({ store }: AppProps) {
   const matchSetupDraft = setup.matchSetupDraft;
   const courtSetupDraft = setup.matchSetupDraft?.stage === "court-setup" ? setup.matchSetupDraft : undefined;
   const currentView = deriveCurrentView({ matchView, setup, liveMatch, latestTerminalMatch, nextQuarterCourt: (gameId) => session.nextQuarterCourt(gameId) });
+  const selectedTerminalMatch = currentView.kind === "game" ? session.match(currentView.gameId) : undefined;
   const navigationView = currentView.kind === "history" ? "history" : currentView.kind === "settings" || currentView.kind === "foundation" || currentView.kind === "settings-section" ? "settings" : "match";
-  const navigationTitle = navigationView === "history" ? "Match History" : navigationView === "settings" ? "Dashboard Settings" : liveMatch ? `${editableTeam?.name ?? "Team"} vs ${setup.activeOpposition.find((opposition) => opposition.id === liveMatch.oppositionId)?.name ?? "Opposition"}` : "Pre-Match Setup";
+  const terminalMatchTitle = selectedTerminalMatch && isTerminalMatch(selectedTerminalMatch)
+    ? `${selectedTerminalMatch.teamName ?? "Team"} vs ${setup.opposition.find((opposition) => opposition.id === selectedTerminalMatch.oppositionId)?.name ?? "Opposition"}`
+    : undefined;
+  const navigationTitle = navigationView === "history" ? "Match History" : navigationView === "settings" ? "Dashboard Settings" : liveMatch ? `${editableTeam?.name ?? "Team"} vs ${setup.activeOpposition.find((opposition) => opposition.id === liveMatch.oppositionId)?.name ?? "Opposition"}` : terminalMatchTitle ?? "Pre-Match Setup";
   const liveScore = liveMatch ? session.gameScore(liveMatch.id) : undefined;
   const liveQuarterScore = liveMatch?.activeQuarter ? session.quarterScore(liveMatch.id, liveMatch.activeQuarter) : undefined;
 

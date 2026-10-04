@@ -73,4 +73,25 @@ test("renders every live Match overlay at tablet scale", async ({ page }) => {
     await page.getByRole("button", { name: "End Quarter" }).click();
   }
   await expect(page).toHaveScreenshot("finalise-match-summary-1180x820.png", { fullPage: true });
+  await page.getByRole("button", { name: "Confirm final score and finalise Match" }).click();
+  await page.getByRole("button", { name: "Open coach navigation" }).click();
+  await page.getByRole("button", { name: "History", exact: true }).click();
+  await expect(page).toHaveScreenshot("finalised-match-history-1180x820.png", { fullPage: true });
+  await page.getByRole("button", { name: "View Match Events" }).click();
+  await expect(page).toHaveScreenshot("finalised-match-events-1180x820.png", { fullPage: true });
+});
+
+test("renders abandoned Match History and read-only Match Events at tablet scale", async ({ page }) => {
+  await startLiveMatch(page);
+  await page.getByRole("button", { name: "Record Goals for Faye" }).click();
+  await page.getByRole("button", { name: "More" }).click();
+  await page.getByRole("button", { name: "Abandon match" }).click();
+  await page.getByRole("button", { name: "Confirm abandonment" }).click();
+
+  await page.getByRole("button", { name: "Open coach navigation" }).click();
+  await page.getByRole("button", { name: "History", exact: true }).click();
+  await expect(page).toHaveScreenshot("abandoned-match-history-1180x820.png", { fullPage: true });
+
+  await page.getByRole("button", { name: "View Match Events" }).click();
+  await expect(page).toHaveScreenshot("abandoned-match-events-1180x820.png", { fullPage: true });
 });
