@@ -95,3 +95,12 @@ test("renders abandoned Match History and read-only Match Events at tablet scale
   await page.getByRole("button", { name: "View Match Events" }).click();
   await expect(page).toHaveScreenshot("abandoned-match-events-1180x820.png", { fullPage: true });
 });
+
+test("renders the Settings abandonment confirmation at tablet scale", async ({ page }) => {
+  await startLiveMatch(page);
+  await page.getByRole("button", { name: "Open coach navigation" }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Abandon match" }).click();
+
+  await expect(page).toHaveScreenshot("settings-abandon-confirmation-1180x820.png", { fullPage: true });
+});

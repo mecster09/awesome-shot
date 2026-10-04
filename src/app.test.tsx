@@ -34,33 +34,6 @@ describe("Natball Insights setup", () => {
     await waitFor(() => expect(menu).toHaveFocus());
   });
 
-  it("opens the prototype foundation preview without changing the Match journey", async () => {
-    const user = userEvent.setup();
-    render(<App store={new InMemoryGameSessionStore()} />);
-
-    await screen.findByRole("button", { name: "Open coach navigation" });
-    await user.click(coachNavigation().getByRole("button", { name: "Settings" }));
-    await user.click(await screen.findByRole("button", { name: "Preview foundation" }));
-
-    expect(await screen.findByRole("heading", { name: "Prototype foundation" })).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "Team name" })).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "Disabled team name" })).toBeDisabled();
-    expect(screen.getByRole("combobox", { name: "Surface" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("button", { name: "Disabled action" })).toBeDisabled();
-
-    await user.click(screen.getByRole("button", { name: "Open drawer" }));
-    expect(screen.getByRole("dialog", { name: "Foundation drawer" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Close drawer" }));
-
-    await user.click(screen.getByRole("button", { name: "Open confirmation" }));
-    expect(screen.getByRole("alertdialog", { name: "Confirm destructive action" })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Confirm" }));
-    await user.click(screen.getByRole("button", { name: "Open dialog" }));
-    expect(screen.getByRole("dialog", { name: "Foundation dialog" })).toBeInTheDocument();
-  });
-
   it("shows the prototype-style Setup Team card and advances to Setup Season after saving a Team", async () => {
     const user = userEvent.setup();
     render(<App store={new InMemoryGameSessionStore()} />);
@@ -424,6 +397,7 @@ describe("Natball Insights setup", () => {
     await user.paste(session.exportBackup());
     await user.click(screen.getByRole("button", { name: "Import backup" }));
     expect(screen.getByRole("alertdialog", { name: "Replace local data?" })).toBeInTheDocument();
+    expect(screen.queryByText(/will be discarded/i)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Keep local data" }));
     expect(session.setup().seasons).toHaveLength(1);
   });
@@ -442,7 +416,7 @@ describe("Natball Insights setup", () => {
     await user.click(coachNavigation().getByRole("button", { name: "Settings" }));
 
     expect(screen.getByRole("button", { name: "End season" })).toBeDisabled();
-    expect(screen.getByText("End season is unavailable while a live Match is in progress.")).toBeInTheDocument();
+    expect(screen.getByText("A Season cannot end while a live Match is in progress.")).toBeInTheDocument();
   });
 
   it("offers prototype-style Settings cards and safely abandons a live Match from Settings", async () => {
@@ -462,6 +436,7 @@ describe("Natball Insights setup", () => {
     expect(screen.getByRole("heading", { name: "Season" }).closest("article")).toHaveClass("settings-card");
     expect(screen.getByRole("heading", { name: "Backup & restore" }).closest("article")).toHaveClass("settings-card");
     expect(screen.getByRole("heading", { name: "Abandon active Match" }).closest("article")).toHaveClass("settings-card", "settings-card-danger");
+    expect(screen.queryByRole("heading", { name: "Prototype foundation" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Abandon match" }));
     expect(screen.getByRole("alertdialog", { name: "Abandon this Match?" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Confirm abandonment" }));

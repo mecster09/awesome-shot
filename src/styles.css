@@ -53,11 +53,11 @@ form { display: grid; gap: 13px; margin-top: 20px; }
 .no-match-screen p { max-width: 410px; margin: 12px auto 0; color: #636366; line-height: 1.5; }
 .no-match-screen button { margin-top: 24px; border-radius: 12px; }
 .settings-card-grid { display: grid; gap: 16px; margin-top: 22px; }
-.settings-card { display: flex; flex-direction: column; min-height: 172px; padding: 18px; border: 1px solid var(--management-border); border-radius: 16px; background: var(--management-surface); box-shadow: 0 3px 10px rgb(15 23 42 / .04); }
-.settings-card h3 { margin: 0; color: var(--management-text); font-size: 1rem; }.settings-card > p { margin: 8px 0 0; color: var(--management-muted-text); line-height: 1.45; }
+.settings-card { display: flex; flex-direction: column; min-height: 172px; padding: 20px; border: 1px solid #e2e8f0; border-radius: 16px; background: #fff; box-shadow: 0 3px 10px rgb(15 23 42 / .04); }
+.settings-card h3 { display: flex; align-items: center; gap: 8px; margin: 0; color: #0f172a; font-size: .875rem; font-weight: 800; }.settings-card-icon { display: inline-grid; place-items: center; color: #e11d48; }.settings-card-icon svg { width: 16px; height: 16px; stroke-width: 2; }.settings-card > p { margin: 8px 0 0; color: #64748b; font-size: .75rem; line-height: 1.45; }
 .settings-card-actions { display: grid; gap: 8px; margin-top: auto; padding-top: 18px; }.settings-card-actions .text-button { width: 100%; min-height: 42px; border: 1px solid var(--management-border); border-radius: 10px; text-align: left; }
 .settings-card-actions .overflow-actions { margin: 0; }.settings-card-actions .secondary-button { width: 100%; }.settings-card .settings-guidance { margin: 0; }
-.settings-card-danger { border-color: #f5b8c1; background: #fff7f8; }.settings-card-danger h3 { color: var(--management-warning); }.settings-card-danger .secondary-button { border-color: #f5b8c1; color: var(--management-warning); background: #fff; }
+.settings-card-danger { border-color: #fecdd3; background: #fff; }.settings-card-danger h3 { color: #be123c; }.settings-card-danger .secondary-button { border-color: #fecdd3; color: #be123c; background: #fff; }
 .focused-screen { min-height: min(620px, calc(100vh - 150px)); display: flex; flex-direction: column; }
 .setup-screen { height: min(620px, calc(100vh - 150px)); overflow: hidden; }
 .setup-flow-screen { display: grid; place-items: center; padding: clamp(20px, 5vw, 48px); background: #f1f3f5; }
@@ -184,8 +184,8 @@ form { display: grid; gap: 13px; margin-top: 20px; }
 @media (max-width: 760px) { .app-content { width: min(100% - 24px, 1180px); margin-top: 12px; }.app-top-bar { padding-inline: 12px; }.top-bar-score { gap: 6px; font-size: 1rem; }.top-bar-score small { display: none; }.top-bar-opposition-goal { min-height: 34px; padding-inline: 8px; font-size: .68rem; } }
 
 .destructive-confirmation { position: fixed; z-index: 10; right: 0; bottom: 0; left: 0; display: flex; align-items: end; min-height: 100vh; padding: 16px; background: rgb(28 28 30 / .34); }
-.destructive-confirmation-card { width: min(100%, 560px); margin-inline: auto; padding: 22px; border-radius: 20px 20px 16px 16px; background: #fff; box-shadow: 0 -8px 30px #1c1c1e29; }
-.destructive-confirmation-card h3 { margin: 0; }.destructive-confirmation-card p { color: #636366; line-height: 1.45; }.destructive-confirmation-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }.destructive-confirmation-actions button:last-child { background: #ff3b30; }
+.destructive-confirmation-card { width: min(100%, 560px); margin-inline: auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 20px 20px 16px 16px; background: #fff; box-shadow: 0 -8px 30px rgb(15 23 42 / .18); text-align: center; }
+.destructive-confirmation-icon { display: grid; place-items: center; width: 48px; height: 48px; margin: 0 auto 14px; border-radius: 999px; background: #ffe4e6; color: #e11d48; }.destructive-confirmation-icon svg { width: 24px; height: 24px; }.destructive-confirmation-card h3 { margin: 0; color: #0f172a; font-size: 1rem; font-weight: 900; }.destructive-confirmation-card p { margin: 7px 0 0; color: #64748b; font-size: .75rem; line-height: 1.45; }.destructive-confirmation-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 20px; }.destructive-confirmation-actions button { border-radius: 12px; font-size: .75rem; }.destructive-confirmation-actions button:last-child { background: #e11d48; }
 @media (min-width: 1024px) { .destructive-confirmation { align-items: center; } .destructive-confirmation-card { border-radius: 16px; box-shadow: 0 14px 38px #1c1c1e29; } }
 
 .substitution-modal-backdrop { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; padding: 16px; background: rgb(28 28 30 / .34); }
