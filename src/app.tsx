@@ -1,5 +1,5 @@
 import { FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeft, ArrowRight, ArrowRightLeft, Calendar, Check, CheckCircle2, Database, List, Menu, Power, RotateCcw, Trophy, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, ArrowRightLeft, Calendar, Check, CheckCircle2, Database, History as HistoryIcon, LayoutDashboard, List, Menu, Power, RotateCcw, Settings as SettingsIcon, Trophy, Users, X } from "lucide-react";
 import { GameSession } from "./game-session/game-session";
 import { IndexedDbGameSessionStore } from "./game-session/indexed-db-game-session-store";
 import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, TOTAL_QUARTERS, type BetweenQuarterStatistics, type CaptureAction, type Game, type GameSessionStore, type LiveQuarterCapture, type StatisticsSummary, type PlayerStatistic, type Position, type QuarterNumber, type SetupSummary, type StartMatchInput, type StartingLineup, type TerminalMatchReport } from "./game-session/types";
@@ -237,10 +237,10 @@ function CoachNavigation({ activeView, title, score, quarterScore, quarterNumber
   const menuButton = useRef<HTMLButtonElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
   const drawer = useRef<HTMLElement>(null);
-  const items: Array<{ key: "match" | "history" | "settings"; label: string; icon: "court" | "history" | "settings"; onClick: () => void }> = [
-    { key: "match" as const, label: "Match", icon: "court", onClick: onOpenMatch },
-    { key: "history" as const, label: "History", icon: "history", onClick: onOpenHistory },
-    { key: "settings" as const, label: "Settings", icon: "settings", onClick: onOpenSettings }
+  const items: Array<{ key: "match" | "history" | "settings"; label: string; icon: ReactNode; onClick: () => void }> = [
+    { key: "match" as const, label: "Match", icon: <LayoutDashboard aria-hidden="true" />, onClick: onOpenMatch },
+    { key: "history" as const, label: "History", icon: <HistoryIcon aria-hidden="true" />, onClick: onOpenHistory },
+    { key: "settings" as const, label: "Settings", icon: <SettingsIcon aria-hidden="true" />, onClick: onOpenSettings }
   ];
 
   const closeDrawer = () => {
@@ -283,7 +283,7 @@ function CoachNavigation({ activeView, title, score, quarterScore, quarterNumber
     {drawerOpen && <div className="navigation-overlay" onMouseDown={closeDrawer}>
       <aside ref={drawer} className="navigation-drawer" role="dialog" aria-modal="true" aria-label="Coach navigation" onKeyDown={trapDrawerFocus} onMouseDown={(event) => event.stopPropagation()}>
         <div className="drawer-heading"><div className="app-identity"><AppMark /><span><strong>Natball</strong><small>Insights</small></span></div><button ref={closeButton} type="button" className="drawer-close" aria-label="Close coach navigation" onClick={closeDrawer}><X /></button></div>
-        <nav aria-label="Coach navigation">{items.map((item) => <button key={item.key} type="button" className="drawer-navigation-item" aria-current={activeView === item.key ? "page" : undefined} onClick={() => { item.onClick(); closeDrawer(); }}><NavigationIcon name={item.icon} /><span>{item.label}</span></button>)}</nav>
+        <nav aria-label="Coach navigation">{items.map((item) => <button key={item.key} type="button" className="drawer-navigation-item" aria-current={activeView === item.key ? "page" : undefined} onClick={() => { item.onClick(); closeDrawer(); }}>{item.icon}<span>{item.label}</span></button>)}</nav>
       </aside>
     </div>}
   </>;
@@ -304,12 +304,6 @@ function useMediaQuery(query: string) {
 
 function AppMark() {
   return <svg className="app-mark" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="16" /><path d="M8 24h32M24 8c5 5 8 10 8 16s-3 11-8 16M24 8c-5 5-8 10-8 16s3 11 8 16M10 34l8-8 6 6 12-12" /></svg>;
-}
-
-function NavigationIcon({ name }: { name: "court" | "history" | "settings" }) {
-  if (name === "court") return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="3" /><path d="M8 7h8M12 7v10M8 17h8" /></svg>;
-  if (name === "history") return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.5" /><path d="M4 4v4.5h4.5M12 7v5l3 2" /></svg>;
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a7 7 0 0 0-1.7-1L14.5 3h-5l-.4 3.1a7 7 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.5a7 7 0 0 0 0 2L3 14.5l2 3.4 2.4-1a7 7 0 0 0 1.7 1l.4 3.1h5l.4-3.1a7 7 0 0 0 1.7-1l2.4 1 2-3.4-2-1.5c.1-.3.1-.7.1-1Z" /></svg>;
 }
 
 const matchStatusLabel = (game: Game) => game.outcome?.kind === "completed" ? "Completed" : "Abandoned";
