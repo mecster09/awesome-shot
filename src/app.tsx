@@ -1,4 +1,5 @@
 import { FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { Menu, X } from "lucide-react";
 import { GameSession } from "./game-session/game-session";
 import { IndexedDbGameSessionStore } from "./game-session/indexed-db-game-session-store";
 import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, TOTAL_QUARTERS, type BetweenQuarterStatistics, type CaptureAction, type Game, type GameSessionStore, type LiveQuarterCapture, type StatisticsSummary, type PlayerStatistic, type Position, type QuarterNumber, type SetupSummary, type StartMatchInput, type StartingLineup, type TerminalMatchReport } from "./game-session/types";
@@ -130,12 +131,14 @@ export function App({ store }: AppProps) {
       activeView={navigationView}
       title={navigationTitle}
       score={navigationView === "match" ? liveScore : undefined}
+      quarterScore={navigationView === "match" ? liveQuarterScore : undefined}
+      quarterNumber={navigationView === "match" ? liveMatch?.activeQuarter : undefined}
+      onRecordOppositionGoal={liveMatch ? () => perform(() => session.recordOppositionGoal(liveMatch.id)) : undefined}
       onOpenMatch={() => setMatchView(undefined)}
       onOpenHistory={() => setMatchView({ kind: "history" })}
       onOpenSettings={() => setMatchView({ kind: "settings" })}
     />
     <div className="app-content">
-    {liveMatch && liveScore && liveQuarterScore && <LiveMatchTopBar title={navigationTitle} matchScore={liveScore} quarterNumber={liveMatch.activeQuarter!} quarterScore={liveQuarterScore} onRecordOppositionGoal={() => perform(() => session.recordOppositionGoal(liveMatch.id))} />}
     {error && <p className="error" role="alert">{error}</p>}
     {currentView.kind === "team-setup" && <section className="match-area focused-screen setup-screen setup-flow-screen" aria-labelledby="team-setup-title">
       <div className="setup-flow-card">
@@ -227,23 +230,61 @@ export function App({ store }: AppProps) {
   </main>;
 }
 
-function LiveMatchTopBar({ title, matchScore, quarterNumber, quarterScore, onRecordOppositionGoal }: { title: string; matchScore: { own: number; opposition: number }; quarterNumber: QuarterNumber; quarterScore: { own: number; opposition: number }; onRecordOppositionGoal: () => void }) {
-  return <header className="live-match-top-bar" aria-label="Live match context">
-    <div className="live-match-top-bar-identity"><AppMark /><strong>{title}</strong></div>
-    <p>Match {matchScore.own} – {matchScore.opposition}</p>
-    <p>Q{quarterNumber} {quarterScore.own} – {quarterScore.opposition}</p>
-    <button type="button" className="opposition-goal live-match-opposition-goal" aria-label="Add opposition goal" onClick={onRecordOppositionGoal}>+ Opp Goal</button>
-  </header>;
-}
-
-function CoachNavigation({ activeView, title, score, onOpenMatch, onOpenHistory, onOpenSettings }: { activeView?: "match" | "history" | "settings"; title: string; score?: { own: number; opposition: number }; onOpenMatch: () => void; onOpenHistory: () => void; onOpenSettings: () => void }) {
+function CoachNavigation({ activeView, title, score, quarterScore, quarterNumber, onRecordOppositionGoal, onOpenMatch, onOpenHistory, onOpenSettings }: { activeView?: "match" | "history" | "settings"; title: string; score?: { own: number; opposition: number }; quarterScore?: { own: number; opposition: number }; quarterNumber?: QuarterNumber; onRecordOppositionGoal?: () => void; onOpenMatch: () => void; onOpenHistory: () => void; onOpenSettings: () => void }) {
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
+  const drawer = useRef<HTMLElement>(null);
   const items: Array<{ key: "match" | "history" | "settings"; label: string; icon: "court" | "history" | "settings"; onClick: () => void }> = [
     { key: "match" as const, label: "Match", icon: "court", onClick: onOpenMatch },
     { key: "history" as const, label: "History", icon: "history", onClick: onOpenHistory },
     { key: "settings" as const, label: "Settings", icon: "settings", onClick: onOpenSettings }
   ];
 
-  return <nav className="coach-navigation" aria-label="Coach navigation"><div className="app-identity"><AppMark /><span><strong>Natball</strong><small>Insights</small></span></div><div className="coach-navigation-items">{items.map((item) => <button key={item.key} type="button" className="coach-navigation-item" aria-current={activeView === item.key ? "page" : undefined} onClick={item.onClick}><NavigationIcon name={item.icon} /><span>{item.label}</span></button>)}</div>{score && <p className="coach-navigation-score" aria-label={`Live score ${score.own} to ${score.opposition}`}>{title}<strong>{score.own} – {score.opposition}</strong></p>}</nav>;
+  const closeDrawer = () => {
+    setDrawerOpen(false);
+    requestAnimationFrame(() => menuButton.current?.focus());
+  };
+
+  useEffect(() => {
+    if (!drawerOpen) return;
+    closeButton.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeDrawer();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [drawerOpen]);
+
+  const trapDrawerFocus = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key !== "Tab" || !drawer.current) return;
+    const focusable = [...drawer.current.querySelectorAll<HTMLButtonElement>("button:not([disabled])")];
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  return <>
+    <header className="app-top-bar">
+      <AppMark />
+      <button ref={menuButton} type="button" className="menu-button" aria-label="Open coach navigation" aria-expanded={drawerOpen} onClick={() => setDrawerOpen(true)}><Menu /></button>
+      <div className="top-bar-identity"><span>Natball Insights</span><strong>{title}</strong></div>
+      {score && <div className="top-bar-score" role="group" aria-label={`Live score ${score.own} to ${score.opposition}`}>{quarterNumber && quarterScore && <small>Q{quarterNumber} {quarterScore.own} – {quarterScore.opposition}</small>}<span>{score.own} – {score.opposition}</span>{onRecordOppositionGoal && <button type="button" className="opposition-goal top-bar-opposition-goal" aria-label="Add opposition goal" onClick={onRecordOppositionGoal}>+ Opp Goal</button>}</div>}
+    </header>
+    {drawerOpen && <div className="navigation-overlay" onMouseDown={closeDrawer}>
+      <aside ref={drawer} className="navigation-drawer" role="dialog" aria-modal="true" aria-label="Coach navigation" onKeyDown={trapDrawerFocus} onMouseDown={(event) => event.stopPropagation()}>
+        <div className="drawer-heading"><div className="app-identity"><AppMark /><span><strong>Natball</strong><small>Insights</small></span></div><button ref={closeButton} type="button" className="drawer-close" aria-label="Close coach navigation" onClick={closeDrawer}><X /></button></div>
+        <nav aria-label="Coach navigation">{items.map((item) => <button key={item.key} type="button" className="drawer-navigation-item" aria-current={activeView === item.key ? "page" : undefined} onClick={() => { item.onClick(); closeDrawer(); }}><NavigationIcon name={item.icon} /><span>{item.label}</span></button>)}</nav>
+      </aside>
+    </div>}
+  </>;
 }
 
 function useMediaQuery(query: string) {
