@@ -1201,7 +1201,7 @@ describe("Natball Insights setup", () => {
     expect(await screen.findByText("READ-ONLY MATCH EVENTS")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Match" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("These Match Events are read-only.")).toBeInTheDocument();
-    expect(screen.getByText("Roses vs Thunder")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Roses 1 - Thunder 0" })).getByText("Roses vs Thunder")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download CSV" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download PDF" })).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: "Q1" }));
