@@ -1,14 +1,13 @@
 import { FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, ArrowRightLeft, Check, CheckCircle2, List, Menu, RotateCcw, Trophy, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, ArrowRightLeft, Calendar, Check, CheckCircle2, Database, List, Menu, Power, RotateCcw, Trophy, Users, X } from "lucide-react";
 import { GameSession } from "./game-session/game-session";
 import { IndexedDbGameSessionStore } from "./game-session/indexed-db-game-session-store";
 import { PLAYER_STATISTICS, POSITIONS, SHOOTER_STATISTICS, TOTAL_QUARTERS, type BetweenQuarterStatistics, type CaptureAction, type Game, type GameSessionStore, type LiveQuarterCapture, type StatisticsSummary, type PlayerStatistic, type Position, type QuarterNumber, type SetupSummary, type StartMatchInput, type StartingLineup, type TerminalMatchReport } from "./game-session/types";
 import { createMatchCsv, createMatchPdf } from "./reports";
-import { FoundationPreview } from "./foundation-preview";
 import "./styles.css";
 
 type AppProps = { store?: GameSessionStore };
-type MatchView = { kind: "team-setup" } | { kind: "season-setup" } | { kind: "no-match" } | { kind: "match-setup" } | { kind: "court-setup" } | { kind: "settings" } | { kind: "foundation" } | { kind: "settings-section"; section: "team" | "season" | "backup" } | { kind: "history" } | { kind: "next-quarter-setup"; gameId: string; startingLineup: StartingLineup } | { kind: "game"; gameId: string };
+type MatchView = { kind: "team-setup" } | { kind: "season-setup" } | { kind: "no-match" } | { kind: "match-setup" } | { kind: "court-setup" } | { kind: "settings" } | { kind: "settings-section"; section: "team" | "season" | "backup" } | { kind: "history" } | { kind: "next-quarter-setup"; gameId: string; startingLineup: StartingLineup } | { kind: "game"; gameId: string };
 type MatchActions = {
   recordPlayerStatistic: (position: Position, statistic: PlayerStatistic) => Promise<void>;
   recordOppositionGoal: () => Promise<void>;
@@ -122,7 +121,7 @@ export function App({ store }: AppProps) {
   const courtSetupDraft = setup.matchSetupDraft?.stage === "court-setup" ? setup.matchSetupDraft : undefined;
   const currentView = deriveCurrentView({ matchView, setup, liveMatch, latestTerminalMatch, nextQuarterCourt: (gameId) => session.nextQuarterCourt(gameId) });
   const selectedTerminalMatch = currentView.kind === "game" ? session.match(currentView.gameId) : undefined;
-  const navigationView = currentView.kind === "history" ? "history" : currentView.kind === "settings" || currentView.kind === "foundation" || currentView.kind === "settings-section" ? "settings" : "match";
+  const navigationView = currentView.kind === "history" ? "history" : currentView.kind === "settings" || currentView.kind === "settings-section" ? "settings" : "match";
   const terminalMatchTitle = selectedTerminalMatch && isTerminalMatch(selectedTerminalMatch)
     ? `${selectedTerminalMatch.teamName ?? "Team"} vs ${setup.opposition.find((opposition) => opposition.id === selectedTerminalMatch.oppositionId)?.name ?? "Opposition"}`
     : undefined;
@@ -161,18 +160,15 @@ export function App({ store }: AppProps) {
     {currentView.kind === "settings" && <section className="match-area focused-screen management-screen settings-root" aria-labelledby="settings-title">
       <p className="eyebrow">COACH SETTINGS</p><h2 id="settings-title">Settings</h2><p>Manage your Team, Season, offline data, and active Match safely.</p>
       <div className="settings-card-grid">
-        {editableTeam && <SettingsCard title="Team profile" description="Update the reusable Team name used by this Season and future Seasons."><button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "team" })}>Edit team</button></SettingsCard>}
-        <SettingsCard title="Season" description={activeSeason ? `${activeSeason.name} is the active Season.` : "No active Season is available."}>
+        {editableTeam && <SettingsCard icon={<Users />} title="Team profile" description="Update the reusable Team name used by this Season and future Seasons."><button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "team" })}>Edit team</button></SettingsCard>}
+        <SettingsCard icon={<Calendar />} title="Season" description={activeSeason ? `${activeSeason.name} is the active Season.` : "No active Season is available."}>
           {activeSeason && <button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "season" })}>Edit season</button>}
-          {activeSeason && <button type="button" className="text-button" disabled={Boolean(liveMatch)} onClick={() => setMatchView({ kind: "settings-section", section: "season" })}>End season</button>}
-          {liveMatch && <p className="settings-guidance">End season is unavailable while a live Match is in progress.</p>}
         </SettingsCard>
-        <SettingsCard title="Backup & restore" description="Export every saved record or restore a valid Natball Insights backup."><button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "backup" })}>Backup & restore</button></SettingsCard>
-        <SettingsCard title="Prototype foundation" description="Preview the reusable Tailwind and shadcn/ui controls prepared for upcoming Match screens."><button type="button" className="text-button" onClick={() => setMatchView({ kind: "foundation" })}>Preview foundation</button></SettingsCard>
-        {liveMatch && <SettingsCard title="Abandon active Match" description="This ends the live Match safely. Its recorded score, events, and statistics remain available read-only." tone="danger"><AbandonMatchAction onAbandon={() => perform(async () => { await session.abandonGame(liveMatch.id); setMatchView({ kind: "game", gameId: liveMatch.id }); })} /></SettingsCard>}
+        {activeSeason && <SettingsCard icon={<Power />} title="End season" description={liveMatch ? "A Season cannot end while a live Match is in progress." : "End this Season once every Match is terminal. Ended Seasons remain readable."}><button type="button" className="text-button" disabled={Boolean(liveMatch)} onClick={() => setMatchView({ kind: "settings-section", section: "season" })}>End season</button></SettingsCard>}
+        <SettingsCard icon={<Database />} title="Backup & restore" description="Export every saved record or restore a valid Natball Insights backup."><button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "backup" })}>Backup & restore</button></SettingsCard>
+        {liveMatch && <SettingsCard icon={<AlertTriangle />} title="Abandon active Match" description="End the live Match safely. Its recorded score, events, and statistics remain available read-only." tone="danger"><AbandonMatchAction onAbandon={() => perform(async () => { await session.abandonGame(liveMatch.id); setMatchView({ kind: "game", gameId: liveMatch.id }); })} /></SettingsCard>}
       </div>
     </section>}
-    {currentView.kind === "foundation" && <FoundationPreview onBack={() => setMatchView({ kind: "settings" })} />}
     {currentView.kind === "settings-section" && currentView.section === "backup" && <section className="match-area focused-screen management-screen" aria-labelledby="settings-section-title"><div className="section-heading"><h2 id="settings-section-title">Backup & restore</h2><button className="text-button" onClick={() => setMatchView({ kind: "settings" })}>Back to Settings</button></div><BackupCard exportBackup={() => session.exportBackup()} onImport={(serialized, mode, confirmed) => perform(async () => { await session.importBackup(serialized, mode, confirmed); if (mode === "replace") setUnsavedCourts({}); })} /></section>}
 
     {currentView.kind === "settings-section" && currentView.section !== "backup" && <section className="match-area focused-screen setup-screen setup-flow-screen settings-setup-screen" aria-labelledby={currentView.section === "team" ? "team-setup-title" : "season-setup-title"}><div className="setup-flow-card">{currentView.section === "team" && editableTeam && <><SetupFlowHeading icon="team" step="STEP 1 OF 4" title="Setup Team" /><TeamForm initialName={editableTeam.name} submitLabel="Save changes" cancelLabel="Cancel" onCancel={() => setMatchView({ kind: "settings" })} onSubmit={(input) => perform(async () => { await session.renameTeam(editableTeam.id, input); setMatchView({ kind: "settings" }); })} /></>}{currentView.section === "season" && activeSeason && <><SetupFlowHeading icon="season" step="STEP 2 OF 4" title="Setup Season" /><SeasonForm team={setup.teams.find((team) => team.id === activeSeason.teamId)!} initialName={activeSeason.name} submitLabel="Save changes" cancelLabel="Cancel" onCancel={() => setMatchView({ kind: "settings" })} onSubmit={(input) => perform(async () => { await session.renameSeason(activeSeason.id, input); setMatchView({ kind: "settings" }); })} seasonLifecycleControl={!liveMatch ? <EndSeasonControl season={activeSeason} onConfirm={() => perform(async () => { await session.endSeason(activeSeason.id); setMatchView(undefined); })} /> : undefined} /></>}</div></section>}
@@ -382,8 +378,8 @@ function SeasonForm({ team, initialName = "", submitLabel = "Create season", can
   </form>;
 }
 
-function SettingsCard({ title, description, children, tone }: { title: string; description: string; children: ReactNode; tone?: "danger" }) {
-  return <article className={`settings-card${tone === "danger" ? " settings-card-danger" : ""}`}><h3>{title}</h3><p>{description}</p><div className="settings-card-actions">{children}</div></article>;
+function SettingsCard({ icon, title, description, children, tone }: { icon: ReactNode; title: string; description: string; children: ReactNode; tone?: "danger" }) {
+  return <article className={`settings-card${tone === "danger" ? " settings-card-danger" : ""}`}><h3><span className="settings-card-icon" aria-hidden="true">{icon}</span>{title}</h3><p>{description}</p><div className="settings-card-actions">{children}</div></article>;
 }
 
 function EndSeasonControl({ season, onConfirm }: { season: { name: string }; onConfirm: () => Promise<void> }) {
@@ -561,12 +557,12 @@ function BackupCard({ exportBackup, onImport }: { exportBackup: () => string; on
     if (mode === "replace") setConfirmingReplacement(true);
     else await completeImport(false);
   };
-  return <section className="backup-card" aria-label="Backup and restore controls"><section className="backup-action"><h3>Create a safe backup</h3><p>Download one backup containing every saved Season, lookup, Match, statistic, Court, and result.</p><button className="secondary-button" onClick={() => download("natball-insights-backup.json", "application/json", exportBackup())}>Download backup</button></section><section className="restore-action"><h3>Restore data</h3><p>Merge adds data from a backup and keeps the data already on this device.</p><p className="destructive-note">Replace all local data is destructive and requires confirmation.</p><form onSubmit={(event) => void submit(event)}><label>Backup data<textarea aria-label="Backup data" value={serialized} onChange={(event) => setSerialized(event.target.value)} placeholder="Paste a Natball Insights backup" /></label><label>Import mode<select aria-label="Import mode" value={mode} onChange={(event) => setMode(event.target.value as "merge" | "replace")}><option value="merge">Merge - keep current data</option><option value="replace">Replace all local data</option></select></label><button type="submit">Import backup</button></form></section>{confirmingReplacement && <DestructiveConfirmation title="Replace local data?" description="Replace all local data with this backup? Any unsaved Court selection will be discarded." cancelLabel="Keep local data" confirmLabel="Confirm replacement" onCancel={() => setConfirmingReplacement(false)} onConfirm={() => completeImport(true)} />}</section>;
+  return <section className="backup-card" aria-label="Backup and restore controls"><section className="backup-action"><h3>Create a safe backup</h3><p>Download one backup containing every saved Season, lookup, Match, statistic, Court, and result.</p><button className="secondary-button" onClick={() => download("natball-insights-backup.json", "application/json", exportBackup())}>Download backup</button></section><section className="restore-action"><h3>Restore data</h3><p>Merge adds data from a backup and keeps the data already on this device.</p><p className="destructive-note">Replace all local data is destructive and requires confirmation.</p><form onSubmit={(event) => void submit(event)}><label>Backup data<textarea aria-label="Backup data" value={serialized} onChange={(event) => setSerialized(event.target.value)} placeholder="Paste a Natball Insights backup" /></label><label>Import mode<select aria-label="Import mode" value={mode} onChange={(event) => setMode(event.target.value as "merge" | "replace")}><option value="merge">Merge - keep current data</option><option value="replace">Replace all local data</option></select></label><button type="submit">Import backup</button></form></section>{confirmingReplacement && <DestructiveConfirmation title="Replace local data?" description="Replace all local data with this backup?" cancelLabel="Keep local data" confirmLabel="Confirm replacement" onCancel={() => setConfirmingReplacement(false)} onConfirm={() => completeImport(true)} />}</section>;
 }
 
 function DestructiveConfirmation({ title, description, cancelLabel, confirmLabel, onCancel, onConfirm }: { title: string; description: string; cancelLabel: string; confirmLabel: string; onCancel: () => void; onConfirm: () => Promise<void> }) {
   const overlayRef = useOverlayFocus(onCancel);
-  return <div ref={overlayRef} className="destructive-confirmation" role="alertdialog" aria-modal="true" aria-label={title} onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}><div className="destructive-confirmation-card"><h3>{title}</h3><p>{description}</p><div className="destructive-confirmation-actions"><button type="button" className="secondary-button" onClick={onCancel}>{cancelLabel}</button><button type="button" onClick={() => void onConfirm()}>{confirmLabel}</button></div></div></div>;
+  return <div ref={overlayRef} className="destructive-confirmation" role="alertdialog" aria-modal="true" aria-label={title} onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}><div className="destructive-confirmation-card"><span className="destructive-confirmation-icon" aria-hidden="true"><AlertTriangle /></span><h3>{title}</h3><p>{description}</p><div className="destructive-confirmation-actions"><button type="button" className="secondary-button" onClick={onCancel}>{cancelLabel}</button><button type="button" onClick={() => void onConfirm()}>{confirmLabel}</button></div></div></div>;
 }
 
 function useOverlayFocus(onClose: () => void, activeSurfaceSelector?: string) {
