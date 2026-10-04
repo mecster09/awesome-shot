@@ -7,16 +7,21 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:visual": "playwright test"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.3.0",
     "@vitejs/plugin-react": "latest",
+    "lucide-react": "^1.50.0",
     "react": "latest",
     "react-dom": "latest",
     "vite": "latest",
     "vite-plugin-pwa": "latest"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "latest",
     "@testing-library/react": "latest",
     "@testing-library/user-event": "latest",
@@ -24,6 +29,7 @@
     "@types/react-dom": "latest",
     "fake-indexeddb": "latest",
     "jsdom": "latest",
+    "tailwindcss": "^4.3.3",
     "typescript": "latest",
     "vitest": "latest"
   }

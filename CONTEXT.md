@@ -104,7 +104,7 @@ The task screen for entering the Match date and opposition and selecting the Mat
 _Avoid_: New match, match home
 
 **Setup Quarter**:
-The task screen for assigning the Court before a Quarter or staging a Substitution during a live Quarter. Its Starting Court, Next Quarter Court, and Substitution modes share the same position-focused layout while exposing mode-specific actions.
+The task screen for assigning the Court before a Quarter. Its Starting Court and Next Quarter Court modes share the same position-focused layout while exposing mode-specific actions. A live-Quarter Substitution is recorded from Match Events in a contained Position-and-Player modal.
 _Avoid_: Quarter Setup, Court Setup
 
 **No Match in progress**:
@@ -128,8 +128,8 @@ The contained searchable selection surface for choosing the Match Squad before t
 _Avoid_: Long player checklist
 
 **Coach navigation**:
-The persistent navigation for Match, History, and Settings. It also carries the app identity in place of a persistent root-screen top bar. Every destination always shows both its icon and label, including in the landscape rail, without a menu or expansion control.
-_Avoid_: Header menu, browser navigation, collapsible navigation
+The fixed top bar and contained slide-out navigation drawer for Match, History, and Settings. The top bar carries the app identity and menu control on every destination; the drawer presents every destination with its icon, label, and active state. The drawer closes on Escape or its backdrop and restores focus to the menu control. No persistent bottom bar or landscape rail renders.
+_Avoid_: Browser navigation, legacy navigation rail, persistent bottom navigation
 
 **Match destination**:
 The state-resolving Coach-navigation destination that opens the next relevant task screen without changing Match state. It leads through first-run Team and Season setup, Match setup, Setup Quarter, and the appropriate live or completed view on Match Events.
@@ -140,7 +140,7 @@ The single-viewport presentation of the current setup or planning task. Navigati
 _Avoid_: Long page form, independently scrolling navigation
 
 **App mark**:
-The small original Natball Insights vector identity used in Coach navigation. It is a simple netball/court-line motif that remains legible at 40–48px and may use a wordmark only where the viewport has room.
+The small original Natball Insights vector identity used in Coach navigation. It is a simple netball/court-line motif that remains legible at 30px in the fixed top bar and 38–42px in the drawer, and may use a wordmark only where the viewport has room.
 _Avoid_: Oversized badge, copied reference logo
 
 **Live-event feedback**:

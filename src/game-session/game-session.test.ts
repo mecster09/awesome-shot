@@ -155,6 +155,17 @@ describe("GameSession match drafts", () => {
     expect(reopened.setup().matchSetupDraft).toEqual({ seasonId: season.id, oppositionId: opposition.id, date: "2026-09-26", stage: "match-identity" });
   });
 
+  it("persists a partial Match Squad before all Match identity fields are complete", async () => {
+    const store = new InMemoryGameSessionStore();
+    const session = await GameSession.open(store);
+    const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
+    const player = await session.addPlayer({ name: "Ava" });
+
+    await session.saveMatchIdentity({ seasonId: season.id, squadPlayerIds: [player.id] });
+
+    expect((await GameSession.open(store)).setup().matchSetupDraft).toEqual({ seasonId: season.id, squadPlayerIds: [player.id], stage: "match-identity" });
+  });
+
   it("clears an incomplete Match identity when its Season ends", async () => {
     const session = await GameSession.open(new InMemoryGameSessionStore());
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
@@ -284,7 +295,7 @@ describe("GameSession live quarter capture", () => {
     await session.substitutePlayer(game.id, { position: "Goal Attack", playerId: players[7].id });
     await session.recordPlayerStatistic(game.id, { position: "Goal Attack", statistic: "Goals" });
 
-    expect(session.liveQuarter(game.id).substitutions).toEqual([{ sequence: 1, position: "Goal Attack", playerId: players[7].id }]);
+    expect(session.liveQuarter(game.id).substitutions).toEqual([{ sequence: 1, captureOrder: 1, position: "Goal Attack", playerId: players[7].id }]);
     expect(session.liveQuarter(game.id)).toMatchObject({ ownScore: 1, ownGameScore: 1 });
     expect(session.liveQuarter(game.id).playerStatistics).toContainEqual({ playerId: players[7].id, position: "Goal Attack", statistic: "Goals", count: 1 });
     await expect(session.undoLastCaptureAction(game.id)).resolves.toBeUndefined();
@@ -369,6 +380,25 @@ describe("GameSession live quarter capture", () => {
     expect(session.quarterCapture(game.id, 1).playerStatistics).toContainEqual({ playerId: players[7].id, position: "Wing Defence", statistic: "Intercept", count: 1 });
     await session.deleteCaptureAction(game.id, 1, actionId);
     expect(session.quarterCapture(game.id, 1).playerStatistics).toEqual([]);
+  });
+
+  it("preserves a shared capture order for events and Court changes through backup restore", async () => {
+    const { session, players, game } = await startLiveMatch();
+    await session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Tip" });
+    await session.recordOppositionGoal(game.id);
+    await session.substitutePlayer(game.id, { position: "Centre", playerId: players[7].id });
+    await session.recordPlayerStatistic(game.id, { position: "Centre", statistic: "Intercept" });
+
+    const quarter = session.match(game.id)!.quarters![0];
+    expect(quarter.captureActions.map((action) => action.captureOrder)).toEqual([1, 2, 4]);
+    expect(quarter.substitutions.map((substitution) => substitution.captureOrder)).toEqual([3]);
+
+    const restored = await GameSession.open(new InMemoryGameSessionStore());
+    await restored.importBackup(session.exportBackup(), "replace", true);
+    expect(restored.match(game.id)!.quarters![0]).toMatchObject({
+      captureActions: [{ captureOrder: 1 }, { captureOrder: 2 }, { captureOrder: 4 }],
+      substitutions: [{ captureOrder: 3 }]
+    });
   });
 
   it("finalises only a confirmed four-quarter score and makes the record immutable", async () => {

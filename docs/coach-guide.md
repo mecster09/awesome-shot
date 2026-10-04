@@ -4,7 +4,7 @@ Natball Insights keeps one coach task on screen at a time. It has one active Sea
 
 ## Coach navigation and root destinations
 
-There is no header menu. Use the persistent **Coach navigation** at the bottom of compact and standard tablets, or the left-hand rail on large tablets, to open the three root destinations:
+Use the persistent **Coach navigation** at the bottom of compact and standard tablets, or the left-hand rail on large tablets, to open the three root destinations:
 
 - **Setup Match** returns to the resumable setup stage before Quarter 1 begins. It becomes **Live Match** as soon as Quarter 1 starts and returns to the active Quarter or the next-Quarter plan.
 - **History** opens retained terminal Matches without changing the current stage.
@@ -64,7 +64,7 @@ If a Match cannot be completed, open **More match actions** during live capture 
 
 ## History, reports, and recovery
 
-Open **History** from Coach navigation to view terminal Matches. The read-only Match Events view shows Quarter scores, Courts, substitutions, and Player–Position events. Use **Download CSV** for spreadsheet analysis (see [the CSV schema](reports/csv-schema.md)) or **Download PDF** for a coach-readable record. Legacy terminal records remain readable and exportable.
+Open **History** from Coach navigation to view terminal Matches, newest first within each Season. Each Match card shows the Team and Opposition, date, final score, and outcome. Opening a card shows a read-only Match review or a Quarter review with retained scores, Starting Court, Substitutions, events, and Player–Position statistics. Use **Download CSV** for spreadsheet analysis (see [the CSV schema](reports/csv-schema.md)) or **Download PDF** for a coach-readable record. Legacy terminal records remain readable and exportable.
 
 Open **Settings**, then **Backup & restore**, to download all locally stored Team, Season, Match, Court, event, and result data as JSON. To restore, paste backup JSON into **Backup data** and choose:
 
@@ -83,12 +83,13 @@ QA was completed against the integrated workflow at the following viewport width
 
 | Viewport | Result | Contained scrolling checked |
 | --- | --- | --- |
-| 744px | Pass — bottom Coach navigation, focused setup stages, and the compact live feed drawer remain usable. | Match Squad results/chips and the opened event-feed drawer scroll within their own surfaces. |
-| 834px | Pass — bottom Coach navigation remains persistent; Stage 5 keeps Court planning and statistics visible together. | Match Squad results/chips and the Stage 5 statistics panel scroll without moving the primary action bar. |
-| 1024px | Pass — Coach navigation becomes a left rail; the destructive confirmation is centered. | The Stage 5 statistics panel remains the only scrolling planner panel; no horizontal page scrolling is needed. |
-| 1024 × 768px landscape | Pass — the active Quarter Event feed is open on first render, showing its heading, latest event, correction, and removal controls without an empty panel. | The Event feed remains independently scrollable beside the current Court. |
-| 1024 × 600px landscape | Pass — the compact Event-feed drawer shows its label and latest event while collapsed; opening it reveals correction and removal controls. | The opened drawer is the contained scrolling surface and leaves the Event grid usable. |
+| 1280 × 800px | Pass — the left Coach-navigation rail, focused setup stages, and centered destructive confirmation remain usable. | The Stage 5 statistics panel remains the only scrolling planner panel; no horizontal page scrolling is needed. |
+| 1180 × 820px | Pass — the left Coach-navigation rail and live capture controls remain usable. | Match Squad results/chips and the opened Event-feed drawer scroll within their own surfaces. |
+| 1024 × 768px | Pass — the Coach-navigation rail exposes all destinations with icon and label. | The Stage 5 statistics panel and opened Event-feed drawer remain independently scrollable. |
+| 834px | Pass — bottom Coach navigation remains persistent and Stage 5 keeps Court planning and statistics usable together. | Match Squad results/chips and the Stage 5 statistics panel scroll without moving the primary action bar. |
+| 744px | Pass — bottom Coach navigation, focused setup stages, and the compact live Event-feed drawer remain usable. | Match Squad results/chips and the opened Event-feed drawer scroll within their own surfaces. |
+| 390px phone | Pass — bottom Coach navigation, setup actions, and destructive confirmation remain reachable without clipped actions. | The compact Event-feed drawer is the contained scrolling surface and leaves the Event grid usable. |
 
 Accessible controls verified include **Coach navigation**, **Setup Match**/**Live Match**, **History**, **Settings**, the Stage 5 **All Match**/**Previous quarter** switch, **Opponent goal**, event-cell labels such as **Record Goals for Faye**, and destructive-confirmation actions.
 
-Automated verification completed successfully against the integrated implementation: `pnpm test` passed all 52 tests, and `pnpm run build` completed the TypeScript check and production Vite build.
+Automated verification completed successfully against the integrated implementation: `pnpm test` passed all 602 tests, and `pnpm run build` completed the TypeScript check and production Vite build.

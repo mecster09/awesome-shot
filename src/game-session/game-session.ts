@@ -307,13 +307,14 @@ export class GameSession {
     });
   }
 
-  async saveMatchIdentity(input: Pick<MatchIdentityDraft, "seasonId" | "oppositionId" | "date">): Promise<MatchIdentityDraft> {
+  async saveMatchIdentity(input: Pick<MatchIdentityDraft, "seasonId" | "oppositionId" | "date" | "squadPlayerIds">): Promise<MatchIdentityDraft> {
     this.requireActiveSeason(input.seasonId);
     if (input.oppositionId) this.requireActiveOpposition(input.oppositionId);
     const draft: MatchIdentityDraft = {
       seasonId: input.seasonId,
       ...(input.oppositionId ? { oppositionId: input.oppositionId } : {}),
       ...(input.date ? { date: this.requireDate(input.date) } : {}),
+      ...(input.squadPlayerIds ? { squadPlayerIds: this.validPartialMatchSquad(input.squadPlayerIds) } : {}),
       stage: "match-identity"
     };
     this.data.matchSetupDraft = draft;
@@ -437,6 +438,13 @@ export class GameSession {
     return this.capture(game, quarter);
   }
 
+  quarterScore(id: string, number: QuarterNumber): { own: number; opposition: number } {
+    const game = this.data.games.find((candidate) => candidate.id === id);
+    const quarter = game?.quarters?.find((candidate) => candidate.number === number);
+    if (!quarter) throw new Error("Quarter was not found.");
+    return this.score(quarter.captureActions);
+  }
+
   statisticsSummary(id: string, selection: { scope: "match" } | { scope: "quarter"; quarter: QuarterNumber }): StatisticsSummary {
     const game = this.data.games.find((candidate) => candidate.id === id);
     if (!game) throw new Error("Match was not found.");
@@ -529,13 +537,13 @@ export class GameSession {
     }
     const playerId = this.currentLineup(quarter)[input.position];
     if (!playerId) throw new Error("Assign a player to this position before recording a statistic.");
-    quarter.captureActions.push({ id: crypto.randomUUID(), kind: "player-statistic", playerId, position: input.position, statistic: input.statistic });
+    quarter.captureActions.push({ id: crypto.randomUUID(), kind: "player-statistic", playerId, position: input.position, statistic: input.statistic, captureOrder: this.nextCaptureOrder(quarter) });
     await this.persist();
   }
 
   async recordOppositionGoal(id: string): Promise<void> {
     const { quarter } = this.requireLiveQuarter(id);
-    quarter.captureActions.push({ id: crypto.randomUUID(), kind: "opposition-goal" });
+    quarter.captureActions.push({ id: crypto.randomUUID(), kind: "opposition-goal", captureOrder: this.nextCaptureOrder(quarter) });
     await this.persist();
   }
 
@@ -557,8 +565,13 @@ export class GameSession {
     this.validateCourt(game, nextCourt);
     const changes = POSITIONS.filter((position) => court[position] !== nextCourt[position]);
     if (!changes.length) throw new Error("Change at least one Court Position before saving.");
-    quarter.substitutions.push(...changes.map((position, index) => ({ sequence: quarter.substitutions.length + index + 1, position, ...(nextCourt[position] ? { playerId: nextCourt[position] } : {}) })));
+    const captureOrder = this.nextCaptureOrder(quarter);
+    quarter.substitutions.push(...changes.map((position, index) => ({ sequence: quarter.substitutions.length + index + 1, captureOrder: captureOrder + index, position, ...(nextCourt[position] ? { playerId: nextCourt[position] } : {}) })));
     await this.persist();
+  }
+
+  private nextCaptureOrder(quarter: Quarter): number {
+    return Math.max(0, ...quarter.captureActions.map((action) => action.captureOrder ?? 0), ...quarter.substitutions.map((substitution) => substitution.captureOrder ?? 0)) + 1;
   }
 
   private requireSeason(id: string): Season {
