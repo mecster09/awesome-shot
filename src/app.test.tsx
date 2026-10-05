@@ -170,6 +170,7 @@ describe("Natball Insights setup", () => {
     expect(await screen.findByRole("heading", { name: "No Match in progress" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open coach navigation" })).toBeInTheDocument();
     expect(coachNavigation().getByRole("button", { name: "Match" })).toHaveAttribute("aria-current", "page");
+    await user.click(screen.getByRole("button", { name: "Close coach navigation" }));
 
     await user.click(screen.getByRole("button", { name: "Start Match setup" }));
     expect(await screen.findByRole("heading", { name: "Setup Match & Squad" })).toBeInTheDocument();
@@ -498,6 +499,7 @@ describe("Natball Insights setup", () => {
     await user.click(screen.getByRole("button", { name: "Backup & restore" }));
     expect(screen.getByRole("heading", { name: "Backup & restore" })).toBeInTheDocument();
     expect(coachNavigation().getByRole("button", { name: "History" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close coach navigation" }));
     expect(screen.getByRole("button", { name: "Open coach navigation" })).toBeInTheDocument();
   });
 
