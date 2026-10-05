@@ -14,6 +14,22 @@ const coachNavigation = () => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Natball Insights setup", () => {
+  it("uses visual viewport changes for the Focused-stage height", async () => {
+    const viewport = new EventTarget() as VisualViewport;
+    Object.defineProperties(viewport, {
+      height: { configurable: true, value: 500 },
+      offsetTop: { configurable: true, value: 24 }
+    });
+    vi.stubGlobal("innerHeight", 800);
+    vi.stubGlobal("visualViewport", viewport);
+    render(<App store={new InMemoryGameSessionStore()} />);
+
+    await screen.findByRole("heading", { name: "Setup Team" });
+    expect(document.documentElement.style.getPropertyValue("--app-visual-height")).toBe("500px");
+    expect(document.documentElement.style.getPropertyValue("--keyboard-inset")).toBe("276px");
+    expect(document.documentElement).toHaveClass("keyboard-open");
+  });
+
   it("uses a top-bar drawer for Coach navigation and restores menu focus when closed", async () => {
     const user = userEvent.setup();
     render(<App store={new InMemoryGameSessionStore()} />);

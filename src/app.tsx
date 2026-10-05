@@ -82,6 +82,32 @@ const browserStore = new IndexedDbGameSessionStore();
 
 const initialCoachNavigationUi: CoachNavigationUiState = { destination: "match", drawerOpen: false };
 const coachNavigationHistoryKey = "natballInsightsCoachNavigation";
+function useVisualViewport() {
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    const update = () => {
+      const height = viewport?.height ?? window.innerHeight;
+      const inset = Math.max(0, window.innerHeight - height - (viewport?.offsetTop ?? 0));
+      const root = document.documentElement.style;
+      root.setProperty("--app-visual-height", `${height}px`);
+      root.setProperty("--keyboard-inset", `${inset}px`);
+      document.documentElement.classList.toggle("keyboard-open", inset > 0);
+    };
+    update();
+    viewport?.addEventListener("resize", update);
+    viewport?.addEventListener("scroll", update);
+    window.addEventListener("resize", update);
+    return () => {
+      viewport?.removeEventListener("resize", update);
+      viewport?.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+      const root = document.documentElement;
+      root.style.removeProperty("--app-visual-height");
+      root.style.removeProperty("--keyboard-inset");
+      root.classList.remove("keyboard-open");
+    };
+  }, []);
+}
 
 const historyUiState = (state: unknown): CoachNavigationUiState | undefined => {
   if (!state || typeof state !== "object") return undefined;
@@ -141,6 +167,7 @@ export function App({ store }: AppProps) {
   const [unsavedCourts, setUnsavedCourts] = useState<Record<string, StartingLineup>>({});
   const [formDrafts, setFormDrafts] = useState<FormDrafts>({});
   const coachNavigation = useCoachNavigationHistory();
+  useVisualViewport();
 
   useEffect(() => {
     setMatchView(coachNavigation.ui.destination === "match" ? undefined : { kind: coachNavigation.ui.destination });
