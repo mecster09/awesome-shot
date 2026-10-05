@@ -15,6 +15,39 @@ const addPlayer = async (page: import("@playwright/test").Page, name: string) =>
   await expect(page.getByRole("button", { name: `Remove ${name} from Match Squad` })).toBeVisible();
 };
 
+test.describe("compact landscape tablet", () => {
+  test.use({ viewport: { width: 1280, height: 625 } });
+
+  test("keeps the Match Setup primary action reachable when browser chrome reduces height", async ({ page }) => {
+    await page.goto("/");
+    await page.getByLabel("Team name").fill("Roses");
+    await page.getByRole("button", { name: "Next: Setup Season" }).click();
+    await page.getByLabel("Season title").fill("2026 Winter");
+    await page.getByRole("button", { name: "Next: Setup Match & Squad" }).click();
+    await page.getByRole("button", { name: "Start Match setup" }).click();
+    await page.getByLabel("New opposition name").fill("Thunder");
+    await page.getByRole("button", { name: "Add opposition to match" }).click();
+    for (const name of ["Ava", "Bea", "Cora", "Demi", "Eve", "Faye", "Gia"]) await addPlayer(page, name);
+    await page.getByLabel("Match date").fill("2026-10-04");
+
+    const setupForm = page.locator(".prototype-setup-form");
+    expect(await setupForm.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+    const next = page.getByRole("button", { name: "Next: Setup Quarter" });
+    await next.scrollIntoViewIfNeeded();
+    await expect(next).toBeInViewport();
+    await next.click();
+
+    for (const [position, player] of [["Goal Keeper", "Ava"], ["Goal Defence", "Bea"], ["Wing Defence", "Cora"], ["Centre", "Demi"], ["Wing Attack", "Eve"], ["Goal Attack", "Faye"], ["Goal Shooter", "Gia"]] as const) {
+      await page.getByLabel(position).selectOption({ label: player });
+    }
+    const startMatch = page.getByRole("button", { name: "Start Match" });
+    await startMatch.scrollIntoViewIfNeeded();
+    await expect(startMatch).toBeInViewport();
+    await startMatch.click();
+    await expect(page.getByRole("button", { name: "Record Goals for Faye" })).toBeVisible();
+  });
+});
+
 const startLiveMatch = async (page: import("@playwright/test").Page) => {
   await page.goto("/");
   await page.getByLabel("Team name").fill("Roses");
