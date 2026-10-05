@@ -927,7 +927,7 @@ describe("Natball Insights setup", () => {
     expect(liveEvents.querySelector(".score-strip")).not.toBeInTheDocument();
   });
 
-  it("keeps compact Match capture actions reachable without an overlay", async () => {
+  it("keeps compact Match capture actions reachable while placing abandonment under More", async () => {
     vi.stubGlobal("matchMedia", vi.fn().mockImplementation(() => ({
       matches: true,
       addEventListener: vi.fn(),
@@ -949,8 +949,8 @@ describe("Natball Insights setup", () => {
     expect(screen.getByRole("button", { name: "Record Substitution" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Event Feed" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "End Quarter" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Abandon match" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "More" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "More" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Abandon match" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add opposition goal" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
 
@@ -1070,7 +1070,7 @@ describe("Natball Insights setup", () => {
     await waitFor(async () => expect((await GameSession.open(store)).gameScore(game.id)).toEqual({ own: 1, opposition: 0 }));
   });
 
-  it("confirms the live count badge before removing its most recent matching event", async () => {
+  it("keeps correction controls out of the live capture matrix and undoes the latest capture", async () => {
     const store = new InMemoryGameSessionStore();
     const session = await GameSession.open(store);
     const season = await session.createSeason({ name: "2026 Winter", teamName: "Roses" });
@@ -1081,11 +1081,10 @@ describe("Natball Insights setup", () => {
     render(<App store={store} />);
 
     await user.click(await screen.findByRole("button", { name: "Record Goals for Faye" }));
-    await user.click(screen.getByRole("button", { name: "Remove most recent Goals for Faye" }));
-    expect(screen.getByRole("alertdialog", { name: "Remove most recent event?" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Remove event" }));
-    await waitFor(async () => expect((await GameSession.open(store)).gameScore(game.id)).toEqual({ own: 0, opposition: 0 }));
     expect(screen.queryByRole("button", { name: "Remove most recent Goals for Faye" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(async () => expect((await GameSession.open(store)).gameScore(game.id)).toEqual({ own: 0, opposition: 0 }));
+    expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
   });
 
   it("scopes drawer events to its selected tab and corrects or deletes them with confirmation", async () => {

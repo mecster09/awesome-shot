@@ -257,12 +257,12 @@ form { display: grid; gap: 13px; margin-top: 20px; }
 /* Prototype Match Events: the tabs and actions form one command bar above the matrix. */
 .live-match-events { display: flex; flex-direction: column; min-height: calc(100vh - 112px); }
 .live-match-events .live-capture { display: flex; flex: 1; flex-direction: column; min-height: 0; margin-top: 0; }
-.live-match-command-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px; border: 1px solid var(--ui-border); border-radius: 16px; background: var(--ui-surface); box-shadow: 0 1px 3px rgb(15 23 42 / .08); }
+.live-match-command-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--ui-border); border-radius: 16px; background: var(--ui-surface); box-shadow: 0 1px 3px rgb(15 23 42 / .08); }
 .live-match-tabs .match-event-tabs { display: inline-flex; margin: 0; padding: 4px; border: 0; border-radius: 12px; background: #f1f5f9; }
 .live-match-tabs .match-event-tabs button { min-height: 32px; padding: 0 16px; border: 0; border-radius: 8px; background: transparent; color: var(--ui-muted); font-size: .75rem; font-weight: 900; box-shadow: none; }
 .live-match-tabs .match-event-tabs button[aria-selected="true"] { background: var(--ui-rose); color: #fff; box-shadow: 0 1px 3px rgb(15 23 42 / .12); }
-.live-match-actions { display: flex; align-items: center; gap: 8px; }
-.live-match-actions .text-button, .live-match-actions .end-quarter-action { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; border-radius: 12px; font-size: .75rem; font-weight: 800; }
+.live-match-actions { display: grid; flex: 1 1 540px; grid-template-columns: repeat(5, minmax(48px, 1fr)); align-items: stretch; gap: 8px; }
+.live-match-actions .text-button, .live-match-actions .end-quarter-action { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 48px; padding: 4px 8px; border-radius: 12px; font-size: .75rem; font-weight: 800; }
 .live-match-actions svg { width: 14px; height: 14px; color: var(--ui-rose); }.live-match-actions .end-quarter-action svg { color: #fff; }
 .live-match-actions .overflow-actions { display: contents; }
 .live-match-events .live-quarter-layout { flex: 1; min-height: 0; margin-top: 8px; }
@@ -270,10 +270,9 @@ form { display: grid; gap: 13px; margin-top: 20px; }
 .live-match-events .current-court { width: 100%; min-width: 0; }.live-match-events .court-matrix-header { grid-template-columns: minmax(160px, 2fr) minmax(0, 10fr); gap: 6px; padding: 8px 12px; background: #f1f5f9; border-bottom: 1px solid var(--ui-border); }
 .live-match-events .court-matrix-header > span { grid-column: auto; }.live-match-events .court-matrix-header > div { gap: 6px; }
 .player-court-identity { display: contents; }
-.live-match-events .player-stat-card { grid-template-columns: minmax(160px, 2fr) minmax(0, 10fr); gap: 6px; min-height: 60px; padding: 8px 12px; border: 0; border-bottom: 1px solid #f1f5f9; border-radius: 0; box-shadow: none; }
-.live-match-events .player-court-identity { display: flex; grid-column: 1; align-items: center; gap: 8px; min-width: 0; }.live-match-events .player-stat-card h3 { overflow: hidden; margin: 0; text-overflow: ellipsis; white-space: nowrap; }.live-match-events .player-stat-card .eyebrow { display: grid; flex: 0 0 32px; place-items: center; min-height: 32px; margin: 0; border: 1px solid #fecdd3; border-radius: 8px; background: var(--ui-rose-soft); color: #be123c; font-size: .72rem; font-weight: 900; }.live-match-events .stat-buttons { grid-column: 2; gap: 6px; }.live-match-events .event-cell { min-height: 44px; }
-@media (max-width: 900px) { .live-match-command-bar { align-items: stretch; flex-direction: column; }.live-match-actions { flex-wrap: wrap; }.live-match-tabs .match-event-tabs { width: 100%; }.live-match-tabs .match-event-tabs button { flex: 1; padding-inline: 8px; } }
-@media (max-width: 600px) { .live-match-events { min-height: 0; }.live-match-events .current-court-scroll { overflow-x: auto; }.live-match-events .current-court { min-width: 560px; }.live-match-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }.live-match-actions .text-button, .live-match-actions .end-quarter-action { justify-content: center; }.live-match-actions > .overflow-actions { display: contents; } }
+.live-match-events .player-stat-card { grid-template-columns: minmax(130px, 1fr) minmax(0, 2.25fr); gap: 6px; min-height: 56px; padding: 4px 12px; border: 0; border-bottom: 1px solid #f1f5f9; border-radius: 0; box-shadow: none; }
+.live-match-events .player-court-identity { display: flex; grid-column: 1; align-items: center; gap: 8px; min-width: 0; }.live-match-events .player-stat-card h3 { overflow: hidden; margin: 0; text-overflow: ellipsis; white-space: nowrap; }.live-match-events .player-stat-card .eyebrow { display: grid; flex: 0 0 32px; place-items: center; min-height: 32px; margin: 0; border: 1px solid #fecdd3; border-radius: 8px; background: var(--ui-rose-soft); color: #be123c; font-size: .72rem; font-weight: 900; }.live-match-events .stat-buttons { grid-column: 2; gap: 4px; }.live-match-events .event-cell { min-width: 48px; min-height: 48px; }
+@media (max-width: 900px) { .live-match-command-bar { align-items: stretch; }.live-match-tabs, .live-match-actions { flex-basis: 100%; }.live-match-tabs .match-event-tabs { width: 100%; }.live-match-tabs .match-event-tabs button { flex: 1; padding-inline: 8px; } }
 
 /* Installed-PWA viewport and native-touch contract. */
 html, body, #root {
