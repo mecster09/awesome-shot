@@ -1,4 +1,5 @@
 import { FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { AlertTriangle, ArrowLeft, ArrowRight, ArrowRightLeft, Calendar, Check, CheckCircle2, Database, History as HistoryIcon, LayoutDashboard, List, Menu, Power, RotateCcw, Settings as SettingsIcon, Trophy, Users, X } from "lucide-react";
 import { GameSession } from "./game-session/game-session";
 import { IndexedDbGameSessionStore } from "./game-session/indexed-db-game-session-store";
@@ -82,6 +83,47 @@ const browserStore = new IndexedDbGameSessionStore();
 
 const initialCoachNavigationUi: CoachNavigationUiState = { destination: "match", drawerOpen: false };
 const coachNavigationHistoryKey = "natballInsightsCoachNavigation";
+const matchOverlayHistoryKey = "natballInsightsMatchOverlay";
+
+function useMatchOverlayHistory(layer: string, onDismiss: () => void) {
+  const dismissRef = useRef(onDismiss);
+  dismissRef.current = onDismiss;
+  useEffect(() => {
+    const state = window.history.state && typeof window.history.state === "object" ? window.history.state : {};
+    window.history.pushState({ ...state, [matchOverlayHistoryKey]: layer }, "", window.location.href);
+    const restore = (event: PopStateEvent) => {
+      const next = event.state && typeof event.state === "object" ? (event.state as Record<string, unknown>)[matchOverlayHistoryKey] : undefined;
+      if (next !== layer) dismissRef.current();
+    };
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, [layer]);
+  return () => {
+    const state = window.history.state && typeof window.history.state === "object" ? window.history.state as Record<string, unknown> : {};
+    dismissRef.current();
+    if (state[matchOverlayHistoryKey] === layer) window.history.back();
+  };
+}
+
+function useModalBackground() {
+  useEffect(() => {
+    if (!("inert" in HTMLElement.prototype)) return;
+    const shell = document.querySelector<HTMLElement>(".app-shell");
+    if (!shell) return;
+    const count = Number(document.body.dataset.matchOverlayCount ?? "0") + 1;
+    document.body.dataset.matchOverlayCount = String(count);
+    shell.inert = true;
+    shell.setAttribute("aria-hidden", "true");
+    return () => {
+      const remaining = Math.max(0, Number(document.body.dataset.matchOverlayCount ?? "1") - 1);
+      document.body.dataset.matchOverlayCount = String(remaining);
+      if (!remaining) {
+        shell.inert = false;
+        shell.removeAttribute("aria-hidden");
+      }
+    };
+  }, []);
+}
 function useVisualViewport() {
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -635,8 +677,9 @@ function MatchCard({ game, setup, capture, quarterCapture, score, report, summar
 }
 
 function EndQuarterSummary({ quarter, isFinalQuarter, onReview, onSetUpNextQuarter, onFinalise }: { quarter: CompletedQuarterSummary; isFinalQuarter: boolean; onReview: () => void; onSetUpNextQuarter: () => void; onFinalise: () => void }) {
-  const overlayRef = useOverlayFocus(onReview);
-  return <div ref={overlayRef} className="end-quarter-summary-backdrop" role="dialog" aria-modal="true" aria-label={`Quarter ${quarter.number} summary`} onMouseDown={(event) => { if (event.target === event.currentTarget) onReview(); }}><section className="end-quarter-summary"><div className="end-quarter-summary-icon" aria-hidden="true">✓</div><p className="eyebrow">QUARTER COMPLETE</p><h2>Quarter {quarter.number} complete</h2><dl><div><dt>Quarter score</dt><dd>{quarter.ownScore} — {quarter.oppositionScore}</dd></div><div><dt>Match score</dt><dd>{quarter.ownGameScore} — {quarter.oppositionGameScore}</dd></div><div><dt>Recorded events</dt><dd>{quarter.eventCount}</dd></div></dl>{isFinalQuarter ? <><p>Confirm this final score to finalise the read-only Match.</p><button type="button" onClick={onFinalise}>Confirm final score and finalise Match</button><button type="button" className="secondary-button" onClick={onReview}>Review Quarter {quarter.number} statistics</button></> : <><button type="button" onClick={onSetUpNextQuarter}>Prepare Quarter {quarter.number + 1} Court</button><button type="button" className="secondary-button" onClick={onReview}>Review Quarter {quarter.number} statistics</button></>}</section></div>;
+  const dismiss = useMatchOverlayHistory("quarter-summary", onReview);
+  const overlayRef = useOverlayFocus(dismiss);
+  return createPortal(<div ref={overlayRef} className="end-quarter-summary-backdrop" role="dialog" aria-modal="true" aria-label={`Quarter ${quarter.number} summary`} onMouseDown={(event) => { if (event.target === event.currentTarget) dismiss(); }}><section className="end-quarter-summary"><div className="end-quarter-summary-icon" aria-hidden="true">✓</div><p className="eyebrow">QUARTER COMPLETE</p><h2>Quarter {quarter.number} complete</h2><dl><div><dt>Quarter score</dt><dd>{quarter.ownScore} — {quarter.oppositionScore}</dd></div><div><dt>Match score</dt><dd>{quarter.ownGameScore} — {quarter.oppositionGameScore}</dd></div><div><dt>Recorded events</dt><dd>{quarter.eventCount}</dd></div></dl>{isFinalQuarter ? <><p>Confirm this final score to finalise the read-only Match.</p><button type="button" onClick={onFinalise}>Confirm final score and finalise Match</button><button type="button" className="secondary-button" onClick={dismiss}>Review Quarter {quarter.number} statistics</button></> : <><button type="button" onClick={onSetUpNextQuarter}>Prepare Quarter {quarter.number + 1} Court</button><button type="button" className="secondary-button" onClick={dismiss}>Review Quarter {quarter.number} statistics</button></>}</section></div>, document.body);
 }
 
 function MatchEventSummaryTable({ summary, players, label }: { summary: StatisticsSummary; players: SetupSummary["players"]; label: string }) {
@@ -667,12 +710,14 @@ function BackupCard({ exportBackup, onImport }: { exportBackup: () => string; on
 }
 
 function DestructiveConfirmation({ title, description, cancelLabel, confirmLabel, onCancel, onConfirm }: { title: string; description: string; cancelLabel: string; confirmLabel: string; onCancel: () => void; onConfirm: () => Promise<void> }) {
-  const overlayRef = useOverlayFocus(onCancel);
-  return <div ref={overlayRef} className="destructive-confirmation" role="alertdialog" aria-modal="true" aria-label={title} onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}><div className="destructive-confirmation-card"><span className="destructive-confirmation-icon" aria-hidden="true"><AlertTriangle /></span><h3>{title}</h3><p>{description}</p><div className="destructive-confirmation-actions"><button type="button" className="secondary-button" onClick={onCancel}>{cancelLabel}</button><button type="button" onClick={() => void onConfirm()}>{confirmLabel}</button></div></div></div>;
+  const dismiss = useMatchOverlayHistory(`confirmation:${title}`, onCancel);
+  const overlayRef = useOverlayFocus(dismiss);
+  return createPortal(<div ref={overlayRef} className="destructive-confirmation" role="alertdialog" aria-modal="true" aria-label={title} onMouseDown={(event) => { if (event.target === event.currentTarget) dismiss(); }}><div className="destructive-confirmation-card"><span className="destructive-confirmation-icon" aria-hidden="true"><AlertTriangle /></span><h3>{title}</h3><p>{description}</p><div className="destructive-confirmation-actions"><button type="button" className="secondary-button" onClick={dismiss}>{cancelLabel}</button><button type="button" onClick={() => void onConfirm()}>{confirmLabel}</button></div></div></div>, document.body);
 }
 
 function useOverlayFocus(onClose: () => void, activeSurfaceSelector?: string) {
   const overlayRef = useRef<HTMLDivElement>(null);
+  useModalBackground();
   const closeRef = useRef(onClose);
   const activeSurfaceSelectorRef = useRef(activeSurfaceSelector);
   closeRef.current = onClose;
@@ -719,7 +764,8 @@ function ReadOnlyQuarterCard({ setup, capture, onOpenEventFeed, tabs }: { setup:
 }
 
 function SubstitutionModal({ lineup, squad, onCancel, onConfirm }: { lineup: StartingLineup; squad: SetupSummary["players"]; onCancel: () => void; onConfirm: (lineup: StartingLineup) => Promise<void> }) {
-  const overlayRef = useOverlayFocus(onCancel);
+  const dismiss = useMatchOverlayHistory("substitution", onCancel);
+  const overlayRef = useOverlayFocus(dismiss);
   const [position, setPosition] = useState<Position>(POSITIONS[0]);
   const [playerId, setPlayerId] = useState(lineup[POSITIONS[0]] ?? "");
   const nextLineup = () => {
@@ -739,7 +785,7 @@ function SubstitutionModal({ lineup, squad, onCancel, onConfirm }: { lineup: Sta
     setPosition(value);
     setPlayerId(lineup[value] ?? "");
   };
-  return <div ref={overlayRef} className="substitution-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}><section className="substitution-modal" role="dialog" aria-modal="true" aria-label="Record Substitution"><div className="section-heading"><div><p className="eyebrow">LIVE QUARTER</p><h2>Record Substitution</h2></div><button type="button" className="text-button" onClick={onCancel}>Close substitution</button></div><p>Choose a Court Position and a Match Squad Player. Choosing someone already on Court repositions them and leaves their previous Position vacant.</p><label>Court position<select aria-label="Court position" value={position} onChange={(event) => selectPosition(event.target.value as Position)}>{POSITIONS.map((candidate) => <option key={candidate} value={candidate}>{positionAbbreviation[candidate]} — {lineup[candidate] ? playerLabel(squad.find((player) => player.id === lineup[candidate]) ?? { name: "Unknown player" }) : "Vacant"}</option>)}</select></label><label>Incoming player<select aria-label="Incoming player" value={playerId} onChange={(event) => setPlayerId(event.target.value)}><option value="">Vacate this Position</option>{squad.map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label><p className="substitution-readiness" role="status">{assignedPlayers}/7 Players will be on Court.{assignedPlayers < 5 && " Choose a Player to keep at least five on Court."}</p><div className="substitution-modal-actions"><button type="button" className="secondary-button" onClick={onCancel}>Cancel substitution</button><button type="button" disabled={!canConfirm} onClick={() => void onConfirm(next)}>Confirm substitution</button></div></section></div>;
+  return createPortal(<div ref={overlayRef} className="substitution-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) dismiss(); }}><section className="substitution-modal" role="dialog" aria-modal="true" aria-label="Record Substitution"><div className="section-heading"><div><p className="eyebrow">LIVE QUARTER</p><h2>Record Substitution</h2></div><button type="button" className="text-button" onClick={dismiss}>Close substitution</button></div><p>Choose a Court Position and a Match Squad Player. Choosing someone already on Court repositions them and leaves their previous Position vacant.</p><label>Court position<select aria-label="Court position" value={position} onChange={(event) => selectPosition(event.target.value as Position)}>{POSITIONS.map((candidate) => <option key={candidate} value={candidate}>{positionAbbreviation[candidate]} — {lineup[candidate] ? playerLabel(squad.find((player) => player.id === lineup[candidate]) ?? { name: "Unknown player" }) : "Vacant"}</option>)}</select></label><label>Incoming player<select aria-label="Incoming player" value={playerId} onChange={(event) => setPlayerId(event.target.value)}><option value="">Vacate this Position</option>{squad.map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label><p className="substitution-readiness" role="status">{assignedPlayers}/7 Players will be on Court.{assignedPlayers < 5 && " Choose a Player to keep at least five on Court."}</p><div className="substitution-modal-actions"><button type="button" className="secondary-button" onClick={dismiss}>Cancel substitution</button><button type="button" disabled={!canConfirm} onClick={() => void onConfirm(next)}>Confirm substitution</button></div></section></div>, document.body);
 }
 
 function AbandonMatchAction({ onAbandon }: { onAbandon: () => Promise<void> }) {
@@ -783,7 +829,8 @@ function EventFeedDrawer({ game, tab, players, actions, onClose }: { game: Game;
   const [editing, setEditing] = useState<{ quarter: QuarterNumber; action: Extract<CaptureAction, { kind: "player-statistic" }> }>();
   const [correction, setCorrection] = useState<{ playerId: string; position: Position; statistic: PlayerStatistic }>();
   const [deleting, setDeleting] = useState<{ quarter: QuarterNumber; actionId: string }>();
-  const overlayRef = useOverlayFocus(() => editing ? setEditing(undefined) : deleting ? setDeleting(undefined) : onClose(), editing ? ".event-correction-modal" : deleting ? ".destructive-confirmation-card" : undefined);
+  const dismiss = useMatchOverlayHistory("event-feed", onClose);
+  const overlayRef = useOverlayFocus(() => editing ? setEditing(undefined) : deleting ? setDeleting(undefined) : dismiss(), editing ? ".event-correction-modal" : deleting ? ".destructive-confirmation-card" : undefined);
   useEffect(() => {
     if (!editing) return;
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
@@ -803,5 +850,5 @@ function EventFeedDrawer({ game, tab, players, actions, onClose }: { game: Game;
     const hasSharedOrder = ordered.length > 0 && ordered.every((entry) => entry.order !== undefined);
     return hasSharedOrder ? ordered.sort((left, right) => left.order! - right.order!).map((entry) => ({ quarter: quarter.number, ...entry })) : [...quarter.captureActions.map((action) => ({ quarter: quarter.number, kind: "event" as const, action })), ...quarter.substitutions.map((substitution) => ({ quarter: quarter.number, kind: "substitution" as const, substitution }))];
   });
-  return <div ref={overlayRef} className="event-feed-drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !editing) onClose(); }}><section className="event-feed-drawer" role="dialog" aria-modal="true" aria-label="Event feed"><div className="section-heading"><div><p className="eyebrow">EVENT FEED</p><h2>{tab === "match" ? "All Match events" : `Quarter ${tab} events`}</h2></div><button type="button" className="text-button" onClick={onClose}>Close Event feed</button></div><div className="event-feed-drawer-scroll">{!entries.length && <p>No events recorded yet.</p>}<ol>{entries.map((entry) => <li key={entry.kind === "event" ? entry.action.id : `${entry.quarter}-${entry.substitution.sequence}`}>{tab === "match" && <strong>Quarter {entry.quarter} · </strong>}{entry.kind === "event" ? <><span>{captureActionLabel(entry.action, players)}</span>{game.status === "live" && entry.action.kind === "player-statistic" && <button type="button" className="text-button" aria-label="Correct event" onClick={() => beginEditing(entry.quarter, entry.action as Extract<CaptureAction, { kind: "player-statistic" }>)}><span aria-hidden="true">✎</span></button>}{game.status === "live" && <button type="button" className="text-button" aria-label="Remove event" onClick={() => setDeleting({ quarter: entry.quarter, actionId: entry.action.id })}><span aria-hidden="true">×</span></button>}</> : <span>Substitution · {positionAbbreviation[entry.substitution.position]}: {entry.substitution.playerId ? playerLabel(players.find((player) => player.id === entry.substitution.playerId) ?? { name: "Unknown player" }) : "Vacant"}</span>}</li>)}</ol></div>{editing && correction && <div className="event-correction-modal" role="dialog" aria-modal="true" aria-label="Correct event" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditing(undefined); }}><form className="court-change-form" onSubmit={(event) => { event.preventDefault(); void actions.correctQuarterPlayerStatistic(editing.quarter, editing.action.id, correction).then(() => setEditing(undefined)); }}><h3>Correct event</h3><label>Player<select aria-label="Event correction player" value={correction.playerId} onChange={(event) => setCorrection({ ...correction, playerId: event.target.value })}>{players.map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label><label>Position<select aria-label="Event correction position" value={correction.position} onChange={(event) => setCorrection({ ...correction, position: event.target.value as Position })}>{POSITIONS.map((position) => <option key={position} value={position}>{positionAbbreviation[position]}</option>)}</select></label><label>Event<select aria-label="Event correction statistic" value={correction.statistic} onChange={(event) => setCorrection({ ...correction, statistic: event.target.value as PlayerStatistic })}>{PLAYER_STATISTICS.map((statistic) => <option key={statistic} value={statistic}>{statistic}</option>)}</select></label><button type="submit">Save event correction</button><button type="button" className="text-button" onClick={() => setEditing(undefined)}>Cancel correction</button></form></div>}{deleting && <DestructiveConfirmation title="Delete event?" description="This recorded event will be removed and all derived scores and summaries will update." cancelLabel="Keep event" confirmLabel="Delete event" onCancel={() => setDeleting(undefined)} onConfirm={async () => { await actions.deleteQuarterAction(deleting.quarter, deleting.actionId); setDeleting(undefined); }} />}</section></div>;
+  return createPortal(<div ref={overlayRef} className="event-feed-drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !editing) dismiss(); }}><section className="event-feed-drawer" role="dialog" aria-modal="true" aria-label="Event feed"><div className="section-heading"><div><p className="eyebrow">EVENT FEED</p><h2>{tab === "match" ? "All Match events" : `Quarter ${tab} events`}</h2></div><button type="button" className="text-button" onClick={dismiss}>Close Event feed</button></div><div className="event-feed-drawer-scroll">{!entries.length && <p>No events recorded yet.</p>}<ol>{entries.map((entry) => <li key={entry.kind === "event" ? entry.action.id : `${entry.quarter}-${entry.substitution.sequence}`}>{tab === "match" && <strong>Quarter {entry.quarter} · </strong>}{entry.kind === "event" ? <><span>{captureActionLabel(entry.action, players)}</span>{game.status === "live" && entry.action.kind === "player-statistic" && <button type="button" className="text-button" aria-label="Correct event" onClick={() => beginEditing(entry.quarter, entry.action as Extract<CaptureAction, { kind: "player-statistic" }>)}><span aria-hidden="true">✎</span></button>}{game.status === "live" && <button type="button" className="text-button" aria-label="Remove event" onClick={() => setDeleting({ quarter: entry.quarter, actionId: entry.action.id })}><span aria-hidden="true">×</span></button>}</> : <span>Substitution · {positionAbbreviation[entry.substitution.position]}: {entry.substitution.playerId ? playerLabel(players.find((player) => player.id === entry.substitution.playerId) ?? { name: "Unknown player" }) : "Vacant"}</span>}</li>)}</ol></div>{editing && correction && <div className="event-correction-modal" role="dialog" aria-modal="true" aria-label="Correct event" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditing(undefined); }}><form className="court-change-form" onSubmit={(event) => { event.preventDefault(); void actions.correctQuarterPlayerStatistic(editing.quarter, editing.action.id, correction).then(() => setEditing(undefined)); }}><h3>Correct event</h3><label>Player<select aria-label="Event correction player" value={correction.playerId} onChange={(event) => setCorrection({ ...correction, playerId: event.target.value })}>{players.map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label><label>Position<select aria-label="Event correction position" value={correction.position} onChange={(event) => setCorrection({ ...correction, position: event.target.value as Position })}>{POSITIONS.map((position) => <option key={position} value={position}>{positionAbbreviation[position]}</option>)}</select></label><label>Event<select aria-label="Event correction statistic" value={correction.statistic} onChange={(event) => setCorrection({ ...correction, statistic: event.target.value as PlayerStatistic })}>{PLAYER_STATISTICS.map((statistic) => <option key={statistic} value={statistic}>{statistic}</option>)}</select></label><button type="submit">Save event correction</button><button type="button" className="text-button" onClick={() => setEditing(undefined)}>Cancel correction</button></form></div>}{deleting && <DestructiveConfirmation title="Delete event?" description="This recorded event will be removed and all derived scores and summaries will update." cancelLabel="Keep event" confirmLabel="Delete event" onCancel={() => setDeleting(undefined)} onConfirm={async () => { await actions.deleteQuarterAction(deleting.quarter, deleting.actionId); setDeleting(undefined); }} />}</section></div>, document.body);
 }
