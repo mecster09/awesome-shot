@@ -111,7 +111,25 @@ export function App({ store }: AppProps) {
   };
 
   if (!session || !setup) {
-    return <main className="loading" aria-live="polite">{error ?? message}</main>;
+    return <main className="app-shell startup-shell">
+      <div className="app-top-bar">
+        <AppMark />
+        <button type="button" className="menu-button" aria-label="Coach navigation is unavailable while local storage opens" disabled><Menu /></button>
+        <div className="top-bar-identity"><span>Natball Insights</span><strong>Offline workspace</strong></div>
+      </div>
+      <div className="app-content">
+        <section className={`loading${error ? " storage-error" : ""}`} aria-live="polite">
+          <div className="startup-state-card">
+            <p className="eyebrow">OFFLINE WORKSPACE</p>
+            <h1>{error ? "Local storage unavailable" : "Preparing Natball Insights"}</h1>
+            <p>{error ?? message}</p>
+            <PrimaryActionBar>
+              <button type="button" disabled={!error} onClick={() => window.location.reload()}>{error ? "Retry local storage" : "Preparing offline workspace…"}</button>
+            </PrimaryActionBar>
+          </div>
+        </section>
+      </div>
+    </main>;
   }
   const activeSeason = setup.seasons.find((season) => season.status === "active");
   const editableTeam = activeSeason ? setup.teams.find((team) => team.id === activeSeason.teamId) : setup.teams.at(-1);

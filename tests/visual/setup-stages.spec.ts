@@ -96,6 +96,7 @@ test("renders persisted Match Squad and Court setup at tablet scale", async ({ p
 
 test("renders setup and Settings production surfaces", async ({ page }) => {
   await page.goto("/");
+  await expect(page.getByLabel("Team name")).toBeVisible();
   await capture(page, "team-setup");
 
   await page.getByLabel("Team name").fill("Roses");

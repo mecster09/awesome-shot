@@ -274,3 +274,101 @@ form { display: grid; gap: 13px; margin-top: 20px; }
 .live-match-events .player-court-identity { display: flex; grid-column: 1; align-items: center; gap: 8px; min-width: 0; }.live-match-events .player-stat-card h3 { overflow: hidden; margin: 0; text-overflow: ellipsis; white-space: nowrap; }.live-match-events .player-stat-card .eyebrow { display: grid; flex: 0 0 32px; place-items: center; min-height: 32px; margin: 0; border: 1px solid #fecdd3; border-radius: 8px; background: var(--ui-rose-soft); color: #be123c; font-size: .72rem; font-weight: 900; }.live-match-events .stat-buttons { grid-column: 2; gap: 6px; }.live-match-events .event-cell { min-height: 44px; }
 @media (max-width: 900px) { .live-match-command-bar { align-items: stretch; flex-direction: column; }.live-match-actions { flex-wrap: wrap; }.live-match-tabs .match-event-tabs { width: 100%; }.live-match-tabs .match-event-tabs button { flex: 1; padding-inline: 8px; } }
 @media (max-width: 600px) { .live-match-events { min-height: 0; }.live-match-events .current-court-scroll { overflow-x: auto; }.live-match-events .current-court { min-width: 560px; }.live-match-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }.live-match-actions .text-button, .live-match-actions .end-quarter-action { justify-content: center; }.live-match-actions > .overflow-actions { display: contents; } }
+
+/* Installed-PWA viewport and native-touch contract. */
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+@supports (height: 100dvh) {
+  html, body, #root { height: 100dvh; }
+}
+
+* { -webkit-tap-highlight-color: transparent; }
+button, .app-top-bar, .primary-action-bar, .app-mark, img, svg {
+  -webkit-user-select: none;
+  user-select: none;
+}
+img, svg {
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+button { min-width: 48px; min-height: 48px; }
+
+:root {
+  --safe-area-top: env(safe-area-inset-top);
+  --safe-area-right: env(safe-area-inset-right);
+  --safe-area-bottom: env(safe-area-inset-bottom);
+  --safe-area-left: env(safe-area-inset-left);
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  padding: calc(80px + var(--safe-area-top)) calc(16px + var(--safe-area-right)) calc(16px + var(--safe-area-bottom)) calc(16px + var(--safe-area-left));
+  overflow: hidden;
+}
+.app-top-bar {
+  min-height: calc(80px + var(--safe-area-top));
+  padding: calc(16px + var(--safe-area-top)) calc(16px + var(--safe-area-right)) 16px calc(16px + var(--safe-area-left));
+  grid-template-columns: 30px 48px minmax(0, 1fr) auto;
+}
+.menu-button, .drawer-close { width: 48px; height: 48px; }
+.app-content {
+  display: flex;
+  flex: 1;
+  width: min(100%, 1180px);
+  min-height: 0;
+  margin: 16px auto 0;
+  overflow: hidden;
+}
+.app-content > .match-area,
+.focused-screen,
+.setup-screen,
+.no-match-screen {
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+}
+.player-picker-results,
+.prototype-setup-form,
+.quarter-court,
+.quarter-statistics,
+.match-event-summary-scroll,
+.event-feed-drawer-scroll,
+.management-screen .match-list,
+.management-screen .backup-card {
+  overscroll-behavior: contain;
+}
+
+.startup-shell .app-content { align-items: stretch; }
+.loading {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  place-items: center;
+  padding: clamp(20px, 5vw, 48px);
+  color: #7b1425;
+  background: #f1f3f5;
+}
+.startup-state-card {
+  width: min(100%, 560px);
+  padding: clamp(24px, 4vw, 34px);
+  border: 1px solid #e5e7eb;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 8px 24px #1c1c1e12;
+}
+.startup-state-card h1 { margin: 0; color: var(--slate); font-size: clamp(1.25rem, 3vw, 1.5rem); }
+.startup-state-card > p:last-of-type { color: var(--slate-muted); line-height: 1.5; }
+.startup-state-card .primary-action-bar { padding-top: 20px; border-top: 1px solid #f1f3f5; background: #fff; }
+.startup-state-card .primary-action-bar button { width: 100%; }
