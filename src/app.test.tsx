@@ -662,8 +662,9 @@ describe("Natball Insights setup", () => {
     await user.selectOptions(screen.getByLabelText("Centre"), "");
     expect(screen.getByText("Court ready — 6 Players assigned. You can start Quarter 2.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Review previous Quarter on Match Events" }));
-    expect(await screen.findByLabelText("Quarter 1 statistics")).toHaveTextContent("Demi");
-    expect(screen.getByLabelText("Quarter 1 statistics")).toHaveTextContent("Tip: 1");
+    const previousQuarterGrid = await screen.findByRole("region", { name: "Quarter 1 read-only event grid" });
+    expect(previousQuarterGrid).toHaveTextContent("Demi");
+    expect(within(previousQuarterGrid).getByRole("button", { name: "Tip for Demi: 1" })).toHaveAttribute("aria-disabled", "true");
     await user.click(coachNavigation().getByRole("button", { name: "Match" }));
     expect(await screen.findByLabelText("Centre")).toHaveValue("");
     await user.selectOptions(screen.getByLabelText("Centre"), players[3].id);
@@ -853,9 +854,10 @@ describe("Natball Insights setup", () => {
     expect(within(tabs).getByRole("tab", { name: "Q4" })).toBeDisabled();
     expect(within(tabs).getByRole("tab", { name: "Match" })).toBeEnabled();
     await user.click(within(tabs).getByRole("tab", { name: "Q1" }));
-    expect(await screen.findByLabelText("Quarter 1 statistics")).toHaveTextContent("Demi");
-    expect(screen.getByLabelText("Quarter 1 statistics")).toHaveTextContent("Hana");
-    expect(screen.getByLabelText("Quarter 1 statistics")).toHaveTextContent("No events");
+    const previousQuarterGrid = await screen.findByRole("region", { name: "Quarter 1 read-only event grid" });
+    expect(previousQuarterGrid).toHaveTextContent("Hana");
+    expect(within(previousQuarterGrid).getByRole("button", { name: "Tip for Hana: 0" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.queryByRole("button", { name: "Record Tip for Hana" })).not.toBeInTheDocument();
   });
 
   it("shows Live match context in the top bar and records an opposition goal from it", async () => {
@@ -953,7 +955,7 @@ describe("Natball Insights setup", () => {
     expect((await GameSession.open(store)).liveQuarter(game.id).lineup.Centre).toBe(players[3].id);
     expect((await GameSession.open(store)).match(game.id)?.quarters?.[0].substitutions).toHaveLength(0);
     await user.click(screen.getByRole("button", { name: "End Quarter" }));
-    expect(await screen.findByLabelText("Quarter 1 statistics")).toHaveTextContent("Faye");
+    expect(await screen.findByRole("region", { name: "Quarter 1 read-only event grid" })).toHaveTextContent("Faye");
     const quarterSummary = screen.getByRole("dialog", { name: "Quarter 1 summary" });
     expect(quarterSummary).toHaveTextContent("Quarter score1 — 1");
     expect(quarterSummary).toHaveTextContent("Match score1 — 1");
@@ -977,7 +979,7 @@ describe("Natball Insights setup", () => {
 
     for (const quarter of [1, 2, 3] as const) {
       await user.click(await screen.findByRole("button", { name: "End Quarter" }));
-      expect(await screen.findByLabelText(`Quarter ${quarter} statistics`)).toBeInTheDocument();
+      expect(await screen.findByRole("region", { name: `Quarter ${quarter} read-only event grid` })).toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: `Prepare Quarter ${quarter + 1} Court` }));
       await user.click(await screen.findByRole("button", { name: `Start Quarter ${quarter + 1}` }));
     }
