@@ -18,6 +18,7 @@ export default defineConfig({
         theme_color: "#b5122b",
         background_color: "#fff8f8",
         display: "standalone",
+        display_override: ["fullscreen", "standalone"],
         icons: [{ src: "/natball-icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" }]
       }
     })
