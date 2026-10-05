@@ -137,6 +137,12 @@ form { display: grid; gap: 13px; margin-top: 20px; }
   .app-shell { gap: 16px; padding-block: 8px; }
   .app-shell, .app-content { height: 100vh; min-height: 0; overflow: hidden; }
   .match-area { height: calc(100vh - 16px); min-height: 0; overflow: hidden; }
+  /* Browser toolbars can reduce a landscape tablet's usable height by hundreds of pixels.
+     Keep setup actions reachable inside their deliberately contained task surfaces. */
+  .prototype-setup-screen { display: flex; align-items: stretch; justify-content: center; padding: 16px; }
+  .prototype-setup-form { align-self: stretch; flex: 1 1 auto; min-height: 0; max-height: 100%; }
+  .prototype-setup-form .squad-picker { min-height: 0; }
+  .quarter-court { min-height: 0; overflow: auto; }
   .live-capture { position: relative; display: flex; flex-direction: column; height: 100%; margin-top: 0; overflow: hidden; }
   .score-strip { gap: 10px; padding: 8px 12px; }
   .score-strip h2 { font-size: 1.1rem; }
