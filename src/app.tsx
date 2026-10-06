@@ -84,6 +84,32 @@ const browserStore = new IndexedDbGameSessionStore();
 const initialCoachNavigationUi: CoachNavigationUiState = { destination: "match", drawerOpen: false };
 const coachNavigationHistoryKey = "natballInsightsCoachNavigation";
 const matchOverlayHistoryKey = "natballInsightsMatchOverlay";
+const appViewHistoryKey = "natballInsightsView";
+
+const savedAppView = (state: unknown): MatchView | undefined => {
+  if (!state || typeof state !== "object") return undefined;
+  const view = (state as Record<string, unknown>)[appViewHistoryKey];
+  if (!view || typeof view !== "object") return undefined;
+  const candidate = view as Partial<MatchView>;
+  if (candidate.kind === "history" || candidate.kind === "settings") return candidate as MatchView;
+  if (candidate.kind === "settings-section" && (candidate.section === "team" || candidate.section === "season" || candidate.section === "backup")) return candidate as MatchView;
+  if (candidate.kind === "game" && typeof candidate.gameId === "string") return candidate as MatchView;
+  return undefined;
+};
+
+function useAppViewHistory(onRestore: (view: MatchView | undefined) => void) {
+  const restoreRef = useRef(onRestore);
+  restoreRef.current = onRestore;
+  useEffect(() => {
+    const restore = (event: PopStateEvent) => restoreRef.current(savedAppView(event.state));
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, []);
+  return (view: MatchView, method: "push" | "replace" = "push") => {
+    const state = window.history.state && typeof window.history.state === "object" ? window.history.state : {};
+    window.history[`${method}State`]({ ...state, [appViewHistoryKey]: view }, "", window.location.href);
+  };
+}
 
 function useMatchOverlayHistory(layer: string, onDismiss: () => void) {
   const dismissRef = useRef(onDismiss);
@@ -208,7 +234,9 @@ export function App({ store }: AppProps) {
   const [matchView, setMatchView] = useState<MatchView>();
   const [unsavedCourts, setUnsavedCourts] = useState<Record<string, StartingLineup>>({});
   const [formDrafts, setFormDrafts] = useState<FormDrafts>({});
+  const [expandedHistorySeason, setExpandedHistorySeason] = useState<string>();
   const coachNavigation = useCoachNavigationHistory();
+  const writeAppView = useAppViewHistory(setMatchView);
   useVisualViewport();
 
   useEffect(() => {
@@ -276,6 +304,17 @@ export function App({ store }: AppProps) {
   const liveScore = liveMatch ? session.gameScore(liveMatch.id) : undefined;
   const liveQuarterScore = liveMatch?.activeQuarter ? session.quarterScore(liveMatch.id, liveMatch.activeQuarter) : undefined;
 
+  const selectDestination = (destination: Exclude<CoachDestination, "match">) => {
+    const view: MatchView = { kind: destination };
+    setMatchView(view);
+    coachNavigation.selectDestination(destination);
+    writeAppView(view, "replace");
+  };
+  const openContainedView = (view: MatchView) => {
+    setMatchView(view);
+    writeAppView(view);
+  };
+
   return <main className="app-shell">
     <CoachNavigation
       activeView={navigationView}
@@ -288,8 +327,8 @@ export function App({ store }: AppProps) {
       onOpenDrawer={coachNavigation.openDrawer}
       onCloseDrawer={coachNavigation.closeDrawer}
       onOpenMatch={() => { setMatchView(undefined); coachNavigation.selectDestination("match"); }}
-      onOpenHistory={() => { setMatchView({ kind: "history" }); coachNavigation.selectDestination("history"); }}
-      onOpenSettings={() => { setMatchView({ kind: "settings" }); coachNavigation.selectDestination("settings"); }}
+      onOpenHistory={() => selectDestination("history")}
+      onOpenSettings={() => selectDestination("settings")}
     />
     <div className="app-content" inert={coachNavigation.ui.drawerOpen || undefined} aria-hidden={coachNavigation.ui.drawerOpen || undefined}>
     {error && <p className="error" role="alert">{error}</p>}
@@ -309,19 +348,19 @@ export function App({ store }: AppProps) {
 
     {currentView.kind === "settings" && <section className="match-area focused-screen management-screen settings-root" aria-labelledby="settings-title">
       <p className="eyebrow">COACH SETTINGS</p><h2 id="settings-title">Settings</h2><p>Manage your Team, Season, offline data, and active Match safely.</p>
-      <div className="settings-card-grid">
-        {editableTeam && <SettingsCard icon={<Users />} title="Team profile" description="Update the reusable Team name used by this Season and future Seasons."><button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "team" })}>Edit team</button></SettingsCard>}
+      <div className="settings-scroll"><div className="settings-card-grid">
+        {editableTeam && <SettingsCard icon={<Users />} title="Team profile" description="Update the reusable Team name used by this Season and future Seasons."><button type="button" className="text-button" onClick={() => openContainedView({ kind: "settings-section", section: "team" })}>Edit team</button></SettingsCard>}
         <SettingsCard icon={<Calendar />} title="Season" description={activeSeason ? `${activeSeason.name} is the active Season.` : "No active Season is available."}>
-          {activeSeason && <button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "season" })}>Edit season</button>}
+          {activeSeason && <button type="button" className="text-button" onClick={() => openContainedView({ kind: "settings-section", section: "season" })}>Edit season</button>}
         </SettingsCard>
-        {activeSeason && <SettingsCard icon={<Power />} title="End season" description={liveMatch ? "A Season cannot end while a live Match is in progress." : "End this Season once every Match is terminal. Ended Seasons remain readable."}><button type="button" className="text-button" disabled={Boolean(liveMatch)} onClick={() => setMatchView({ kind: "settings-section", section: "season" })}>End season</button></SettingsCard>}
-        <SettingsCard icon={<Database />} title="Backup & restore" description="Export every saved record or restore a valid Natball Insights backup."><button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "backup" })}>Backup & restore</button></SettingsCard>
+        {activeSeason && <SettingsCard icon={<Power />} title="End season" description={liveMatch ? "A Season cannot end while a live Match is in progress." : "End this Season once every Match is terminal. Ended Seasons remain readable."}><button type="button" className="text-button" disabled={Boolean(liveMatch)} onClick={() => openContainedView({ kind: "settings-section", section: "season" })}>End season</button></SettingsCard>}
+        <SettingsCard icon={<Database />} title="Backup & restore" description="Export every saved record or restore a valid Natball Insights backup."><button type="button" className="text-button" onClick={() => openContainedView({ kind: "settings-section", section: "backup" })}>Backup & restore</button></SettingsCard>
         {liveMatch && <SettingsCard icon={<AlertTriangle />} title="Abandon active Match" description="End the live Match safely. Its recorded score, events, and statistics remain available read-only." tone="danger"><AbandonMatchAction onAbandon={() => perform(async () => { await session.abandonGame(liveMatch.id); setMatchView({ kind: "game", gameId: liveMatch.id }); })} /></SettingsCard>}
-      </div>
+      </div></div>
     </section>}
-    {currentView.kind === "settings-section" && currentView.section === "backup" && <section className="match-area focused-screen management-screen" aria-labelledby="settings-section-title"><div className="section-heading"><h2 id="settings-section-title">Backup & restore</h2><button className="text-button" onClick={() => setMatchView({ kind: "settings" })}>Back to Settings</button></div><BackupCard exportBackup={() => session.exportBackup()} onImport={(serialized, mode, confirmed) => perform(async () => { await session.importBackup(serialized, mode, confirmed); if (mode === "replace") setUnsavedCourts({}); })} /></section>}
+    {currentView.kind === "settings-section" && currentView.section === "backup" && <section className="match-area focused-screen management-screen backup-screen" aria-labelledby="settings-section-title"><div className="section-heading"><h2 id="settings-section-title">Backup & restore</h2><button className="text-button" onClick={() => window.history.back()}>Back to Settings</button></div><BackupCard exportBackup={() => session.exportBackup()} onImport={(serialized, mode, confirmed) => perform(async () => { await session.importBackup(serialized, mode, confirmed); if (mode === "replace") setUnsavedCourts({}); })} /></section>}
 
-    {currentView.kind === "settings-section" && currentView.section !== "backup" && <section className="match-area focused-screen setup-screen setup-flow-screen settings-setup-screen" aria-labelledby={currentView.section === "team" ? "team-setup-title" : "season-setup-title"}><div className="setup-flow-card">{currentView.section === "team" && editableTeam && <><SetupFlowHeading icon="team" step="STEP 1 OF 4" title="Setup Team" /><TeamForm initialName={editableTeam.name} submitLabel="Save changes" cancelLabel="Cancel" onCancel={() => setMatchView({ kind: "settings" })} onSubmit={(input) => perform(async () => { await session.renameTeam(editableTeam.id, input); setMatchView({ kind: "settings" }); })} /></>}{currentView.section === "season" && activeSeason && <><SetupFlowHeading icon="season" step="STEP 2 OF 4" title="Setup Season" /><SeasonForm team={setup.teams.find((team) => team.id === activeSeason.teamId)!} initialName={activeSeason.name} submitLabel="Save changes" cancelLabel="Cancel" onCancel={() => setMatchView({ kind: "settings" })} onSubmit={(input) => perform(async () => { await session.renameSeason(activeSeason.id, input); setMatchView({ kind: "settings" }); })} seasonLifecycleControl={!liveMatch ? <EndSeasonControl season={activeSeason} onConfirm={() => perform(async () => { await session.endSeason(activeSeason.id); setMatchView(undefined); })} /> : undefined} /></>}</div></section>}
+    {currentView.kind === "settings-section" && currentView.section !== "backup" && <section className="match-area focused-screen setup-screen setup-flow-screen settings-setup-screen" aria-labelledby={currentView.section === "team" ? "team-setup-title" : "season-setup-title"}><div className="setup-flow-card">{currentView.section === "team" && editableTeam && <><SetupFlowHeading icon="team" step="STEP 1 OF 4" title="Setup Team" /><TeamForm initialName={editableTeam.name} submitLabel="Save changes" cancelLabel="Cancel" onCancel={() => window.history.back()} onSubmit={(input) => perform(async () => { await session.renameTeam(editableTeam.id, input); window.history.back(); })} /></>}{currentView.section === "season" && activeSeason && <><SetupFlowHeading icon="season" step="STEP 2 OF 4" title="Setup Season" /><SeasonForm team={setup.teams.find((team) => team.id === activeSeason.teamId)!} initialName={activeSeason.name} submitLabel="Save changes" cancelLabel="Cancel" onCancel={() => window.history.back()} onSubmit={(input) => perform(async () => { await session.renameSeason(activeSeason.id, input); window.history.back(); })} seasonLifecycleControl={!liveMatch ? <EndSeasonControl season={activeSeason} onConfirm={() => perform(async () => { await session.endSeason(activeSeason.id); setMatchView(undefined); })} /> : undefined} /></>}</div></section>}
 
     {currentView.kind === "no-match" && activeSeason && <section className="match-area focused-screen no-match-screen" aria-labelledby="no-match-title"><div className="no-match-card"><div className="no-match-icon" aria-hidden="true"><MatchIcon /></div><p className="eyebrow">ACTIVE SEASON</p><h2 id="no-match-title">No Match in progress</h2><p><strong>{activeSeason.name}</strong> is ready for your next Match. Add an Opposition and date when you are ready to prepare.</p><button type="button" onClick={() => setMatchView({ kind: "match-setup" })}>Start Match setup</button></div></section>}
 
@@ -350,7 +389,7 @@ export function App({ store }: AppProps) {
           if (started) setUnsavedCourts((courts) => { const { [courtKey]: _, ...remaining } = courts; return remaining; });
         }} />;
       })()}
-      {currentView?.kind === "history" && <MatchHistory games={session.matches()} scores={new Map(session.matches().map((game) => [game.id, session.gameScore(game.id)]))} setup={setup} onOpen={(gameId) => setMatchView({ kind: "game", gameId })} />}
+      {currentView?.kind === "history" && <MatchHistory games={session.matches()} scores={new Map(session.matches().map((game) => [game.id, session.gameScore(game.id)]))} setup={setup} expandedSeason={expandedHistorySeason} onExpandedSeasonChange={setExpandedHistorySeason} onOpen={(gameId) => openContainedView({ kind: "game", gameId })} />}
       {session.matches().map((game) => currentView?.kind === "game" && currentView.gameId === game.id && <MatchCard
         key={game.id}
         game={game}
@@ -376,7 +415,7 @@ export function App({ store }: AppProps) {
           deleteQuarterAction: (quarter, actionId) => perform(() => session.deleteCaptureAction(game.id, quarter, actionId)),
           correctQuarterPlayerStatistic: (quarter, actionId, correction) => perform(() => session.correctPlayerStatistic(game.id, quarter, actionId, correction))
         }}
-        onOpenHistory={() => { setMatchView({ kind: "history" }); coachNavigation.selectDestination("history"); }}
+        onOpenHistory={() => selectDestination("history")}
         onSetUpNextQuarter={() => setMatchView({ kind: "next-quarter-setup", gameId: game.id, startingLineup: session.nextQuarterCourt(game.id) })}
       />)}
     </div>
@@ -465,20 +504,20 @@ const terminalOutcomeLabel = (game: Game, score: { own: number; opposition: numb
   return "Abandoned · no winner";
 };
 
-function MatchHistory({ games, scores, setup, onOpen }: { games: Game[]; scores: Map<string, { own: number; opposition: number }>; setup: SetupSummary; onOpen: (gameId: string) => void }) {
+function MatchHistory({ games, scores, setup, expandedSeason, onExpandedSeasonChange, onOpen }: { games: Game[]; scores: Map<string, { own: number; opposition: number }>; setup: SetupSummary; expandedSeason?: string; onExpandedSeasonChange: (seasonId: string) => void; onOpen: (gameId: string) => void }) {
   const terminalMatches = terminalMatchesNewestFirst(games);
   const seasons = [...setup.seasons].reverse();
   const initiallyExpandedSeason = setup.seasons.find((season) => season.status === "active")?.id ?? setup.seasons.at(-1)?.id;
 
-  return <section className="match-area focused-screen management-screen match-history" aria-labelledby="match-history-title"><div className="section-heading"><div><p className="eyebrow">HISTORY</p><h2 id="match-history-title">History</h2></div></div>{seasons.map((season) => {
+  return <section className="match-area focused-screen management-screen match-history" aria-labelledby="match-history-title"><div className="section-heading"><div><p className="eyebrow">HISTORY</p><h2 id="match-history-title">History</h2></div></div><div className="history-scroll">{seasons.map((season) => {
     const matches = terminalMatches.filter((game) => game.seasonId === season.id).sort((left, right) => right.date.localeCompare(left.date));
-    return <details key={season.id} className="season-history-group" aria-label={`${season.name} History`} open={season.id === initiallyExpandedSeason}><summary><span>{season.name}</span><span>{matches.length} terminal {matches.length === 1 ? "Match" : "Matches"}</span></summary>{matches.length ? <ul className="match-list" aria-label={`${season.name} terminal Matches`}>{matches.map((game) => {
+    return <details key={season.id} className="season-history-group" aria-label={`${season.name} History`} open={season.id === (expandedSeason ?? initiallyExpandedSeason)} onToggle={(event) => { if ((event.currentTarget as HTMLDetailsElement).open) onExpandedSeasonChange(season.id); }}><summary><span>{season.name}</span><span>{matches.length} terminal {matches.length === 1 ? "Match" : "Matches"}</span></summary>{matches.length ? <ul className="match-list" aria-label={`${season.name} terminal Matches`}>{matches.map((game) => {
       const score = game.finalScore ?? scores.get(game.id)!;
       const teamName = game.teamName ?? setup.teams.find((team) => team.id === season.teamId)?.name ?? "Team";
       const oppositionName = setup.opposition.find((opposition) => opposition.id === game.oppositionId)?.name ?? "Unknown Opposition";
       return <li key={game.id} className="history-card" data-status={game.status}><div className="history-card-copy"><strong>{teamName} <span aria-hidden="true">vs</span> {oppositionName}</strong><p className="history-card-date">{game.date}</p></div><div className="history-card-result"><strong>{score.own} – {score.opposition}</strong><p>{terminalOutcomeLabel(game, score)}</p><span className="sr-only">{matchStatusLabel(game)} · {score.own} – {score.opposition}</span><button className="text-button" onClick={() => onOpen(game.id)}>View Match Events</button></div></li>;
     })}</ul> : <p className="empty-history">No terminal Matches in this Season.</p>}</details>;
-  })}</section>;
+  })}</div></section>;
 }
 
 function SetupFlowHeading({ icon, step, title }: { icon: "team" | "season"; step: string; title: string }) {
@@ -672,8 +711,10 @@ function MatchCard({ game, setup, capture, quarterCapture, score, report, summar
     await actions.finalise({ own: endedQuarter.ownGameScore, opposition: endedQuarter.oppositionGameScore });
   };
   const tabs = <div className="match-event-tabs" role="tablist" aria-label="Match Events tabs">{([1, 2, 3, 4] as QuarterNumber[]).map((quarter) => <button key={quarter} type="button" role="tab" aria-selected={tab === quarter} disabled={!availableTabs.includes(quarter)} onClick={() => setTab(quarter)}>Q{quarter}</button>)}<button type="button" role="tab" aria-selected={tab === "match"} disabled={!availableTabs.includes("match")} onClick={() => setTab("match")}>Match</button></div>;
-  const content = selectedIsLive ? <LiveQuarterCard game={game} setup={setup} capture={capture} actions={actions} onOpenHistory={onOpenHistory} onOpenEventFeed={openEventFeed} unreadEventCount={unreadEventCount} onEndQuarter={endQuarter} tabs={tabs} /> : readOnlyCapture ? <ReadOnlyQuarterCard setup={setup} capture={readOnlyCapture} onOpenEventFeed={openEventFeed} tabs={tabs} /> : report ? <><TerminalMatchCard report={report} onBack={onOpenHistory} quarter={tab === "match" ? undefined : tab} /><MatchEventSummaryTable summary={selectedSummary} players={setup.players} label={tab === "match" ? "Match" : `Quarter ${tab}`} /></> : <MatchEventSummaryTable summary={selectedSummary} players={setup.players} label={tab === "match" ? "Match" : `Quarter ${tab}`} />;
-  return <section className={selectedIsLive || readOnlyCapture ? "match-events live-match-events" : "match-events"} aria-labelledby="match-events-title" aria-label={selectedIsLive ? "Live Match Events" : readOnlyCapture ? `Read-only Quarter ${readOnlyCapture.number} Match Events` : undefined}>{!selectedIsLive && !readOnlyCapture && <><div className="section-heading"><div><p className="eyebrow">MATCH EVENTS</p><h2 id="match-events-title">Match Events</h2></div><button type="button" className="text-button" onClick={openEventFeed}>Open Event feed{game.status === "live" && unreadEventCount ? `, ${unreadEventCount} new event${unreadEventCount === 1 ? "" : "s"}` : ""}</button></div>{tabs}</>}{content}{game.status === "live" && !game.activeQuarter && !showEndQuarterSummary && (tab !== "match" || game.quarters?.length === TOTAL_QUARTERS) && <section className="draft-card live-card"><p className="eyebrow">QUARTER COMPLETE</p><h2>Quarter {game.quarters?.at(-1)?.number} has ended</h2><p>Review the final Court, reposition players, and confirm before the next Quarter starts.</p>{game.quarters?.length === TOTAL_QUARTERS ? <><p>Final score: {score?.own} — {score?.opposition}</p><button onClick={() => endedQuarter && void finalise()}>Confirm final score and finalise Match</button></> : <button onClick={onSetUpNextQuarter}>Set up Quarter {(game.quarters?.length ?? 0) + 1}</button>}<AbandonMatchAction onAbandon={actions.abandon} /></section>}{showEndQuarterSummary && <EndQuarterSummary quarter={endedQuarter} isFinalQuarter={endedQuarter.number === TOTAL_QUARTERS} onReview={() => { setTab(endedQuarter.number); setReviewedQuarter(endedQuarter.number); }} onSetUpNextQuarter={() => { setReviewedQuarter(endedQuarter.number); onSetUpNextQuarter(); }} onFinalise={() => void finalise()} />}{drawerOpen && <EventFeedDrawer game={game} tab={tab} players={setup.players} actions={actions} onClose={() => setDrawerOpen(false)} />}</section>;
+  const returnToHistory = () => savedAppView(window.history.state)?.kind === "game" ? window.history.back() : onOpenHistory();
+  const content = selectedIsLive ? <LiveQuarterCard game={game} setup={setup} capture={capture} actions={actions} onOpenHistory={onOpenHistory} onOpenEventFeed={openEventFeed} unreadEventCount={unreadEventCount} onEndQuarter={endQuarter} tabs={tabs} /> : readOnlyCapture ? <ReadOnlyQuarterCard setup={setup} capture={readOnlyCapture} onOpenEventFeed={openEventFeed} tabs={tabs} /> : report ? <><TerminalMatchCard report={report} onBack={returnToHistory} quarter={tab === "match" ? undefined : tab} /><MatchEventSummaryTable summary={selectedSummary} players={setup.players} label={tab === "match" ? "Match" : `Quarter ${tab}`} /></> : <MatchEventSummaryTable summary={selectedSummary} players={setup.players} label={tab === "match" ? "Match" : `Quarter ${tab}`} />;
+  const terminal = Boolean(report);
+  return <section className={selectedIsLive || readOnlyCapture ? "match-events live-match-events" : `match-events${terminal ? " terminal-match-events focused-screen" : ""}`} aria-labelledby="match-events-title" aria-label={selectedIsLive ? "Live Match Events" : readOnlyCapture ? `Read-only Quarter ${readOnlyCapture.number} Match Events` : undefined}>{!selectedIsLive && !readOnlyCapture && <><div className="section-heading"><div><p className="eyebrow">MATCH EVENTS</p><h2 id="match-events-title">Match Events</h2></div><button type="button" className="text-button" onClick={openEventFeed}>Open Event feed{game.status === "live" && unreadEventCount ? `, ${unreadEventCount} new event${unreadEventCount === 1 ? "" : "s"}` : ""}</button></div>{tabs}</>}{terminal ? <div className="terminal-review-scroll">{content}</div> : content}{game.status === "live" && !game.activeQuarter && !showEndQuarterSummary && (tab !== "match" || game.quarters?.length === TOTAL_QUARTERS) && <section className="draft-card live-card"><p className="eyebrow">QUARTER COMPLETE</p><h2>Quarter {game.quarters?.at(-1)?.number} has ended</h2><p>Review the final Court, reposition players, and confirm before the next Quarter starts.</p>{game.quarters?.length === TOTAL_QUARTERS ? <><p>Final score: {score?.own} — {score?.opposition}</p><button onClick={() => endedQuarter && void finalise()}>Confirm final score and finalise Match</button></> : <button onClick={onSetUpNextQuarter}>Set up Quarter {(game.quarters?.length ?? 0) + 1}</button>}<AbandonMatchAction onAbandon={actions.abandon} /></section>}{showEndQuarterSummary && <EndQuarterSummary quarter={endedQuarter} isFinalQuarter={endedQuarter.number === TOTAL_QUARTERS} onReview={() => { setTab(endedQuarter.number); setReviewedQuarter(endedQuarter.number); }} onSetUpNextQuarter={() => { setReviewedQuarter(endedQuarter.number); onSetUpNextQuarter(); }} onFinalise={() => void finalise()} />}{drawerOpen && <EventFeedDrawer game={game} tab={tab} players={setup.players} actions={actions} onClose={() => setDrawerOpen(false)} />}</section>;
 }
 
 function EndQuarterSummary({ quarter, isFinalQuarter, onReview, onSetUpNextQuarter, onFinalise }: { quarter: CompletedQuarterSummary; isFinalQuarter: boolean; onReview: () => void; onSetUpNextQuarter: () => void; onFinalise: () => void }) {
