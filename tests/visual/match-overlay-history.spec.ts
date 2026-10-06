@@ -42,3 +42,60 @@ for (const viewport of viewports) {
     });
   });
 }
+
+test.describe("Event Feed", () => {
+  test.use({ viewport: viewports[0], deviceScaleFactor: 1 });
+
+  test("owns high-volume scrolling and unwinds its nested correction before the feed", async ({ page }) => {
+    await startLiveMatch(page);
+    const recordGoal = page.getByRole("button", { name: "Record Goals for Faye" });
+    for (let index = 0; index < 32; index += 1) await recordGoal.click();
+
+    const grid = page.getByRole("region", { name: "Current court event grid" });
+    await grid.evaluate((element) => { element.scrollTop = 18; });
+    const gridPosition = await grid.evaluate((element) => element.scrollTop);
+    await page.getByRole("button", { name: /Event Feed/ }).click();
+
+    const feed = page.getByRole("dialog", { name: "Event feed" });
+    const list = feed.locator(".event-feed-drawer-scroll");
+    await expect(list).toEvaluate((element) => element.scrollHeight > element.clientHeight);
+    await expect(page.locator("body")).toEvaluate((element) => element.scrollHeight <= window.innerHeight);
+    await list.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await list.hover();
+    await page.mouse.wheel(0, 800);
+    await expect(grid).toEvaluate((element, expected) => element.scrollTop === expected, gridPosition);
+
+    await feed.getByRole("button", { name: "Correct event" }).first().click();
+    const correction = page.getByRole("dialog", { name: "Correct event" });
+    await expect(correction).toBeVisible();
+    await expect(correction.getByLabel("Event correction player")).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(correction.getByRole("button", { name: "Cancel correction" })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(correction).toBeHidden();
+    await expect(feed).toBeVisible();
+    await feed.getByRole("button", { name: "Correct event" }).first().click();
+    await page.goBack();
+    await expect(page.getByRole("dialog", { name: "Correct event" })).toBeHidden();
+    await expect(feed).toBeVisible();
+    await feed.getByRole("button", { name: "Remove event" }).first().click();
+    await expect(page.getByRole("alertdialog", { name: "Delete event?" })).toBeVisible();
+    await page.goBack();
+    await expect(page.getByRole("alertdialog", { name: "Delete event?" })).toBeHidden();
+    await expect(feed).toBeVisible();
+    await feed.getByRole("button", { name: "Remove event" }).first().click();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("alertdialog", { name: "Delete event?" })).toBeHidden();
+    await expect(feed).toBeVisible();
+    const actionBoxes = await feed.getByRole("button").evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect()));
+    expect(actionBoxes.every((box) => box.width >= 48 && box.height >= 48)).toBeTruthy();
+    const feedPosition = await list.evaluate((element) => element.scrollTop);
+    await page.setViewportSize(viewports[1]);
+    await expect(feed).toBeVisible();
+    await expect(list).toEvaluate((element, expected) => element.scrollTop === expected, feedPosition);
+    await page.setViewportSize(viewports[0]);
+    await page.goBack();
+    await expect(feed).toBeHidden();
+    await expect(grid).toHaveJSProperty("scrollTop", gridPosition);
+  });
+});
