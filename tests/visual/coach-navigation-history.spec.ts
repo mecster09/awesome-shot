@@ -76,5 +76,19 @@ for (const viewport of tabletViewports) {
 
       await expect(page.getByLabel("Goal Keeper").locator("option:checked")).toHaveText("Bea");
     });
+
+    test("keeps Settings contained tasks in the browser Back stack", async ({ page }) => {
+      await createActiveSeason(page);
+      await page.getByRole("button", { name: "Open coach navigation" }).click();
+      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await page.getByRole("button", { name: "Backup & restore" }).click();
+      await page.getByLabel("Backup data").fill('{"large":"draft"}');
+      await expect(page.locator(".backup-screen .backup-card")).toHaveCSS("overflow-y", "auto");
+
+      await page.goBack();
+      await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+      await page.goBack();
+      await expect(page.getByRole("heading", { name: "No Match in progress" })).toBeVisible();
+    });
   });
 }

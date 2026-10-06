@@ -373,6 +373,29 @@ button { min-width: 48px; min-height: 48px; }
 .prototype-quarter-planner .quarter-court { overflow: auto; overscroll-behavior: contain; }
 .prototype-quarter-planner .primary-action-bar { flex: 0 0 auto; }
 
+/* Management destinations keep their frame stable while one named data region
+   owns vertical overflow. */
+.management-screen { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.settings-scroll, .history-scroll, .backup-screen .backup-card, .terminal-review-scroll {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.settings-scroll { flex: 1; padding-right: 4px; }
+.settings-card-grid { padding-bottom: 2px; }
+.match-history { display: flex; flex-direction: column; }
+.match-history > .section-heading { flex: 0 0 auto; }
+.history-scroll { flex: 1; display: grid; align-content: start; gap: 12px; padding-right: 4px; }
+.history-scroll .season-history-group { margin: 0; }
+.history-scroll .match-list { overflow: visible; }
+.backup-screen .backup-card { flex: 1; margin-bottom: 0; padding-right: 4px; }
+.terminal-match-events { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.terminal-match-events > .section-heading, .terminal-match-events > .match-event-tabs { flex: 0 0 auto; }
+.terminal-review-scroll { flex: 1; margin-top: 0; padding-right: 4px; }
+.terminal-match-events .terminal-match-review { margin-top: 0; }
+.terminal-match-events .match-event-summary { max-height: none; }
+.terminal-match-events .match-event-summary-scroll { overflow: visible; }
+
 @media (min-width: 768px) and (orientation: landscape) {
   .app-content { margin-top: 10px; }
   .setup-flow-card { min-height: 0; padding: 20px; }
