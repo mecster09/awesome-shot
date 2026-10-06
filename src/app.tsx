@@ -1,4 +1,5 @@
 import { FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { AlertTriangle, ArrowLeft, ArrowRight, ArrowRightLeft, Calendar, Check, CheckCircle2, Database, History as HistoryIcon, LayoutDashboard, List, Menu, Power, RotateCcw, Settings as SettingsIcon, Trophy, Users, X } from "lucide-react";
 import { GameSession } from "./game-session/game-session";
 import { IndexedDbGameSessionStore } from "./game-session/indexed-db-game-session-store";
@@ -8,6 +9,9 @@ import "./styles.css";
 
 type AppProps = { store?: GameSessionStore };
 type MatchView = { kind: "team-setup" } | { kind: "season-setup" } | { kind: "no-match" } | { kind: "match-setup" } | { kind: "court-setup" } | { kind: "settings" } | { kind: "settings-section"; section: "team" | "season" | "backup" } | { kind: "history" } | { kind: "next-quarter-setup"; gameId: string; startingLineup: StartingLineup } | { kind: "game"; gameId: string };
+type CoachDestination = "match" | "history" | "settings";
+type CoachNavigationUiState = { destination: CoachDestination; drawerOpen: boolean };
+type FormDrafts = { teamName?: string; seasonName?: string; matchSetup?: { oppositionSearch: string; newOppositionName: string; newPlayerName: string; playerSearch: string } };
 type MatchActions = {
   recordPlayerStatistic: (position: Position, statistic: PlayerStatistic) => Promise<void>;
   recordOppositionGoal: () => Promise<void>;
@@ -77,6 +81,150 @@ const statisticPresentation: Record<PlayerStatistic, { label: string; className:
 const positionAbbreviation: Record<Position, string> = { "Goal Keeper": "GK", "Goal Defence": "GD", "Wing Defence": "WD", Centre: "C", "Wing Attack": "WA", "Goal Attack": "GA", "Goal Shooter": "GS" };
 const browserStore = new IndexedDbGameSessionStore();
 
+const initialCoachNavigationUi: CoachNavigationUiState = { destination: "match", drawerOpen: false };
+const coachNavigationHistoryKey = "natballInsightsCoachNavigation";
+const matchOverlayHistoryKey = "natballInsightsMatchOverlay";
+const appViewHistoryKey = "natballInsightsView";
+
+const savedAppView = (state: unknown): MatchView | undefined => {
+  if (!state || typeof state !== "object") return undefined;
+  const view = (state as Record<string, unknown>)[appViewHistoryKey];
+  if (!view || typeof view !== "object") return undefined;
+  const candidate = view as Partial<MatchView>;
+  if (candidate.kind === "history" || candidate.kind === "settings") return candidate as MatchView;
+  if (candidate.kind === "settings-section" && (candidate.section === "team" || candidate.section === "season" || candidate.section === "backup")) return candidate as MatchView;
+  if (candidate.kind === "game" && typeof candidate.gameId === "string") return candidate as MatchView;
+  return undefined;
+};
+
+function useAppViewHistory(onRestore: (view: MatchView | undefined) => void) {
+  const restoreRef = useRef(onRestore);
+  restoreRef.current = onRestore;
+  useEffect(() => {
+    const restore = (event: PopStateEvent) => restoreRef.current(savedAppView(event.state));
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, []);
+  return (view: MatchView, method: "push" | "replace" = "push") => {
+    const state = window.history.state && typeof window.history.state === "object" ? window.history.state : {};
+    window.history[`${method}State`]({ ...state, [appViewHistoryKey]: view }, "", window.location.href);
+  };
+}
+
+function useMatchOverlayHistory(layer: string, onDismiss: () => void) {
+  const dismissRef = useRef(onDismiss);
+  dismissRef.current = onDismiss;
+  useEffect(() => {
+    const state = window.history.state && typeof window.history.state === "object" ? window.history.state : {};
+    window.history.pushState({ ...state, [matchOverlayHistoryKey]: layer }, "", window.location.href);
+    const restore = (event: PopStateEvent) => {
+      const next = event.state && typeof event.state === "object" ? (event.state as Record<string, unknown>)[matchOverlayHistoryKey] : undefined;
+      if (next !== layer) dismissRef.current();
+    };
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, [layer]);
+  return () => {
+    const state = window.history.state && typeof window.history.state === "object" ? window.history.state as Record<string, unknown> : {};
+    dismissRef.current();
+    if (state[matchOverlayHistoryKey] === layer) window.history.back();
+  };
+}
+
+function useModalBackground() {
+  useEffect(() => {
+    if (!("inert" in HTMLElement.prototype)) return;
+    const shell = document.querySelector<HTMLElement>(".app-shell");
+    if (!shell) return;
+    const count = Number(document.body.dataset.matchOverlayCount ?? "0") + 1;
+    document.body.dataset.matchOverlayCount = String(count);
+    shell.inert = true;
+    shell.setAttribute("aria-hidden", "true");
+    return () => {
+      const remaining = Math.max(0, Number(document.body.dataset.matchOverlayCount ?? "1") - 1);
+      document.body.dataset.matchOverlayCount = String(remaining);
+      if (!remaining) {
+        shell.inert = false;
+        shell.removeAttribute("aria-hidden");
+      }
+    };
+  }, []);
+}
+function useVisualViewport() {
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    const update = () => {
+      const height = viewport?.height ?? window.innerHeight;
+      const inset = Math.max(0, window.innerHeight - height - (viewport?.offsetTop ?? 0));
+      const root = document.documentElement.style;
+      root.setProperty("--app-visual-height", `${height}px`);
+      root.setProperty("--keyboard-inset", `${inset}px`);
+      document.documentElement.classList.toggle("keyboard-open", inset > 0);
+    };
+    update();
+    viewport?.addEventListener("resize", update);
+    viewport?.addEventListener("scroll", update);
+    window.addEventListener("resize", update);
+    return () => {
+      viewport?.removeEventListener("resize", update);
+      viewport?.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+      const root = document.documentElement;
+      root.style.removeProperty("--app-visual-height");
+      root.style.removeProperty("--keyboard-inset");
+      root.classList.remove("keyboard-open");
+    };
+  }, []);
+}
+
+const historyUiState = (state: unknown): CoachNavigationUiState | undefined => {
+  if (!state || typeof state !== "object") return undefined;
+  const candidate = (state as Record<string, unknown>)[coachNavigationHistoryKey];
+  if (!candidate || typeof candidate !== "object") return undefined;
+  const { destination, drawerOpen } = candidate as Partial<CoachNavigationUiState>;
+  return (destination === "match" || destination === "history" || destination === "settings") && typeof drawerOpen === "boolean"
+    ? { destination, drawerOpen }
+    : undefined;
+};
+
+function useCoachNavigationHistory() {
+  const [ui, setUi] = useState<CoachNavigationUiState>(initialCoachNavigationUi);
+
+  useEffect(() => {
+    const state = window.history.state && typeof window.history.state === "object" ? window.history.state : {};
+    window.history.replaceState({ ...state, [coachNavigationHistoryKey]: initialCoachNavigationUi }, "", window.location.href);
+    const restoreUi = (event: PopStateEvent) => setUi(historyUiState(event.state) ?? initialCoachNavigationUi);
+    window.addEventListener("popstate", restoreUi);
+    return () => window.removeEventListener("popstate", restoreUi);
+  }, []);
+
+  const writeUi = (next: CoachNavigationUiState, method: "push" | "replace") => {
+    const state = window.history.state && typeof window.history.state === "object" ? window.history.state : {};
+    window.history[`${method}State`]({ ...state, [coachNavigationHistoryKey]: next }, "", window.location.href);
+    setUi(next);
+  };
+
+  return {
+    ui,
+    openDrawer: () => !ui.drawerOpen && writeUi({ ...ui, drawerOpen: true }, "push"),
+    closeDrawer: () => {
+      if (!ui.drawerOpen) return;
+      setUi({ ...ui, drawerOpen: false });
+      window.history.back();
+    },
+    selectDestination: (destination: CoachDestination) => {
+      if (destination === ui.destination) {
+        if (ui.drawerOpen) {
+          setUi({ ...ui, drawerOpen: false });
+          window.history.back();
+        }
+        return;
+      }
+      writeUi({ destination, drawerOpen: false }, ui.drawerOpen ? "replace" : "push");
+    }
+  };
+}
+
 export function App({ store }: AppProps) {
   const gameSessionStore = store ?? browserStore;
   const [session, setSession] = useState<GameSession>();
@@ -85,6 +233,15 @@ export function App({ store }: AppProps) {
   const [error, setError] = useState<string>();
   const [matchView, setMatchView] = useState<MatchView>();
   const [unsavedCourts, setUnsavedCourts] = useState<Record<string, StartingLineup>>({});
+  const [formDrafts, setFormDrafts] = useState<FormDrafts>({});
+  const [expandedHistorySeason, setExpandedHistorySeason] = useState<string>();
+  const coachNavigation = useCoachNavigationHistory();
+  const writeAppView = useAppViewHistory(setMatchView);
+  useVisualViewport();
+
+  useEffect(() => {
+    setMatchView(coachNavigation.ui.destination === "match" ? undefined : { kind: coachNavigation.ui.destination });
+  }, [coachNavigation.ui.destination]);
 
   useEffect(() => {
     void GameSession.open(gameSessionStore)
@@ -111,7 +268,25 @@ export function App({ store }: AppProps) {
   };
 
   if (!session || !setup) {
-    return <main className="loading" aria-live="polite">{error ?? message}</main>;
+    return <main className="app-shell startup-shell">
+      <div className="app-top-bar">
+        <AppMark />
+        <button type="button" className="menu-button" aria-label="Coach navigation is unavailable while local storage opens" disabled><Menu /></button>
+        <div className="top-bar-identity"><span>Natball Insights</span><strong>Offline workspace</strong></div>
+      </div>
+      <div className="app-content">
+        <section className={`loading${error ? " storage-error" : ""}`} aria-live="polite">
+          <div className="startup-state-card">
+            <p className="eyebrow">OFFLINE WORKSPACE</p>
+            <h1>{error ? "Local storage unavailable" : "Preparing Natball Insights"}</h1>
+            <p>{error ?? message}</p>
+            <PrimaryActionBar>
+              <button type="button" disabled={!error} onClick={() => window.location.reload()}>{error ? "Retry local storage" : "Preparing offline workspace…"}</button>
+            </PrimaryActionBar>
+          </div>
+        </section>
+      </div>
+    </main>;
   }
   const activeSeason = setup.seasons.find((season) => season.status === "active");
   const editableTeam = activeSeason ? setup.teams.find((team) => team.id === activeSeason.teamId) : setup.teams.at(-1);
@@ -121,7 +296,7 @@ export function App({ store }: AppProps) {
   const courtSetupDraft = setup.matchSetupDraft?.stage === "court-setup" ? setup.matchSetupDraft : undefined;
   const currentView = deriveCurrentView({ matchView, setup, liveMatch, latestTerminalMatch, nextQuarterCourt: (gameId) => session.nextQuarterCourt(gameId) });
   const selectedTerminalMatch = currentView.kind === "game" ? session.match(currentView.gameId) : undefined;
-  const navigationView = currentView.kind === "history" ? "history" : currentView.kind === "settings" || currentView.kind === "settings-section" ? "settings" : "match";
+  const navigationView = coachNavigation.ui.destination;
   const terminalMatchTitle = selectedTerminalMatch && isTerminalMatch(selectedTerminalMatch)
     ? `${selectedTerminalMatch.teamName ?? "Team"} vs ${setup.opposition.find((opposition) => opposition.id === selectedTerminalMatch.oppositionId)?.name ?? "Opposition"}`
     : undefined;
@@ -129,53 +304,67 @@ export function App({ store }: AppProps) {
   const liveScore = liveMatch ? session.gameScore(liveMatch.id) : undefined;
   const liveQuarterScore = liveMatch?.activeQuarter ? session.quarterScore(liveMatch.id, liveMatch.activeQuarter) : undefined;
 
+  const selectDestination = (destination: Exclude<CoachDestination, "match">) => {
+    const view: MatchView = { kind: destination };
+    setMatchView(view);
+    coachNavigation.selectDestination(destination);
+    writeAppView(view, "replace");
+  };
+  const openContainedView = (view: MatchView) => {
+    setMatchView(view);
+    writeAppView(view);
+  };
+
   return <main className="app-shell">
     <CoachNavigation
       activeView={navigationView}
+      drawerOpen={coachNavigation.ui.drawerOpen}
       title={navigationTitle}
       score={navigationView === "match" ? liveScore : undefined}
       quarterScore={navigationView === "match" ? liveQuarterScore : undefined}
       quarterNumber={navigationView === "match" ? liveMatch?.activeQuarter : undefined}
       onRecordOppositionGoal={liveMatch ? () => perform(() => session.recordOppositionGoal(liveMatch.id)) : undefined}
-      onOpenMatch={() => setMatchView(undefined)}
-      onOpenHistory={() => setMatchView({ kind: "history" })}
-      onOpenSettings={() => setMatchView({ kind: "settings" })}
+      onOpenDrawer={coachNavigation.openDrawer}
+      onCloseDrawer={coachNavigation.closeDrawer}
+      onOpenMatch={() => { setMatchView(undefined); coachNavigation.selectDestination("match"); }}
+      onOpenHistory={() => selectDestination("history")}
+      onOpenSettings={() => selectDestination("settings")}
     />
-    <div className="app-content">
+    <div className="app-content" inert={coachNavigation.ui.drawerOpen || undefined} aria-hidden={coachNavigation.ui.drawerOpen || undefined}>
     {error && <p className="error" role="alert">{error}</p>}
     {currentView.kind === "team-setup" && <section className="match-area focused-screen setup-screen setup-flow-screen" aria-labelledby="team-setup-title">
       <div className="setup-flow-card">
         <SetupFlowHeading icon="team" step="STEP 1 OF 4" title="Setup Team" />
-        <TeamForm initialName={setup.teams.at(-1)?.name} submitLabel="Next: Setup Season" onSubmit={(input) => perform(async () => { const team = setup.teams.at(-1); if (team) await session.renameTeam(team.id, input); else await session.createTeam(input); setMatchView({ kind: "season-setup" }); })} />
+        <TeamForm initialName={setup.teams.at(-1)?.name} draftName={formDrafts.teamName} onNameChange={(teamName) => setFormDrafts((drafts) => ({ ...drafts, teamName }))} submitLabel="Next: Setup Season" onSubmit={(input) => perform(async () => { const team = setup.teams.at(-1); if (team) await session.renameTeam(team.id, input); else await session.createTeam(input); setFormDrafts((drafts) => ({ ...drafts, teamName: undefined })); setMatchView({ kind: "season-setup" }); })} />
       </div>
     </section>}
 
     {currentView.kind === "season-setup" && <section className="match-area focused-screen setup-screen setup-flow-screen" aria-labelledby="season-setup-title">
       <div className="setup-flow-card">
         <SetupFlowHeading icon="season" step="STEP 2 OF 4" title="Setup Season" />
-        <SeasonForm team={setup.teams.at(-1)!} submitLabel="Next: Setup Match & Squad" cancelLabel="Back" onCancel={() => setMatchView({ kind: "team-setup" })} onSubmit={(input) => perform(async () => { await session.createSeason(input); setMatchView(undefined); })} />
+        <SeasonForm team={setup.teams.at(-1)!} draftName={formDrafts.seasonName} onNameChange={(seasonName) => setFormDrafts((drafts) => ({ ...drafts, seasonName }))} submitLabel="Next: Setup Match & Squad" cancelLabel="Back" onCancel={() => setMatchView({ kind: "team-setup" })} onSubmit={(input) => perform(async () => { await session.createSeason(input); setFormDrafts((drafts) => ({ ...drafts, seasonName: undefined })); setMatchView(undefined); })} />
       </div>
     </section>}
 
     {currentView.kind === "settings" && <section className="match-area focused-screen management-screen settings-root" aria-labelledby="settings-title">
       <p className="eyebrow">COACH SETTINGS</p><h2 id="settings-title">Settings</h2><p>Manage your Team, Season, offline data, and active Match safely.</p>
-      <div className="settings-card-grid">
-        {editableTeam && <SettingsCard icon={<Users />} title="Team profile" description="Update the reusable Team name used by this Season and future Seasons."><button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "team" })}>Edit team</button></SettingsCard>}
+      <div className="settings-scroll"><div className="settings-card-grid">
+        {editableTeam && <SettingsCard icon={<Users />} title="Team profile" description="Update the reusable Team name used by this Season and future Seasons."><button type="button" className="text-button" onClick={() => openContainedView({ kind: "settings-section", section: "team" })}>Edit team</button></SettingsCard>}
         <SettingsCard icon={<Calendar />} title="Season" description={activeSeason ? `${activeSeason.name} is the active Season.` : "No active Season is available."}>
-          {activeSeason && <button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "season" })}>Edit season</button>}
+          {activeSeason && <button type="button" className="text-button" onClick={() => openContainedView({ kind: "settings-section", section: "season" })}>Edit season</button>}
         </SettingsCard>
-        {activeSeason && <SettingsCard icon={<Power />} title="End season" description={liveMatch ? "A Season cannot end while a live Match is in progress." : "End this Season once every Match is terminal. Ended Seasons remain readable."}><button type="button" className="text-button" disabled={Boolean(liveMatch)} onClick={() => setMatchView({ kind: "settings-section", section: "season" })}>End season</button></SettingsCard>}
-        <SettingsCard icon={<Database />} title="Backup & restore" description="Export every saved record or restore a valid Natball Insights backup."><button type="button" className="text-button" onClick={() => setMatchView({ kind: "settings-section", section: "backup" })}>Backup & restore</button></SettingsCard>
+        {activeSeason && <SettingsCard icon={<Power />} title="End season" description={liveMatch ? "A Season cannot end while a live Match is in progress." : "End this Season once every Match is terminal. Ended Seasons remain readable."}><button type="button" className="text-button" disabled={Boolean(liveMatch)} onClick={() => openContainedView({ kind: "settings-section", section: "season" })}>End season</button></SettingsCard>}
+        <SettingsCard icon={<Database />} title="Backup & restore" description="Export every saved record or restore a valid Natball Insights backup."><button type="button" className="text-button" onClick={() => openContainedView({ kind: "settings-section", section: "backup" })}>Backup & restore</button></SettingsCard>
         {liveMatch && <SettingsCard icon={<AlertTriangle />} title="Abandon active Match" description="End the live Match safely. Its recorded score, events, and statistics remain available read-only." tone="danger"><AbandonMatchAction onAbandon={() => perform(async () => { await session.abandonGame(liveMatch.id); setMatchView({ kind: "game", gameId: liveMatch.id }); })} /></SettingsCard>}
-      </div>
+      </div></div>
     </section>}
-    {currentView.kind === "settings-section" && currentView.section === "backup" && <section className="match-area focused-screen management-screen" aria-labelledby="settings-section-title"><div className="section-heading"><h2 id="settings-section-title">Backup & restore</h2><button className="text-button" onClick={() => setMatchView({ kind: "settings" })}>Back to Settings</button></div><BackupCard exportBackup={() => session.exportBackup()} onImport={(serialized, mode, confirmed) => perform(async () => { await session.importBackup(serialized, mode, confirmed); if (mode === "replace") setUnsavedCourts({}); })} /></section>}
+    {currentView.kind === "settings-section" && currentView.section === "backup" && <section className="match-area focused-screen management-screen backup-screen" aria-labelledby="settings-section-title"><div className="section-heading"><h2 id="settings-section-title">Backup & restore</h2><button className="text-button" onClick={() => window.history.back()}>Back to Settings</button></div><BackupCard exportBackup={() => session.exportBackup()} onImport={(serialized, mode, confirmed) => perform(async () => { await session.importBackup(serialized, mode, confirmed); if (mode === "replace") setUnsavedCourts({}); })} /></section>}
 
-    {currentView.kind === "settings-section" && currentView.section !== "backup" && <section className="match-area focused-screen setup-screen setup-flow-screen settings-setup-screen" aria-labelledby={currentView.section === "team" ? "team-setup-title" : "season-setup-title"}><div className="setup-flow-card">{currentView.section === "team" && editableTeam && <><SetupFlowHeading icon="team" step="STEP 1 OF 4" title="Setup Team" /><TeamForm initialName={editableTeam.name} submitLabel="Save changes" cancelLabel="Cancel" onCancel={() => setMatchView({ kind: "settings" })} onSubmit={(input) => perform(async () => { await session.renameTeam(editableTeam.id, input); setMatchView({ kind: "settings" }); })} /></>}{currentView.section === "season" && activeSeason && <><SetupFlowHeading icon="season" step="STEP 2 OF 4" title="Setup Season" /><SeasonForm team={setup.teams.find((team) => team.id === activeSeason.teamId)!} initialName={activeSeason.name} submitLabel="Save changes" cancelLabel="Cancel" onCancel={() => setMatchView({ kind: "settings" })} onSubmit={(input) => perform(async () => { await session.renameSeason(activeSeason.id, input); setMatchView({ kind: "settings" }); })} seasonLifecycleControl={!liveMatch ? <EndSeasonControl season={activeSeason} onConfirm={() => perform(async () => { await session.endSeason(activeSeason.id); setMatchView(undefined); })} /> : undefined} /></>}</div></section>}
+    {currentView.kind === "settings-section" && currentView.section !== "backup" && <section className="match-area focused-screen setup-screen setup-flow-screen settings-setup-screen" aria-labelledby={currentView.section === "team" ? "team-setup-title" : "season-setup-title"}><div className="setup-flow-card">{currentView.section === "team" && editableTeam && <><SetupFlowHeading icon="team" step="STEP 1 OF 4" title="Setup Team" /><TeamForm initialName={editableTeam.name} submitLabel="Save changes" cancelLabel="Cancel" onCancel={() => window.history.back()} onSubmit={(input) => perform(async () => { await session.renameTeam(editableTeam.id, input); window.history.back(); })} /></>}{currentView.section === "season" && activeSeason && <><SetupFlowHeading icon="season" step="STEP 2 OF 4" title="Setup Season" /><SeasonForm team={setup.teams.find((team) => team.id === activeSeason.teamId)!} initialName={activeSeason.name} submitLabel="Save changes" cancelLabel="Cancel" onCancel={() => window.history.back()} onSubmit={(input) => perform(async () => { await session.renameSeason(activeSeason.id, input); window.history.back(); })} seasonLifecycleControl={!liveMatch ? <EndSeasonControl season={activeSeason} onConfirm={() => perform(async () => { await session.endSeason(activeSeason.id); setMatchView(undefined); })} /> : undefined} /></>}</div></section>}
 
     {currentView.kind === "no-match" && activeSeason && <section className="match-area focused-screen no-match-screen" aria-labelledby="no-match-title"><div className="no-match-card"><div className="no-match-icon" aria-hidden="true"><MatchIcon /></div><p className="eyebrow">ACTIVE SEASON</p><h2 id="no-match-title">No Match in progress</h2><p><strong>{activeSeason.name}</strong> is ready for your next Match. Add an Opposition and date when you are ready to prepare.</p><button type="button" onClick={() => setMatchView({ kind: "match-setup" })}>Start Match setup</button></div></section>}
 
-    {currentView.kind === "match-setup" && activeSeason && <section className="match-area focused-screen setup-screen prototype-setup-screen" aria-labelledby="match-setup-title"><MatchSetupForm opposition={setup.activeOpposition} players={setup.players} draft={matchSetupDraft} onAddOpposition={async (input) => { const opponent = await session.addOpposition(input); refresh(); return opponent; }} onAddPlayer={async (input) => { const player = await session.addPlayer(input); refresh(); return player; }} onSave={(input) => perform(async () => { if (input.oppositionId && input.date) await session.saveMatchSquad({ seasonId: activeSeason.id, oppositionId: input.oppositionId, date: input.date, squadPlayerIds: input.squadPlayerIds }); else await session.saveMatchIdentity({ seasonId: activeSeason.id, oppositionId: input.oppositionId, date: input.date, squadPlayerIds: input.squadPlayerIds }); })} onProceed={(input) => perform(async () => { await session.advanceToCourtSetup({ seasonId: activeSeason.id, ...input }); setMatchView({ kind: "court-setup" }); })} onBack={() => setMatchView({ kind: "no-match" })} /></section>}
+    {currentView.kind === "match-setup" && activeSeason && <section className="match-area focused-screen setup-screen prototype-setup-screen" aria-labelledby="match-setup-title"><MatchSetupForm opposition={setup.activeOpposition} players={setup.players} draft={matchSetupDraft} transient={formDrafts.matchSetup} onTransientChange={(matchSetup) => setFormDrafts((drafts) => ({ ...drafts, matchSetup }))} onAddOpposition={async (input) => { const opponent = await session.addOpposition(input); refresh(); return opponent; }} onAddPlayer={async (input) => { const player = await session.addPlayer(input); refresh(); return player; }} onSave={(input) => perform(async () => { if (input.oppositionId && input.date) await session.saveMatchSquad({ seasonId: activeSeason.id, oppositionId: input.oppositionId, date: input.date, squadPlayerIds: input.squadPlayerIds }); else await session.saveMatchIdentity({ seasonId: activeSeason.id, oppositionId: input.oppositionId, date: input.date, squadPlayerIds: input.squadPlayerIds }); })} onProceed={(input) => perform(async () => { await session.advanceToCourtSetup({ seasonId: activeSeason.id, ...input }); setFormDrafts((drafts) => ({ ...drafts, matchSetup: undefined })); setMatchView({ kind: "court-setup" }); })} onBack={() => setMatchView({ kind: "no-match" })} /></section>}
     {currentView.kind === "court-setup" && courtSetupDraft && <QuarterSetupCard match={courtSetupDraft} startingLineup={unsavedCourts["court-setup"] ?? {}} quarterNumber={1} setup={setup} mode="starting" onLineupChange={(lineup) => setUnsavedCourts((courts) => ({ ...courts, "court-setup": lineup }))} onReturnToMatchSetup={() => perform(async () => { await session.saveMatchSquad(courtSetupDraft); setMatchView({ kind: "match-setup" }); })} onStart={async (startingLineup) => {
         let started = false;
         await perform(async () => {
@@ -200,7 +389,7 @@ export function App({ store }: AppProps) {
           if (started) setUnsavedCourts((courts) => { const { [courtKey]: _, ...remaining } = courts; return remaining; });
         }} />;
       })()}
-      {currentView?.kind === "history" && <MatchHistory games={session.matches()} scores={new Map(session.matches().map((game) => [game.id, session.gameScore(game.id)]))} setup={setup} onOpen={(gameId) => setMatchView({ kind: "game", gameId })} />}
+      {currentView?.kind === "history" && <MatchHistory games={session.matches()} scores={new Map(session.matches().map((game) => [game.id, session.gameScore(game.id)]))} setup={setup} expandedSeason={expandedHistorySeason} onExpandedSeasonChange={setExpandedHistorySeason} onOpen={(gameId) => openContainedView({ kind: "game", gameId })} />}
       {session.matches().map((game) => currentView?.kind === "game" && currentView.gameId === game.id && <MatchCard
         key={game.id}
         game={game}
@@ -226,38 +415,38 @@ export function App({ store }: AppProps) {
           deleteQuarterAction: (quarter, actionId) => perform(() => session.deleteCaptureAction(game.id, quarter, actionId)),
           correctQuarterPlayerStatistic: (quarter, actionId, correction) => perform(() => session.correctPlayerStatistic(game.id, quarter, actionId, correction))
         }}
-        onOpenHistory={() => setMatchView({ kind: "history" })}
+        onOpenHistory={() => selectDestination("history")}
         onSetUpNextQuarter={() => setMatchView({ kind: "next-quarter-setup", gameId: game.id, startingLineup: session.nextQuarterCourt(game.id) })}
       />)}
     </div>
   </main>;
 }
 
-function CoachNavigation({ activeView, title, score, quarterScore, quarterNumber, onRecordOppositionGoal, onOpenMatch, onOpenHistory, onOpenSettings }: { activeView?: "match" | "history" | "settings"; title: string; score?: { own: number; opposition: number }; quarterScore?: { own: number; opposition: number }; quarterNumber?: QuarterNumber; onRecordOppositionGoal?: () => void; onOpenMatch: () => void; onOpenHistory: () => void; onOpenSettings: () => void }) {
-  const [drawerOpen, setDrawerOpen] = useState(false);
+function CoachNavigation({ activeView, drawerOpen, title, score, quarterScore, quarterNumber, onRecordOppositionGoal, onOpenDrawer, onCloseDrawer, onOpenMatch, onOpenHistory, onOpenSettings }: { activeView?: CoachDestination; drawerOpen: boolean; title: string; score?: { own: number; opposition: number }; quarterScore?: { own: number; opposition: number }; quarterNumber?: QuarterNumber; onRecordOppositionGoal?: () => void; onOpenDrawer: () => void; onCloseDrawer: () => void; onOpenMatch: () => void; onOpenHistory: () => void; onOpenSettings: () => void }) {
   const menuButton = useRef<HTMLButtonElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
   const drawer = useRef<HTMLElement>(null);
+  const wasDrawerOpen = useRef(false);
   const items: Array<{ key: "match" | "history" | "settings"; label: string; icon: ReactNode; onClick: () => void }> = [
     { key: "match" as const, label: "Match", icon: <LayoutDashboard aria-hidden="true" />, onClick: onOpenMatch },
     { key: "history" as const, label: "History", icon: <HistoryIcon aria-hidden="true" />, onClick: onOpenHistory },
     { key: "settings" as const, label: "Settings", icon: <SettingsIcon aria-hidden="true" />, onClick: onOpenSettings }
   ];
 
-  const closeDrawer = () => {
-    setDrawerOpen(false);
-    requestAnimationFrame(() => menuButton.current?.focus());
-  };
+  useEffect(() => {
+    if (drawerOpen) closeButton.current?.focus();
+    if (wasDrawerOpen.current && !drawerOpen) requestAnimationFrame(() => menuButton.current?.focus());
+    wasDrawerOpen.current = drawerOpen;
+  }, [drawerOpen]);
 
   useEffect(() => {
     if (!drawerOpen) return;
-    closeButton.current?.focus();
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeDrawer();
+      if (event.key === "Escape") onCloseDrawer();
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [drawerOpen]);
+  }, [drawerOpen, onCloseDrawer]);
 
   const trapDrawerFocus = (event: React.KeyboardEvent<HTMLElement>) => {
     if (event.key !== "Tab" || !drawer.current) return;
@@ -275,16 +464,16 @@ function CoachNavigation({ activeView, title, score, quarterScore, quarterNumber
   };
 
   return <>
-    <header className="app-top-bar">
+    <header className="app-top-bar" inert={drawerOpen || undefined} aria-hidden={drawerOpen || undefined}>
       <AppMark />
-      <button ref={menuButton} type="button" className="menu-button" aria-label="Open coach navigation" aria-expanded={drawerOpen} onClick={() => setDrawerOpen(true)}><Menu /></button>
+      <button ref={menuButton} type="button" className="menu-button" aria-label="Open coach navigation" aria-expanded={drawerOpen} onClick={onOpenDrawer}><Menu /></button>
       <div className="top-bar-identity"><span>Natball Insights</span><strong>{title}</strong></div>
       {score && <div className="top-bar-score" role="group" aria-label={`Live score ${score.own} to ${score.opposition}`}>{quarterNumber && quarterScore && <small>Q{quarterNumber} {quarterScore.own} – {quarterScore.opposition}</small>}<span>{score.own} – {score.opposition}</span>{onRecordOppositionGoal && <button type="button" className="opposition-goal top-bar-opposition-goal" aria-label="Add opposition goal" onClick={onRecordOppositionGoal}>+ Opp Goal</button>}</div>}
     </header>
-    {drawerOpen && <div className="navigation-overlay" onMouseDown={closeDrawer}>
+    {drawerOpen && <div className="navigation-overlay" onMouseDown={onCloseDrawer}>
       <aside ref={drawer} className="navigation-drawer" role="dialog" aria-modal="true" aria-label="Coach navigation" onKeyDown={trapDrawerFocus} onMouseDown={(event) => event.stopPropagation()}>
-        <div className="drawer-heading"><div className="app-identity"><AppMark /><span><strong>Natball</strong><small>Insights</small></span></div><button ref={closeButton} type="button" className="drawer-close" aria-label="Close coach navigation" onClick={closeDrawer}><X /></button></div>
-        <nav aria-label="Coach navigation">{items.map((item) => <button key={item.key} type="button" className="drawer-navigation-item" aria-current={activeView === item.key ? "page" : undefined} onClick={() => { item.onClick(); closeDrawer(); }}>{item.icon}<span>{item.label}</span></button>)}</nav>
+        <div className="drawer-heading"><div className="app-identity"><AppMark /><span><strong>Natball</strong><small>Insights</small></span></div><button ref={closeButton} type="button" className="drawer-close" aria-label="Close coach navigation" onClick={onCloseDrawer}><X /></button></div>
+        <nav aria-label="Coach navigation">{items.map((item) => <button key={item.key} type="button" className="drawer-navigation-item" aria-current={activeView === item.key ? "page" : undefined} onClick={item.onClick}>{item.icon}<span>{item.label}</span></button>)}</nav>
       </aside>
     </div>}
   </>;
@@ -315,20 +504,20 @@ const terminalOutcomeLabel = (game: Game, score: { own: number; opposition: numb
   return "Abandoned · no winner";
 };
 
-function MatchHistory({ games, scores, setup, onOpen }: { games: Game[]; scores: Map<string, { own: number; opposition: number }>; setup: SetupSummary; onOpen: (gameId: string) => void }) {
+function MatchHistory({ games, scores, setup, expandedSeason, onExpandedSeasonChange, onOpen }: { games: Game[]; scores: Map<string, { own: number; opposition: number }>; setup: SetupSummary; expandedSeason?: string; onExpandedSeasonChange: (seasonId: string) => void; onOpen: (gameId: string) => void }) {
   const terminalMatches = terminalMatchesNewestFirst(games);
   const seasons = [...setup.seasons].reverse();
   const initiallyExpandedSeason = setup.seasons.find((season) => season.status === "active")?.id ?? setup.seasons.at(-1)?.id;
 
-  return <section className="match-area focused-screen management-screen match-history" aria-labelledby="match-history-title"><div className="section-heading"><div><p className="eyebrow">HISTORY</p><h2 id="match-history-title">History</h2></div></div>{seasons.map((season) => {
+  return <section className="match-area focused-screen management-screen match-history" aria-labelledby="match-history-title"><div className="section-heading"><div><p className="eyebrow">HISTORY</p><h2 id="match-history-title">History</h2></div></div><div className="history-scroll">{seasons.map((season) => {
     const matches = terminalMatches.filter((game) => game.seasonId === season.id).sort((left, right) => right.date.localeCompare(left.date));
-    return <details key={season.id} className="season-history-group" aria-label={`${season.name} History`} open={season.id === initiallyExpandedSeason}><summary><span>{season.name}</span><span>{matches.length} terminal {matches.length === 1 ? "Match" : "Matches"}</span></summary>{matches.length ? <ul className="match-list" aria-label={`${season.name} terminal Matches`}>{matches.map((game) => {
+    return <details key={season.id} className="season-history-group" aria-label={`${season.name} History`} open={season.id === (expandedSeason ?? initiallyExpandedSeason)} onToggle={(event) => { if ((event.currentTarget as HTMLDetailsElement).open) onExpandedSeasonChange(season.id); }}><summary><span>{season.name}</span><span>{matches.length} terminal {matches.length === 1 ? "Match" : "Matches"}</span></summary>{matches.length ? <ul className="match-list" aria-label={`${season.name} terminal Matches`}>{matches.map((game) => {
       const score = game.finalScore ?? scores.get(game.id)!;
       const teamName = game.teamName ?? setup.teams.find((team) => team.id === season.teamId)?.name ?? "Team";
       const oppositionName = setup.opposition.find((opposition) => opposition.id === game.oppositionId)?.name ?? "Unknown Opposition";
       return <li key={game.id} className="history-card" data-status={game.status}><div className="history-card-copy"><strong>{teamName} <span aria-hidden="true">vs</span> {oppositionName}</strong><p className="history-card-date">{game.date}</p></div><div className="history-card-result"><strong>{score.own} – {score.opposition}</strong><p>{terminalOutcomeLabel(game, score)}</p><span className="sr-only">{matchStatusLabel(game)} · {score.own} – {score.opposition}</span><button className="text-button" onClick={() => onOpen(game.id)}>View Match Events</button></div></li>;
     })}</ul> : <p className="empty-history">No terminal Matches in this Season.</p>}</details>;
-  })}</section>;
+  })}</div></section>;
 }
 
 function SetupFlowHeading({ icon, step, title }: { icon: "team" | "season"; step: string; title: string }) {
@@ -347,27 +536,27 @@ function MatchIcon() {
   return <svg viewBox="0 0 24 24"><path d="M5 4h14v16H5zM5 10h14M12 4v16M8 7h.01M16 17h.01" /></svg>;
 }
 
-function TeamForm({ initialName = "", submitLabel = "Save team", cancelLabel, onCancel, onSubmit }: { initialName?: string; submitLabel?: string; cancelLabel?: string; onCancel?: () => void; onSubmit: (input: { name: string }) => Promise<void> }) {
-  const [name, setName] = useState(initialName);
+function TeamForm({ initialName = "", draftName, submitLabel = "Save team", cancelLabel, onCancel, onNameChange, onSubmit }: { initialName?: string; draftName?: string; submitLabel?: string; cancelLabel?: string; onCancel?: () => void; onNameChange?: (name: string) => void; onSubmit: (input: { name: string }) => Promise<void> }) {
+  const [name, setName] = useState(draftName ?? initialName);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     await onSubmit({ name });
   };
   return <form className="setup-form" onSubmit={(event) => void submit(event)}>
-    <label>Team name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your team" /></label>
+    <label>Team name<input value={name} onChange={(event) => { setName(event.target.value); onNameChange?.(event.target.value); }} placeholder="Your team" /></label>
     <PrimaryActionBar>{cancelLabel && <button type="button" className="secondary-button" onClick={onCancel}>{cancelLabel}</button>}<button type="submit" disabled={!name.trim() || name.trim() === initialName}>{submitLabel}</button></PrimaryActionBar>
   </form>;
 }
 
-function SeasonForm({ team, initialName = "", submitLabel = "Create season", cancelLabel, onCancel, onSubmit, seasonLifecycleControl }: { team: SetupSummary["teams"][number]; initialName?: string; submitLabel?: string; cancelLabel?: string; onCancel?: () => void; onSubmit: (input: { name: string; teamId: string }) => Promise<void>; seasonLifecycleControl?: ReactNode }) {
-  const [name, setName] = useState(initialName);
+function SeasonForm({ team, initialName = "", draftName, submitLabel = "Create season", cancelLabel, onCancel, onNameChange, onSubmit, seasonLifecycleControl }: { team: SetupSummary["teams"][number]; initialName?: string; draftName?: string; submitLabel?: string; cancelLabel?: string; onCancel?: () => void; onNameChange?: (name: string) => void; onSubmit: (input: { name: string; teamId: string }) => Promise<void>; seasonLifecycleControl?: ReactNode }) {
+  const [name, setName] = useState(draftName ?? initialName);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     await onSubmit({ name, teamId: team.id });
     setName("");
   };
   return <form className="setup-form" onSubmit={(event) => void submit(event)}>
-    <label>Season title<input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Winter 2026 League" /></label>
+    <label>Season title<input value={name} onChange={(event) => { setName(event.target.value); onNameChange?.(event.target.value); }} placeholder="e.g. Winter 2026 League" /></label>
     <p><strong>Team:</strong> {team.name}</p>{seasonLifecycleControl}
     <PrimaryActionBar>{cancelLabel && <button type="button" className="secondary-button" onClick={onCancel}>{cancelLabel}</button>}<button type="submit" disabled={!name.trim() || name.trim() === initialName}>{submitLabel}</button></PrimaryActionBar>
   </form>;
@@ -420,22 +609,23 @@ function MatchSetupProgress({ current }: { current: "setup" | "court" }) {
   return <div className="match-setup-progress" role="group" aria-label="Match setup progress"><p className="eyebrow">STEP {current === "setup" ? 3 : 4} OF 4</p><ol>{steps.map((step, index) => <li key={step.key} data-state={index < currentIndex ? "complete" : index === currentIndex ? "current" : "upcoming"}>{step.label}</li>)}</ol></div>;
 }
 
-function MatchSetupForm({ opposition, players, draft, onAddOpposition, onAddPlayer, onSave, onProceed, onBack }: { opposition: SetupSummary["activeOpposition"]; players: SetupSummary["players"]; draft?: { oppositionId?: string; date?: string; squadPlayerIds?: string[] }; onAddOpposition: (input: { name: string }) => Promise<{ id: string }>; onAddPlayer: (input: { name: string }) => Promise<{ id: string }>; onSave: (input: { oppositionId?: string; date?: string; squadPlayerIds: string[] }) => Promise<void>; onProceed: (input: { oppositionId: string; date: string; squadPlayerIds: string[] }) => Promise<void>; onBack: () => void }) {
+function MatchSetupForm({ opposition, players, draft, transient, onTransientChange, onAddOpposition, onAddPlayer, onSave, onProceed, onBack }: { opposition: SetupSummary["activeOpposition"]; players: SetupSummary["players"]; draft?: { oppositionId?: string; date?: string; squadPlayerIds?: string[] }; transient?: NonNullable<FormDrafts["matchSetup"]>; onTransientChange: (transient: NonNullable<FormDrafts["matchSetup"]>) => void; onAddOpposition: (input: { name: string }) => Promise<{ id: string }>; onAddPlayer: (input: { name: string }) => Promise<{ id: string }>; onSave: (input: { oppositionId?: string; date?: string; squadPlayerIds: string[] }) => Promise<void>; onProceed: (input: { oppositionId: string; date: string; squadPlayerIds: string[] }) => Promise<void>; onBack: () => void }) {
   const [oppositionId, setOppositionId] = useState(draft?.oppositionId ?? "");
-  const [oppositionSearch, setOppositionSearch] = useState("");
+  const [oppositionSearch, setOppositionSearch] = useState(transient?.oppositionSearch ?? "");
   const [date, setDate] = useState(draft?.date ?? "");
-  const [newOppositionName, setNewOppositionName] = useState("");
+  const [newOppositionName, setNewOppositionName] = useState(transient?.newOppositionName ?? "");
   const [playerIds, setPlayerIds] = useState(draft?.squadPlayerIds ?? []);
-  const [newPlayerName, setNewPlayerName] = useState("");
-  const [playerSearch, setPlayerSearch] = useState("");
+  const [newPlayerName, setNewPlayerName] = useState(transient?.newPlayerName ?? "");
+  const [playerSearch, setPlayerSearch] = useState(transient?.playerSearch ?? "");
+  const saveTransient = (next: Partial<NonNullable<FormDrafts["matchSetup"]>>) => onTransientChange({ oppositionSearch, newOppositionName, newPlayerName, playerSearch, ...next });
   const matchingOpposition = opposition.filter((opponent) => opponent.name.toLocaleLowerCase().includes(oppositionSearch.trim().toLocaleLowerCase()));
   const matchingPlayers = players.filter((player) => playerLabel(player).toLocaleLowerCase().includes(playerSearch.trim().toLocaleLowerCase()));
   const saveDraft = (next: { oppositionId?: string; date?: string; squadPlayerIds?: string[] }) => void onSave({ oppositionId, date, squadPlayerIds: playerIds, ...next });
   const addOpposition = async () => {
     const opposition = await onAddOpposition({ name: newOppositionName });
     setOppositionId(opposition.id);
-    setOppositionSearch("");
-    setNewOppositionName("");
+    setOppositionSearch(""); setNewOppositionName("");
+    onTransientChange({ oppositionSearch: "", newOppositionName: "", newPlayerName, playerSearch });
     await onSave({ oppositionId: opposition.id, date, squadPlayerIds: playerIds });
   };
   const updatePlayers = (next: string[]) => { setPlayerIds(next); saveDraft({ squadPlayerIds: next }); };
@@ -444,6 +634,7 @@ function MatchSetupForm({ opposition, players, draft, onAddOpposition, onAddPlay
     const next = playerIds.includes(player.id) ? playerIds : [...playerIds, player.id];
     updatePlayers(next);
     setNewPlayerName("");
+    saveTransient({ newPlayerName: "" });
   };
   return <form className="match-form setup-form prototype-setup-form" onSubmit={(event) => { event.preventDefault(); if (oppositionId && date && playerIds.length >= 5) void onProceed({ oppositionId, date, squadPlayerIds: playerIds }); }}>
     <div className="prototype-setup-heading">
@@ -452,13 +643,13 @@ function MatchSetupForm({ opposition, players, draft, onAddOpposition, onAddPlay
     </div>
     <div className="match-setup-panels">
       <section className="match-setup-panel" aria-labelledby="match-details-title"><h3 id="match-details-title">Match Details</h3><div className="match-details-fields" role="group" aria-label="Saved Oppositions">
-        <label>Search opposition history<input type="search" value={oppositionSearch} onChange={(event) => setOppositionSearch(event.target.value)} placeholder="Find an Opposition" /></label>
+        <label>Search opposition history<input type="search" value={oppositionSearch} onChange={(event) => { setOppositionSearch(event.target.value); saveTransient({ oppositionSearch: event.target.value }); }} placeholder="Find an Opposition" /></label>
         <label>Opposition<select value={oppositionId} onChange={(event) => { const next = event.target.value; setOppositionId(next); saveDraft({ oppositionId: next || undefined }); }}><option value="">Select Opposition</option>{matchingOpposition.map((opponent) => <option key={opponent.id} value={opponent.id}>{opponent.name}</option>)}</select></label>
         <label>Match date<input type="date" value={date} onChange={(event) => { const next = event.target.value; setDate(next); saveDraft({ date: next || undefined }); }} /></label>
-      </div><div className="inline-add" role="group" aria-label="Add a new Opposition"><label>New opposition name<input value={newOppositionName} onChange={(event) => setNewOppositionName(event.target.value)} placeholder="Opposition team" /></label><button type="button" disabled={!newOppositionName.trim()} onClick={() => void addOpposition()}>Add opposition to match</button></div></section>
-      <section className="match-setup-panel" aria-labelledby="add-player-title"><h3 id="add-player-title">Add Player to Squad</h3><div className="add-player-panel" aria-label="Add a player to this Match Squad"><label>New player name<input value={newPlayerName} onChange={(event) => setNewPlayerName(event.target.value)} placeholder="Player name" /></label><button type="button" disabled={!newPlayerName.trim() || playerIds.length === 12} onClick={() => void addPlayer()}>Add player to Match Squad</button></div></section>
+      </div><div className="inline-add" role="group" aria-label="Add a new Opposition"><label>New opposition name<input value={newOppositionName} onChange={(event) => { setNewOppositionName(event.target.value); saveTransient({ newOppositionName: event.target.value }); }} placeholder="Opposition team" /></label><button type="button" disabled={!newOppositionName.trim()} onClick={() => void addOpposition()}>Add opposition to match</button></div></section>
+      <section className="match-setup-panel" aria-labelledby="add-player-title"><h3 id="add-player-title">Add Player to Squad</h3><div className="add-player-panel" aria-label="Add a player to this Match Squad"><label>New player name<input value={newPlayerName} onChange={(event) => { setNewPlayerName(event.target.value); saveTransient({ newPlayerName: event.target.value }); }} placeholder="Player name" /></label><button type="button" disabled={!newPlayerName.trim() || playerIds.length === 12} onClick={() => void addPlayer()}>Add player to Match Squad</button></div></section>
     </div>
-    <fieldset className="squad-picker" aria-label={`Match Squad ${playerIds.length}/12 selected`}><legend className="sr-only">Match Squad {playerIds.length}/12 selected</legend><div className="squad-roster-heading"><h3>Match Squad Roster ({playerIds.length} / 12)</h3><span>{playerIds.length} / 12 Squad Max</span></div>{playerIds.length > 0 && <div className="selected-player-chips" role="group" aria-label="Selected Match Squad">{players.filter((player) => playerIds.includes(player.id)).map((player) => <button key={player.id} type="button" className="player-chip" onClick={() => updatePlayers(playerIds.filter((id) => id !== player.id))}>Remove {playerLabel(player)} from Match Squad</button>)}</div>}<label className="player-search">Search players<input type="search" value={playerSearch} onChange={(event) => setPlayerSearch(event.target.value)} placeholder="Find a Player" /></label><div className="player-picker-results">{matchingPlayers.map((player) => <label key={player.id} className="player-check"><input type="checkbox" checked={playerIds.includes(player.id)} onChange={() => updatePlayers(playerIds.includes(player.id) ? playerIds.filter((id) => id !== player.id) : [...playerIds, player.id])} disabled={!playerIds.includes(player.id) && playerIds.length === 12} />{playerLabel(player)}</label>)}{matchingPlayers.length === 0 && <p className="picker-empty">No Players match this search.</p>}</div></fieldset>
+    <fieldset className="squad-picker" aria-label={`Match Squad ${playerIds.length}/12 selected`}><legend className="sr-only">Match Squad {playerIds.length}/12 selected</legend><div className="squad-roster-heading"><h3>Match Squad Roster ({playerIds.length} / 12)</h3><span>{playerIds.length} / 12 Squad Max</span></div>{playerIds.length > 0 && <div className="selected-player-chips" role="group" aria-label="Selected Match Squad">{players.filter((player) => playerIds.includes(player.id)).map((player) => <button key={player.id} type="button" className="player-chip" onClick={() => updatePlayers(playerIds.filter((id) => id !== player.id))}>Remove {playerLabel(player)} from Match Squad</button>)}</div>}<label className="player-search">Search players<input type="search" value={playerSearch} onChange={(event) => { setPlayerSearch(event.target.value); saveTransient({ playerSearch: event.target.value }); }} placeholder="Find a Player" /></label><div className="player-picker-results">{matchingPlayers.map((player) => <label key={player.id} className="player-check"><input type="checkbox" checked={playerIds.includes(player.id)} onChange={() => updatePlayers(playerIds.includes(player.id) ? playerIds.filter((id) => id !== player.id) : [...playerIds, player.id])} disabled={!playerIds.includes(player.id) && playerIds.length === 12} />{playerLabel(player)}</label>)}{matchingPlayers.length === 0 && <p className="picker-empty">No Players match this search.</p>}</div></fieldset>
     <PrimaryActionBar><button type="button" className="secondary-button prototype-back" onClick={onBack}><ArrowLeft aria-hidden="true" />Back</button><button type="submit" disabled={!oppositionId || !date || playerIds.length < 5}>Next: Setup Quarter<ArrowRight aria-hidden="true" /></button></PrimaryActionBar>
   </form>;
 }
@@ -520,13 +711,16 @@ function MatchCard({ game, setup, capture, quarterCapture, score, report, summar
     await actions.finalise({ own: endedQuarter.ownGameScore, opposition: endedQuarter.oppositionGameScore });
   };
   const tabs = <div className="match-event-tabs" role="tablist" aria-label="Match Events tabs">{([1, 2, 3, 4] as QuarterNumber[]).map((quarter) => <button key={quarter} type="button" role="tab" aria-selected={tab === quarter} disabled={!availableTabs.includes(quarter)} onClick={() => setTab(quarter)}>Q{quarter}</button>)}<button type="button" role="tab" aria-selected={tab === "match"} disabled={!availableTabs.includes("match")} onClick={() => setTab("match")}>Match</button></div>;
-  const content = selectedIsLive ? <LiveQuarterCard game={game} setup={setup} capture={capture} actions={actions} onOpenHistory={onOpenHistory} onOpenEventFeed={openEventFeed} unreadEventCount={unreadEventCount} onEndQuarter={endQuarter} tabs={tabs} /> : readOnlyCapture ? <ReadOnlyQuarterCard setup={setup} capture={readOnlyCapture} onOpenEventFeed={openEventFeed} tabs={tabs} /> : report ? <><TerminalMatchCard report={report} onBack={onOpenHistory} quarter={tab === "match" ? undefined : tab} /><MatchEventSummaryTable summary={selectedSummary} players={setup.players} label={tab === "match" ? "Match" : `Quarter ${tab}`} /></> : <MatchEventSummaryTable summary={selectedSummary} players={setup.players} label={tab === "match" ? "Match" : `Quarter ${tab}`} />;
-  return <section className={selectedIsLive || readOnlyCapture ? "match-events live-match-events" : "match-events"} aria-labelledby="match-events-title" aria-label={selectedIsLive ? "Live Match Events" : readOnlyCapture ? `Read-only Quarter ${readOnlyCapture.number} Match Events` : undefined}>{!selectedIsLive && !readOnlyCapture && <><div className="section-heading"><div><p className="eyebrow">MATCH EVENTS</p><h2 id="match-events-title">Match Events</h2></div><button type="button" className="text-button" onClick={openEventFeed}>Open Event feed{game.status === "live" && unreadEventCount ? `, ${unreadEventCount} new event${unreadEventCount === 1 ? "" : "s"}` : ""}</button></div>{tabs}</>}{content}{game.status === "live" && !game.activeQuarter && !showEndQuarterSummary && (tab !== "match" || game.quarters?.length === TOTAL_QUARTERS) && <section className="draft-card live-card"><p className="eyebrow">QUARTER COMPLETE</p><h2>Quarter {game.quarters?.at(-1)?.number} has ended</h2><p>Review the final Court, reposition players, and confirm before the next Quarter starts.</p>{game.quarters?.length === TOTAL_QUARTERS ? <><p>Final score: {score?.own} — {score?.opposition}</p><button onClick={() => endedQuarter && void finalise()}>Confirm final score and finalise Match</button></> : <button onClick={onSetUpNextQuarter}>Set up Quarter {(game.quarters?.length ?? 0) + 1}</button>}<AbandonMatchAction onAbandon={actions.abandon} /></section>}{showEndQuarterSummary && <EndQuarterSummary quarter={endedQuarter} isFinalQuarter={endedQuarter.number === TOTAL_QUARTERS} onReview={() => { setTab(endedQuarter.number); setReviewedQuarter(endedQuarter.number); }} onSetUpNextQuarter={() => { setReviewedQuarter(endedQuarter.number); onSetUpNextQuarter(); }} onFinalise={() => void finalise()} />}{drawerOpen && <EventFeedDrawer game={game} tab={tab} players={setup.players} actions={actions} onClose={() => setDrawerOpen(false)} />}</section>;
+  const returnToHistory = () => savedAppView(window.history.state)?.kind === "game" ? window.history.back() : onOpenHistory();
+  const content = selectedIsLive ? <LiveQuarterCard game={game} setup={setup} capture={capture} actions={actions} onOpenHistory={onOpenHistory} onOpenEventFeed={openEventFeed} unreadEventCount={unreadEventCount} onEndQuarter={endQuarter} tabs={tabs} /> : readOnlyCapture ? <ReadOnlyQuarterCard setup={setup} capture={readOnlyCapture} onOpenEventFeed={openEventFeed} tabs={tabs} /> : report ? <><TerminalMatchCard report={report} onBack={returnToHistory} quarter={tab === "match" ? undefined : tab} /><MatchEventSummaryTable summary={selectedSummary} players={setup.players} label={tab === "match" ? "Match" : `Quarter ${tab}`} /></> : <MatchEventSummaryTable summary={selectedSummary} players={setup.players} label={tab === "match" ? "Match" : `Quarter ${tab}`} />;
+  const terminal = Boolean(report);
+  return <section className={selectedIsLive || readOnlyCapture ? "match-events live-match-events" : `match-events${terminal ? " terminal-match-events focused-screen" : ""}`} aria-labelledby="match-events-title" aria-label={selectedIsLive ? "Live Match Events" : readOnlyCapture ? `Read-only Quarter ${readOnlyCapture.number} Match Events` : undefined}>{!selectedIsLive && !readOnlyCapture && <><div className="section-heading"><div><p className="eyebrow">MATCH EVENTS</p><h2 id="match-events-title">Match Events</h2></div><button type="button" className="text-button" onClick={openEventFeed}>Open Event feed{game.status === "live" && unreadEventCount ? `, ${unreadEventCount} new event${unreadEventCount === 1 ? "" : "s"}` : ""}</button></div>{tabs}</>}{terminal ? <div className="terminal-review-scroll">{content}</div> : content}{game.status === "live" && !game.activeQuarter && !showEndQuarterSummary && (tab !== "match" || game.quarters?.length === TOTAL_QUARTERS) && <section className="draft-card live-card"><p className="eyebrow">QUARTER COMPLETE</p><h2>Quarter {game.quarters?.at(-1)?.number} has ended</h2><p>Review the final Court, reposition players, and confirm before the next Quarter starts.</p>{game.quarters?.length === TOTAL_QUARTERS ? <><p>Final score: {score?.own} — {score?.opposition}</p><button onClick={() => endedQuarter && void finalise()}>Confirm final score and finalise Match</button></> : <button onClick={onSetUpNextQuarter}>Set up Quarter {(game.quarters?.length ?? 0) + 1}</button>}<AbandonMatchAction onAbandon={actions.abandon} /></section>}{showEndQuarterSummary && <EndQuarterSummary quarter={endedQuarter} isFinalQuarter={endedQuarter.number === TOTAL_QUARTERS} onReview={() => { setTab(endedQuarter.number); setReviewedQuarter(endedQuarter.number); }} onSetUpNextQuarter={() => { setReviewedQuarter(endedQuarter.number); onSetUpNextQuarter(); }} onFinalise={() => void finalise()} />}{drawerOpen && <EventFeedDrawer game={game} tab={tab} players={setup.players} actions={actions} onClose={() => setDrawerOpen(false)} />}</section>;
 }
 
 function EndQuarterSummary({ quarter, isFinalQuarter, onReview, onSetUpNextQuarter, onFinalise }: { quarter: CompletedQuarterSummary; isFinalQuarter: boolean; onReview: () => void; onSetUpNextQuarter: () => void; onFinalise: () => void }) {
-  const overlayRef = useOverlayFocus(onReview);
-  return <div ref={overlayRef} className="end-quarter-summary-backdrop" role="dialog" aria-modal="true" aria-label={`Quarter ${quarter.number} summary`} onMouseDown={(event) => { if (event.target === event.currentTarget) onReview(); }}><section className="end-quarter-summary"><div className="end-quarter-summary-icon" aria-hidden="true">✓</div><p className="eyebrow">QUARTER COMPLETE</p><h2>Quarter {quarter.number} complete</h2><dl><div><dt>Quarter score</dt><dd>{quarter.ownScore} — {quarter.oppositionScore}</dd></div><div><dt>Match score</dt><dd>{quarter.ownGameScore} — {quarter.oppositionGameScore}</dd></div><div><dt>Recorded events</dt><dd>{quarter.eventCount}</dd></div></dl>{isFinalQuarter ? <><p>Confirm this final score to finalise the read-only Match.</p><button type="button" onClick={onFinalise}>Confirm final score and finalise Match</button><button type="button" className="secondary-button" onClick={onReview}>Review Quarter {quarter.number} statistics</button></> : <><button type="button" onClick={onSetUpNextQuarter}>Prepare Quarter {quarter.number + 1} Court</button><button type="button" className="secondary-button" onClick={onReview}>Review Quarter {quarter.number} statistics</button></>}</section></div>;
+  const dismiss = useMatchOverlayHistory("quarter-summary", onReview);
+  const overlayRef = useOverlayFocus(dismiss);
+  return createPortal(<div ref={overlayRef} className="end-quarter-summary-backdrop" role="dialog" aria-modal="true" aria-label={`Quarter ${quarter.number} summary`} onMouseDown={(event) => { if (event.target === event.currentTarget) dismiss(); }}><section className="end-quarter-summary"><div className="end-quarter-summary-icon" aria-hidden="true">✓</div><p className="eyebrow">QUARTER COMPLETE</p><h2>Quarter {quarter.number} complete</h2><dl><div><dt>Quarter score</dt><dd>{quarter.ownScore} — {quarter.oppositionScore}</dd></div><div><dt>Match score</dt><dd>{quarter.ownGameScore} — {quarter.oppositionGameScore}</dd></div><div><dt>Recorded events</dt><dd>{quarter.eventCount}</dd></div></dl>{isFinalQuarter ? <><p>Confirm this final score to finalise the read-only Match.</p><button type="button" onClick={onFinalise}>Confirm final score and finalise Match</button><button type="button" className="secondary-button" onClick={dismiss}>Review Quarter {quarter.number} statistics</button></> : <><button type="button" onClick={onSetUpNextQuarter}>Prepare Quarter {quarter.number + 1} Court</button><button type="button" className="secondary-button" onClick={dismiss}>Review Quarter {quarter.number} statistics</button></>}</section></div>, document.body);
 }
 
 function MatchEventSummaryTable({ summary, players, label }: { summary: StatisticsSummary; players: SetupSummary["players"]; label: string }) {
@@ -557,12 +751,14 @@ function BackupCard({ exportBackup, onImport }: { exportBackup: () => string; on
 }
 
 function DestructiveConfirmation({ title, description, cancelLabel, confirmLabel, onCancel, onConfirm }: { title: string; description: string; cancelLabel: string; confirmLabel: string; onCancel: () => void; onConfirm: () => Promise<void> }) {
-  const overlayRef = useOverlayFocus(onCancel);
-  return <div ref={overlayRef} className="destructive-confirmation" role="alertdialog" aria-modal="true" aria-label={title} onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}><div className="destructive-confirmation-card"><span className="destructive-confirmation-icon" aria-hidden="true"><AlertTriangle /></span><h3>{title}</h3><p>{description}</p><div className="destructive-confirmation-actions"><button type="button" className="secondary-button" onClick={onCancel}>{cancelLabel}</button><button type="button" onClick={() => void onConfirm()}>{confirmLabel}</button></div></div></div>;
+  const dismiss = useMatchOverlayHistory(`confirmation:${title}`, onCancel);
+  const overlayRef = useOverlayFocus(dismiss);
+  return createPortal(<div ref={overlayRef} data-overlay-topmost="true" className="destructive-confirmation" role="alertdialog" aria-modal="true" aria-label={title} onMouseDown={(event) => { if (event.target === event.currentTarget) dismiss(); }}><div className="destructive-confirmation-card"><span className="destructive-confirmation-icon" aria-hidden="true"><AlertTriangle /></span><h3>{title}</h3><p>{description}</p><div className="destructive-confirmation-actions"><button type="button" className="secondary-button" onClick={dismiss}>{cancelLabel}</button><button type="button" onClick={() => void onConfirm()}>{confirmLabel}</button></div></div></div>, document.body);
 }
 
 function useOverlayFocus(onClose: () => void, activeSurfaceSelector?: string) {
   const overlayRef = useRef<HTMLDivElement>(null);
+  useModalBackground();
   const closeRef = useRef(onClose);
   const activeSurfaceSelectorRef = useRef(activeSurfaceSelector);
   closeRef.current = onClose;
@@ -571,7 +767,14 @@ function useOverlayFocus(onClose: () => void, activeSurfaceSelector?: string) {
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
     const focusTimer = window.setTimeout(() => overlayRef.current?.querySelector<HTMLElement>("button:not([disabled]), select:not([disabled]), input:not([disabled])")?.focus());
     const handleKeyboard = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); closeRef.current(); return; }
+      if (event.defaultPrevented) return;
+      const topmost = document.querySelector<HTMLElement>("[data-overlay-topmost]");
+      if (topmost && topmost !== overlayRef.current) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeRef.current();
+        return;
+      }
       if (event.key !== "Tab") return;
       if (overlayRef.current?.querySelector(".destructive-confirmation")) return;
       const activeSurface = activeSurfaceSelectorRef.current ? overlayRef.current?.querySelector(activeSurfaceSelectorRef.current) : undefined;
@@ -595,15 +798,13 @@ function useOverlayFocus(onClose: () => void, activeSurfaceSelector?: string) {
 function LiveQuarterCard({ game, setup, capture, actions, onOpenHistory, onOpenEventFeed, unreadEventCount, onEndQuarter, tabs }: { game: Game; setup: SetupSummary; capture: LiveQuarterCapture; actions: MatchActions; onOpenHistory: () => void; onOpenEventFeed: () => void; unreadEventCount: number; onEndQuarter: () => Promise<void>; tabs: ReactNode }) {
   const [substitutionOpen, setSubstitutionOpen] = useState(false);
   const [showOverflow, setShowOverflow] = useState(false);
-  const [removingActionId, setRemovingActionId] = useState<string>();
-  const compactCaptureControls = useCompactCaptureControls();
   const teamName = setup.teams.find((team) => team.id === setup.seasons.find((season) => season.id === game.seasonId)?.teamId)?.name ?? "Our team";
   const oppositionName = setup.opposition.find((opposition) => opposition.id === game.oppositionId)?.name ?? "Opposition";
   const openSubstitution = () => {
     setSubstitutionOpen(true);
     setShowOverflow(false);
   };
-  return <section className="live-capture"><div className="sr-only"><h2>LIVE MATCH · QUARTER {capture.number}</h2><p>Quarter: {teamName} {capture.ownScore} — {oppositionName} {capture.oppositionScore}</p></div><div className="live-match-command-bar"><div className="live-match-tabs">{tabs}</div><div className="live-match-actions" role="group" aria-label="Live match actions"><button className="text-button" onClick={openSubstitution}><ArrowRightLeft aria-hidden="true" />Record Substitution</button><button className="text-button" disabled={!capture.canUndo} onClick={() => void actions.undoCaptureAction()}><RotateCcw aria-hidden="true" />Undo</button><button className="text-button" onClick={onOpenEventFeed}><List aria-hidden="true" />Event Feed{unreadEventCount ? ` (${unreadEventCount})` : ""}</button><button className="end-quarter-action" onClick={() => void onEndQuarter()}><CheckCircle2 aria-hidden="true" />End Quarter</button>{compactCaptureControls ? <AbandonMatchAction onAbandon={actions.abandon} /> : <button className="text-button" aria-expanded={showOverflow} onClick={() => setShowOverflow((current) => !current)}>More</button>}</div></div>{showOverflow && <div className="overflow-actions"><button className="text-button" onClick={onOpenHistory}>History</button><AbandonMatchAction onAbandon={actions.abandon} /></div>}{substitutionOpen && <SubstitutionModal lineup={capture.lineup} squad={setup.players.filter((player) => game.squadPlayerIds.includes(player.id))} onCancel={() => setSubstitutionOpen(false)} onConfirm={async (lineup) => { await actions.saveSubstitutions(lineup); setSubstitutionOpen(false); }} />}<div className="live-quarter-layout"><div className="current-court-scroll" role="region" aria-label="Current court event grid" tabIndex={0}><div className="current-court"><div className="court-matrix-header"><span>Player / Position</span><div>{PLAYER_STATISTICS.map((statistic) => <span key={statistic}>{statisticPresentation[statistic].label}</span>)}</div></div>{POSITIONS.map((position) => <PlayerStatCard key={position} position={position} player={setup.players.find((candidate) => candidate.id === capture.lineup[position])} capture={capture} onRecord={actions.recordPlayerStatistic} onRemove={(actionId) => setRemovingActionId(actionId)} />)}</div></div></div>{removingActionId && <DestructiveConfirmation title="Remove most recent event?" description="This removes the most recent matching event and recalculates the score and count." cancelLabel="Keep event" confirmLabel="Remove event" onCancel={() => setRemovingActionId(undefined)} onConfirm={async () => { await actions.deleteQuarterAction(capture.number, removingActionId); setRemovingActionId(undefined); }} />}</section>;
+  return <section className="live-capture"><div className="sr-only"><h2>LIVE MATCH · QUARTER {capture.number}</h2><p>Quarter: {teamName} {capture.ownScore} — {oppositionName} {capture.oppositionScore}</p></div><div className="live-match-command-bar"><div className="live-match-tabs">{tabs}</div><div className="live-match-actions" role="group" aria-label="Live match actions"><button className="text-button" onClick={openSubstitution}><ArrowRightLeft aria-hidden="true" />Record Substitution</button><button className="text-button" disabled={!capture.canUndo} onClick={() => void actions.undoCaptureAction()}><RotateCcw aria-hidden="true" />Undo</button><button className="text-button" onClick={onOpenEventFeed}><List aria-hidden="true" />Event Feed{unreadEventCount ? ` (${unreadEventCount})` : ""}</button><button className="end-quarter-action" onClick={() => void onEndQuarter()}><CheckCircle2 aria-hidden="true" />End Quarter</button><button className="text-button" aria-expanded={showOverflow} onClick={() => setShowOverflow((current) => !current)}>More</button></div></div>{showOverflow && <div className="overflow-actions"><button className="text-button" onClick={onOpenHistory}>History</button><AbandonMatchAction onAbandon={actions.abandon} /></div>}{substitutionOpen && <SubstitutionModal lineup={capture.lineup} squad={setup.players.filter((player) => game.squadPlayerIds.includes(player.id))} onCancel={() => setSubstitutionOpen(false)} onConfirm={async (lineup) => { await actions.saveSubstitutions(lineup); setSubstitutionOpen(false); }} />}<div className="live-quarter-layout"><div className="current-court-scroll" role="region" aria-label="Current court event grid" tabIndex={0}><div className="current-court"><div className="court-matrix-header"><span>Player / Position</span><div>{PLAYER_STATISTICS.map((statistic) => <span key={statistic}>{statisticPresentation[statistic].label}</span>)}</div></div>{POSITIONS.map((position) => <PlayerStatCard key={position} position={position} player={setup.players.find((candidate) => candidate.id === capture.lineup[position])} capture={capture} onRecord={actions.recordPlayerStatistic} />)}</div></div></div></section>;
 }
 
 function ReadOnlyQuarterCard({ setup, capture, onOpenEventFeed, tabs }: { setup: SetupSummary; capture: LiveQuarterCapture; onOpenEventFeed: () => void; tabs: ReactNode }) {
@@ -611,7 +812,8 @@ function ReadOnlyQuarterCard({ setup, capture, onOpenEventFeed, tabs }: { setup:
 }
 
 function SubstitutionModal({ lineup, squad, onCancel, onConfirm }: { lineup: StartingLineup; squad: SetupSummary["players"]; onCancel: () => void; onConfirm: (lineup: StartingLineup) => Promise<void> }) {
-  const overlayRef = useOverlayFocus(onCancel);
+  const dismiss = useMatchOverlayHistory("substitution", onCancel);
+  const overlayRef = useOverlayFocus(dismiss);
   const [position, setPosition] = useState<Position>(POSITIONS[0]);
   const [playerId, setPlayerId] = useState(lineup[POSITIONS[0]] ?? "");
   const nextLineup = () => {
@@ -631,12 +833,7 @@ function SubstitutionModal({ lineup, squad, onCancel, onConfirm }: { lineup: Sta
     setPosition(value);
     setPlayerId(lineup[value] ?? "");
   };
-  return <div ref={overlayRef} className="substitution-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}><section className="substitution-modal" role="dialog" aria-modal="true" aria-label="Record Substitution"><div className="section-heading"><div><p className="eyebrow">LIVE QUARTER</p><h2>Record Substitution</h2></div><button type="button" className="text-button" onClick={onCancel}>Close substitution</button></div><p>Choose a Court Position and a Match Squad Player. Choosing someone already on Court repositions them and leaves their previous Position vacant.</p><label>Court position<select aria-label="Court position" value={position} onChange={(event) => selectPosition(event.target.value as Position)}>{POSITIONS.map((candidate) => <option key={candidate} value={candidate}>{positionAbbreviation[candidate]} — {lineup[candidate] ? playerLabel(squad.find((player) => player.id === lineup[candidate]) ?? { name: "Unknown player" }) : "Vacant"}</option>)}</select></label><label>Incoming player<select aria-label="Incoming player" value={playerId} onChange={(event) => setPlayerId(event.target.value)}><option value="">Vacate this Position</option>{squad.map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label><p className="substitution-readiness" role="status">{assignedPlayers}/7 Players will be on Court.{assignedPlayers < 5 && " Choose a Player to keep at least five on Court."}</p><div className="substitution-modal-actions"><button type="button" className="secondary-button" onClick={onCancel}>Cancel substitution</button><button type="button" disabled={!canConfirm} onClick={() => void onConfirm(next)}>Confirm substitution</button></div></section></div>;
-}
-
-function useCompactCaptureControls() {
-  const query = "(min-width: 768px) and (orientation: landscape) and (max-height: 700px)";
-  return useMediaQuery(query);
+  return createPortal(<div ref={overlayRef} className="substitution-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) dismiss(); }}><section className="substitution-modal" role="dialog" aria-modal="true" aria-label="Record Substitution"><div className="section-heading"><div><p className="eyebrow">LIVE QUARTER</p><h2>Record Substitution</h2></div><button type="button" className="text-button" onClick={dismiss}>Close substitution</button></div><p>Choose a Court Position and a Match Squad Player. Choosing someone already on Court repositions them and leaves their previous Position vacant.</p><label>Court position<select aria-label="Court position" value={position} onChange={(event) => selectPosition(event.target.value as Position)}>{POSITIONS.map((candidate) => <option key={candidate} value={candidate}>{positionAbbreviation[candidate]} — {lineup[candidate] ? playerLabel(squad.find((player) => player.id === lineup[candidate]) ?? { name: "Unknown player" }) : "Vacant"}</option>)}</select></label><label>Incoming player<select aria-label="Incoming player" value={playerId} onChange={(event) => setPlayerId(event.target.value)}><option value="">Vacate this Position</option>{squad.map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label><p className="substitution-readiness" role="status">{assignedPlayers}/7 Players will be on Court.{assignedPlayers < 5 && " Choose a Player to keep at least five on Court."}</p><div className="substitution-modal-actions"><button type="button" className="secondary-button" onClick={dismiss}>Cancel substitution</button><button type="button" disabled={!canConfirm} onClick={() => void onConfirm(next)}>Confirm substitution</button></div></section></div>, document.body);
 }
 
 function AbandonMatchAction({ onAbandon }: { onAbandon: () => Promise<void> }) {
@@ -654,7 +851,7 @@ function QuarterReview({ quarters, players, onDeleteAction, onCorrectAction }: {
   return <section className="quarter-review" aria-label="Review ended quarters">{quarters.map((quarter) => <article key={quarter.number}><h3>Quarter {quarter.number} review</h3>{!quarter.captureActions.length && <p>No recorded actions.</p>}<ul>{quarter.captureActions.map((action) => <li key={action.id}>{action.kind === "opposition-goal" ? <span>Opposition goal</span> : <><span>{playerLabel(players.find((player) => player.id === action.playerId) ?? { name: "Unknown player" })} · {action.position} · {action.statistic}</span><button className="text-button" onClick={() => beginEditing(quarter.number, action)}>Edit statistic</button></>}<button className="text-button" onClick={() => void onDeleteAction(quarter.number, action.id)} aria-label={`Remove action from Quarter ${quarter.number}`}>Remove action</button></li>)}</ul></article>)}{editing && correction && <form className="court-change-form" onSubmit={(event) => { event.preventDefault(); void onCorrectAction(editing.quarter, editing.action.id, correction).then(() => setEditing(undefined)); }}><h3>Correct Quarter {editing.quarter} statistic</h3><label>Correction player<select aria-label="Correction player" value={correction.playerId} onChange={(event) => setCorrection({ ...correction, playerId: event.target.value })}>{players.map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label><label>Correction position<select aria-label="Correction position" value={correction.position} onChange={(event) => setCorrection({ ...correction, position: event.target.value as Position })}>{POSITIONS.map((position) => <option key={position} value={position}>{position}</option>)}</select></label><label>Correction statistic<select aria-label="Correction statistic" value={correction.statistic} onChange={(event) => setCorrection({ ...correction, statistic: event.target.value as PlayerStatistic })}>{PLAYER_STATISTICS.map((statistic) => <option key={statistic} value={statistic}>{statistic}</option>)}</select></label><button type="submit">Save correction</button><button type="button" className="text-button" onClick={() => setEditing(undefined)}>Cancel correction</button></form>}</section>;
 }
 
-function PlayerStatCard({ position, player, capture, onRecord, onRemove }: { position: Position; player: { id: string; name: string; nickname?: string } | undefined; capture: LiveQuarterCapture; onRecord: (position: Position, statistic: PlayerStatistic) => Promise<void>; onRemove: (actionId: string) => void }) {
+function PlayerStatCard({ position, player, capture, onRecord }: { position: Position; player: { id: string; name: string; nickname?: string } | undefined; capture: LiveQuarterCapture; onRecord: (position: Position, statistic: PlayerStatistic) => Promise<void> }) {
   const [feedbackCell, setFeedbackCell] = useState<PlayerStatistic>();
   if (!player) return null;
   const statistics = PLAYER_STATISTICS;
@@ -663,7 +860,7 @@ function PlayerStatCard({ position, player, capture, onRecord, onRemove }: { pos
     window.setTimeout(() => setFeedbackCell((current) => current === statistic ? undefined : current), 500);
     void onRecord(position, statistic);
   };
-  return <article className="player-stat-card"><div className="player-court-identity"><p className="eyebrow">{positionAbbreviation[position]}</p><h3>{playerLabel(player)}</h3></div><div className="stat-buttons">{statistics.map((statistic) => { const count = capture.playerStatistics.find((total) => total.playerId === player.id && total.position === position && total.statistic === statistic)?.count ?? 0; const latestAction = [...capture.captureActions].reverse().find((action) => action.kind === "player-statistic" && action.playerId === player.id && action.position === position && action.statistic === statistic); const available = !SHOOTER_STATISTICS.includes(statistic as (typeof SHOOTER_STATISTICS)[number]) || position === "Goal Attack" || position === "Goal Shooter"; return <div key={statistic} className="event-cell-wrap"><button className={`event-cell ${statisticPresentation[statistic].className} ${feedbackCell === statistic ? "event-feedback" : ""}`} disabled={!available} onClick={() => record(statistic)} aria-label={available ? `Record ${statistic} for ${player.name}` : `${statistic} is unavailable for ${player.name}`}><span aria-hidden="true">{statisticPresentation[statistic].label}</span><span>{available ? count : "—"}</span></button>{latestAction && <button type="button" className="event-minus-badge" aria-label={`Remove most recent ${statistic} for ${player.name}`} onClick={() => onRemove(latestAction.id)}>−</button>}</div>; })}</div></article>;
+  return <article className="player-stat-card"><div className="player-court-identity"><p className="eyebrow">{positionAbbreviation[position]}</p><h3>{playerLabel(player)}</h3></div><div className="stat-buttons">{statistics.map((statistic) => { const count = capture.playerStatistics.find((total) => total.playerId === player.id && total.position === position && total.statistic === statistic)?.count ?? 0; const available = !SHOOTER_STATISTICS.includes(statistic as (typeof SHOOTER_STATISTICS)[number]) || position === "Goal Attack" || position === "Goal Shooter"; return <div key={statistic} className="event-cell-wrap"><button className={`event-cell ${statisticPresentation[statistic].className} ${feedbackCell === statistic ? "event-feedback" : ""}`} disabled={!available} onClick={() => record(statistic)} aria-label={available ? `Record ${statistic} for ${player.name}` : `${statistic} is unavailable for ${player.name}`}><span aria-hidden="true">{statisticPresentation[statistic].label}</span><span>{available ? count : "—"}</span></button></div>; })}</div></article>;
 }
 
 function ReadOnlyPlayerStatCard({ position, player, capture }: { position: Position; player: { id: string; name: string; nickname?: string } | undefined; capture: LiveQuarterCapture }) {
@@ -676,20 +873,24 @@ function captureActionLabel(action: CaptureAction, players: SetupSummary["player
   return `${playerLabel(players.find((player) => player.id === action.playerId) ?? { name: "Unknown player" })} · ${positionAbbreviation[action.position]} · ${action.statistic}`;
 }
 
+function EventCorrection({ correction, players, onCancel, onSave }: { correction: { playerId: string; position: Position; statistic: PlayerStatistic }; players: SetupSummary["players"]; onCancel: () => void; onSave: (correction: { playerId: string; position: Position; statistic: PlayerStatistic }) => Promise<void> }) {
+  const [nextCorrection, setNextCorrection] = useState(correction);
+  const dismiss = useMatchOverlayHistory("event-correction", onCancel);
+  const overlayRef = useOverlayFocus(dismiss);
+  return createPortal(<div ref={overlayRef} data-overlay-topmost="true" className="event-correction-modal" role="dialog" aria-modal="true" aria-label="Correct event" onMouseDown={(event) => { if (event.target === event.currentTarget) dismiss(); }}><form className="court-change-form" onSubmit={(event) => { event.preventDefault(); void onSave(nextCorrection).then(dismiss); }}><h3>Correct event</h3><label>Player<select aria-label="Event correction player" value={nextCorrection.playerId} onChange={(event) => setNextCorrection({ ...nextCorrection, playerId: event.target.value })}>{players.map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label><label>Position<select aria-label="Event correction position" value={nextCorrection.position} onChange={(event) => setNextCorrection({ ...nextCorrection, position: event.target.value as Position })}>{POSITIONS.map((position) => <option key={position} value={position}>{positionAbbreviation[position]}</option>)}</select></label><label>Event<select aria-label="Event correction statistic" value={nextCorrection.statistic} onChange={(event) => setNextCorrection({ ...nextCorrection, statistic: event.target.value as PlayerStatistic })}>{PLAYER_STATISTICS.map((statistic) => <option key={statistic} value={statistic}>{statistic}</option>)}</select></label><button type="submit">Save event correction</button><button type="button" className="text-button" onClick={dismiss}>Cancel correction</button></form></div>, document.body);
+}
+
 function EventFeedDrawer({ game, tab, players, actions, onClose }: { game: Game; tab: QuarterNumber | "match"; players: SetupSummary["players"]; actions: MatchActions; onClose: () => void }) {
   const [editing, setEditing] = useState<{ quarter: QuarterNumber; action: Extract<CaptureAction, { kind: "player-statistic" }> }>();
   const [correction, setCorrection] = useState<{ playerId: string; position: Position; statistic: PlayerStatistic }>();
   const [deleting, setDeleting] = useState<{ quarter: QuarterNumber; actionId: string }>();
-  const overlayRef = useOverlayFocus(() => editing ? setEditing(undefined) : deleting ? setDeleting(undefined) : onClose(), editing ? ".event-correction-modal" : deleting ? ".destructive-confirmation-card" : undefined);
-  useEffect(() => {
-    if (!editing) return;
-    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
-    const focusTimer = window.setTimeout(() => overlayRef.current?.querySelector<HTMLElement>(".event-correction-modal select")?.focus());
-    return () => {
-      window.clearTimeout(focusTimer);
-      previouslyFocused?.focus();
-    };
-  }, [editing]);
+  const dismiss = useMatchOverlayHistory("event-feed", onClose);
+  const dismissNestedLayer = (layer: "event-correction" | "confirmation:Delete event?", close: () => void) => {
+    close();
+    const state = window.history.state && typeof window.history.state === "object" ? window.history.state as Record<string, unknown> : {};
+    if (state[matchOverlayHistoryKey] === layer) window.history.back();
+  };
+  const overlayRef = useOverlayFocus(() => editing ? dismissNestedLayer("event-correction", () => setEditing(undefined)) : deleting ? dismissNestedLayer("confirmation:Delete event?", () => setDeleting(undefined)) : dismiss(), deleting ? ".destructive-confirmation-card" : undefined);
   const quarters = tab === "match" ? game.quarters ?? [] : (game.quarters ?? []).filter((quarter) => quarter.number === tab);
   const beginEditing = (quarter: QuarterNumber, action: Extract<CaptureAction, { kind: "player-statistic" }>) => {
     setEditing({ quarter, action });
@@ -700,5 +901,5 @@ function EventFeedDrawer({ game, tab, players, actions, onClose }: { game: Game;
     const hasSharedOrder = ordered.length > 0 && ordered.every((entry) => entry.order !== undefined);
     return hasSharedOrder ? ordered.sort((left, right) => left.order! - right.order!).map((entry) => ({ quarter: quarter.number, ...entry })) : [...quarter.captureActions.map((action) => ({ quarter: quarter.number, kind: "event" as const, action })), ...quarter.substitutions.map((substitution) => ({ quarter: quarter.number, kind: "substitution" as const, substitution }))];
   });
-  return <div ref={overlayRef} className="event-feed-drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !editing) onClose(); }}><section className="event-feed-drawer" role="dialog" aria-modal="true" aria-label="Event feed"><div className="section-heading"><div><p className="eyebrow">EVENT FEED</p><h2>{tab === "match" ? "All Match events" : `Quarter ${tab} events`}</h2></div><button type="button" className="text-button" onClick={onClose}>Close Event feed</button></div><div className="event-feed-drawer-scroll">{!entries.length && <p>No events recorded yet.</p>}<ol>{entries.map((entry) => <li key={entry.kind === "event" ? entry.action.id : `${entry.quarter}-${entry.substitution.sequence}`}>{tab === "match" && <strong>Quarter {entry.quarter} · </strong>}{entry.kind === "event" ? <><span>{captureActionLabel(entry.action, players)}</span>{game.status === "live" && entry.action.kind === "player-statistic" && <button type="button" className="text-button" aria-label="Correct event" onClick={() => beginEditing(entry.quarter, entry.action as Extract<CaptureAction, { kind: "player-statistic" }>)}><span aria-hidden="true">✎</span></button>}{game.status === "live" && <button type="button" className="text-button" aria-label="Remove event" onClick={() => setDeleting({ quarter: entry.quarter, actionId: entry.action.id })}><span aria-hidden="true">×</span></button>}</> : <span>Substitution · {positionAbbreviation[entry.substitution.position]}: {entry.substitution.playerId ? playerLabel(players.find((player) => player.id === entry.substitution.playerId) ?? { name: "Unknown player" }) : "Vacant"}</span>}</li>)}</ol></div>{editing && correction && <div className="event-correction-modal" role="dialog" aria-modal="true" aria-label="Correct event" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditing(undefined); }}><form className="court-change-form" onSubmit={(event) => { event.preventDefault(); void actions.correctQuarterPlayerStatistic(editing.quarter, editing.action.id, correction).then(() => setEditing(undefined)); }}><h3>Correct event</h3><label>Player<select aria-label="Event correction player" value={correction.playerId} onChange={(event) => setCorrection({ ...correction, playerId: event.target.value })}>{players.map((player) => <option key={player.id} value={player.id}>{playerLabel(player)}</option>)}</select></label><label>Position<select aria-label="Event correction position" value={correction.position} onChange={(event) => setCorrection({ ...correction, position: event.target.value as Position })}>{POSITIONS.map((position) => <option key={position} value={position}>{positionAbbreviation[position]}</option>)}</select></label><label>Event<select aria-label="Event correction statistic" value={correction.statistic} onChange={(event) => setCorrection({ ...correction, statistic: event.target.value as PlayerStatistic })}>{PLAYER_STATISTICS.map((statistic) => <option key={statistic} value={statistic}>{statistic}</option>)}</select></label><button type="submit">Save event correction</button><button type="button" className="text-button" onClick={() => setEditing(undefined)}>Cancel correction</button></form></div>}{deleting && <DestructiveConfirmation title="Delete event?" description="This recorded event will be removed and all derived scores and summaries will update." cancelLabel="Keep event" confirmLabel="Delete event" onCancel={() => setDeleting(undefined)} onConfirm={async () => { await actions.deleteQuarterAction(deleting.quarter, deleting.actionId); setDeleting(undefined); }} />}</section></div>;
+  return createPortal(<div ref={overlayRef} className="event-feed-drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !editing && !deleting) dismiss(); }}><section className="event-feed-drawer" role="dialog" aria-modal="true" aria-label="Event feed"><div className="section-heading"><div><p className="eyebrow">EVENT FEED</p><h2>{tab === "match" ? "All Match events" : `Quarter ${tab} events`}</h2></div><button type="button" className="text-button" onClick={dismiss}>Close Event feed</button></div><div className="event-feed-drawer-scroll">{!entries.length && <p>No events recorded yet.</p>}<ol>{entries.map((entry) => <li key={entry.kind === "event" ? entry.action.id : `${entry.quarter}-${entry.substitution.sequence}`}>{tab === "match" && <strong>Quarter {entry.quarter} · </strong>}{entry.kind === "event" ? <><span>{captureActionLabel(entry.action, players)}</span>{game.status === "live" && entry.action.kind === "player-statistic" && <button type="button" className="text-button" aria-label="Correct event" onClick={() => beginEditing(entry.quarter, entry.action as Extract<CaptureAction, { kind: "player-statistic" }>)}><span aria-hidden="true">✎</span></button>}{game.status === "live" && <button type="button" className="text-button" aria-label="Remove event" onClick={() => setDeleting({ quarter: entry.quarter, actionId: entry.action.id })}><span aria-hidden="true">×</span></button>}</> : <span>Substitution · {positionAbbreviation[entry.substitution.position]}: {entry.substitution.playerId ? playerLabel(players.find((player) => entry.substitution.playerId === player.id) ?? { name: "Unknown player" }) : "Vacant"}</span>}</li>)}</ol></div>{editing && correction && <EventCorrection correction={correction} players={players} onCancel={() => setEditing(undefined)} onSave={(nextCorrection) => actions.correctQuarterPlayerStatistic(editing.quarter, editing.action.id, nextCorrection)} />}{deleting && <DestructiveConfirmation title="Delete event?" description="This recorded event will be removed and all derived scores and summaries will update." cancelLabel="Keep event" confirmLabel="Delete event" onCancel={() => setDeleting(undefined)} onConfirm={async () => { await actions.deleteQuarterAction(deleting.quarter, deleting.actionId); setDeleting(undefined); }} />}</section></div>, document.body);
 }

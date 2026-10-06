@@ -64,6 +64,51 @@ const startLiveMatch = async (page: import("@playwright/test").Page) => {
   await page.getByRole("button", { name: "Start Match" }).click();
 };
 
+for (const viewport of [{ width: 1205, height: 729 }, { width: 753, height: 1180 }] as const) {
+  test.describe(`live capture geometry at ${viewport.width}x${viewport.height}`, () => {
+    test.use({ viewport });
+
+    test("keeps the complete capture matrix and its commands inside the safe interaction band", async ({ page }) => {
+      await startLiveMatch(page);
+
+      const matrix = page.getByRole("region", { name: "Current court event grid" });
+      await expect(matrix).toBeVisible();
+      await expect(matrix.locator(".player-stat-card")).toHaveCount(7);
+      await expect(matrix.locator(".event-cell")).toHaveCount(56);
+      await expect(page.locator(".event-minus-badge")).toHaveCount(0);
+
+      const commandNames = ["Record Substitution", "Undo", "Event Feed", "End Quarter", "More"];
+      for (const name of commandNames) {
+        await expect(page.getByRole("button", { name })).toBeVisible();
+      }
+
+      const eventGeometry = await page.locator(".event-cell").evaluateAll((cells) => cells.map((cell) => {
+        const rect = cell.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height };
+      }));
+      const contentGeometry = await matrix.locator(".player-court-identity, .court-matrix-header > div > span").evaluateAll((items) => items.map((item) => {
+        const rect = item.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height };
+      }));
+      const commandGeometry = await Promise.all(commandNames.map(async (name) => page.getByRole("button", { name }).evaluate((button) => {
+        const rect = button.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height };
+      })));
+      const allGeometry = [...eventGeometry, ...contentGeometry, ...commandGeometry];
+      expect(eventGeometry.every((cell) => cell.width >= 48 && cell.height >= 48)).toBe(true);
+      expect(commandGeometry.every((command) => command.width >= 48 && command.height >= 48)).toBe(true);
+      expect([...eventGeometry, ...contentGeometry].every((cell) => cell.left >= 0 && cell.right <= viewport.width && cell.top >= 0 && cell.bottom <= viewport.height)).toBe(true);
+      expect(commandGeometry.every((command) => command.left >= 0 && command.right <= viewport.width && command.top >= 0 && command.bottom <= viewport.height)).toBe(true);
+      expect(eventGeometry.every((cell, index) => eventGeometry.slice(index + 1).every((other) => cell.right <= other.left || other.right <= cell.left || cell.bottom <= other.top || other.bottom <= cell.top))).toBe(true);
+      expect(commandGeometry.every((command, index) => commandGeometry.slice(index + 1).every((other) => command.right <= other.left || other.right <= command.left || command.bottom <= other.top || other.bottom <= command.top))).toBe(true);
+      expect(allGeometry.every((item) => item.width > 0 && item.height > 0)).toBe(true);
+      expect(await matrix.locator(".player-court-identity, .court-matrix-header > div > span").evaluateAll((items) => items.every((item) => item.scrollWidth <= item.clientWidth && item.scrollHeight <= item.clientHeight))).toBe(true);
+      expect(await matrix.evaluate((element) => element.scrollWidth === element.clientWidth && element.scrollHeight === element.clientHeight)).toBe(true);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth === window.innerWidth && document.documentElement.scrollHeight === window.innerHeight)).toBe(true);
+    });
+  });
+}
+
 for (const viewport of prototypeViewports) {
   test.describe(`prototype parity at ${viewport.label}`, () => {
     test.use({ viewport });
@@ -96,6 +141,7 @@ test("renders persisted Match Squad and Court setup at tablet scale", async ({ p
 
 test("renders setup and Settings production surfaces", async ({ page }) => {
   await page.goto("/");
+  await expect(page.getByLabel("Team name")).toBeVisible();
   await capture(page, "team-setup");
 
   await page.getByLabel("Team name").fill("Roses");
